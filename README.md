@@ -1,6 +1,6 @@
 # SATI: Solana Agent Trust Infrastructure
 
-[![License: CC0](https://img.shields.io/badge/License-CC0-green.svg)](https://creativecommons.org/publicdomain/zero/1.0/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status: Community Standard (Proposed)](https://img.shields.io/badge/Status-Proposed-yellow.svg)]()
 
 **Solana's answer to Ethereum's ERC-8004** - A four-registry protocol enabling autonomous AI agents to establish verifiable identity, accumulate portable reputation, manage user delegation, and handle payment mandate lifecycle across organizational boundaries.
@@ -194,6 +194,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## 📄 License
 
-[CC0 1.0 Universal](./LICENSE) - Public Domain Dedication
+[Apache License 2.0](./LICENSE)
 
-*"We believe agent trust infrastructure should be a public good, free for all to use, modify, and build upon."*
+Copyright 2025 Cascade Protocol
+
+*SATI is free to use, modify, and build upon under the Apache 2.0 license.*
