@@ -25,7 +25,7 @@ pub fn handler(ctx: Context<UpdateRegistryAuthority>, new_authority: Option<Pubk
     let old_authority = registry.authority;
 
     // None = renounce (set to default pubkey = immutable)
-    registry.authority = new_authority.unwrap_or(Pubkey::default());
+    registry.authority = new_authority.unwrap_or_default();
 
     emit!(RegistryAuthorityUpdated {
         old_authority,

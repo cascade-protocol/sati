@@ -2,6 +2,11 @@
 //!
 //! We re-export the program's SatiError enum for use in tests.
 //! Anchor custom errors start at 6000.
+//!
+//! These helpers are shared across multiple test files. Each test binary
+//! only uses a subset, so dead_code warnings are expected and suppressed.
+
+#![allow(dead_code)]
 
 pub use sati_registry::errors::SatiError;
 

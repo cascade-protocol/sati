@@ -4,13 +4,14 @@
  * Schema definitions for Solana Attestation Service (SAS) attestations.
  * These schemas define the data structures for SATI reputation and validation.
  *
- * SAS Layout Type Reference:
- * - 0: String
- * - 2: U16
- * - 6: VecU8
- * - 8: I64
- * - 12: String (pubkey as base58)
- * - 13: VecU8 (hash)
+ * SAS Layout Type Reference (from solana-attestation-service):
+ * - 0: U8     (unsigned 8-bit integer, 0-255)
+ * - 1: U16    (unsigned 16-bit integer, 0-65535)
+ * - 2: U32    (unsigned 32-bit integer)
+ * - 3: U64    (unsigned 64-bit integer)
+ * - 8: I64    (signed 64-bit integer, for timestamps)
+ * - 12: String (UTF-8 with 4-byte length prefix)
+ * - 13: VecU8  (byte array with 4-byte length prefix)
  */
 
 /**
@@ -41,10 +42,10 @@ export const FEEDBACK_AUTH_SCHEMA: SASSchema = {
   name: "SATIFeedbackAuth",
   version: 1,
   description: "Authorization for client to submit feedback",
-  layout: [12, 2, 8], // String (pubkey), U16, I64
+  layout: [12, 1, 8], // String, U16, I64
   fieldNames: [
-    "agent_mint", // Agent NFT mint address
-    "index_limit", // Maximum feedback index allowed (ERC-8004 indexLimit)
+    "agent_mint", // Agent NFT mint address (base58 string)
+    "index_limit", // Maximum feedback index allowed (ERC-8004: indexLimit)
     "expiry", // Unix timestamp (0 = use SAS expiry)
   ],
 };
@@ -63,14 +64,14 @@ export const FEEDBACK_SCHEMA: SASSchema = {
   name: "SATIFeedback",
   version: 1,
   description: "Client feedback for agent (ERC-8004 compatible)",
-  layout: [12, 2, 0, 0, 0, 13, 0], // Pubkey, U16, String, String, String, VecU8, String
+  layout: [12, 0, 12, 12, 12, 13, 12], // String, U8, String, String, String, VecU8, String
   fieldNames: [
-    "agent_mint", // Agent NFT mint receiving feedback
-    "score", // 0-100 as U16 (ERC-8004 uses uint8; U16 provides headroom)
-    "tag1", // Optional categorization
-    "tag2", // Optional categorization
-    "fileuri", // Off-chain feedback details (IPFS)
-    "filehash", // SHA-256 hash (32 bytes)
+    "agent_mint", // Agent NFT mint receiving feedback (base58 string)
+    "score", // 0-100 as U8 (matches ERC-8004 uint8)
+    "tag1", // Optional tag (string)
+    "tag2", // Optional tag (string)
+    "fileuri", // Off-chain feedback details (IPFS) - matches ERC-8004
+    "filehash", // SHA-256 hash (32 bytes) - matches ERC-8004
     "payment_proof", // x402 transaction reference (optional)
   ],
 };
@@ -89,10 +90,10 @@ export const FEEDBACK_RESPONSE_SCHEMA: SASSchema = {
   name: "SATIFeedbackResponse",
   version: 1,
   description: "Response to feedback (ERC-8004 appendResponse)",
-  layout: [12, 0, 13], // Pubkey, String, VecU8
+  layout: [12, 12, 13], // String, String, VecU8
   fieldNames: [
-    "feedback_id", // Reference to feedback attestation pubkey
-    "response_uri", // Off-chain response details
+    "feedback_id", // Reference to feedback attestation pubkey (base58 string)
+    "response_uri", // Off-chain response details (string)
     "response_hash", // Content hash (32 bytes)
   ],
 };
@@ -112,11 +113,11 @@ export const VALIDATION_REQUEST_SCHEMA: SASSchema = {
   name: "SATIValidationRequest",
   version: 1,
   description: "Agent requests work validation",
-  layout: [12, 0, 0, 13], // Pubkey, String, String, VecU8
+  layout: [12, 12, 12, 13], // String, String, String, VecU8
   fieldNames: [
-    "agent_mint", // Agent NFT mint requesting validation
+    "agent_mint", // Agent NFT mint requesting validation (base58 string)
     "method_id", // Validation method ("tee", "zkml", "restake") - SATI extension
-    "request_uri", // Off-chain validation data
+    "request_uri", // Off-chain validation data (string)
     "request_hash", // Content hash (32 bytes)
   ],
 };
@@ -135,13 +136,13 @@ export const VALIDATION_RESPONSE_SCHEMA: SASSchema = {
   name: "SATIValidationResponse",
   version: 1,
   description: "Validator responds to request",
-  layout: [12, 2, 0, 13, 0], // Pubkey, U16, String, VecU8, String
+  layout: [12, 0, 12, 13, 12], // String, U8, String, VecU8, String
   fieldNames: [
-    "request_id", // Reference to request attestation pubkey
-    "response", // 0-100 as U16 (0=fail, 100=pass)
-    "response_uri", // Off-chain evidence
-    "response_hash", // Content hash
-    "tag", // Optional categorization
+    "request_id", // Reference to request attestation pubkey (base58 string)
+    "response", // 0-100 as U8 (0=fail, 100=pass)
+    "response_uri", // Off-chain evidence (string)
+    "response_hash", // Content hash (32 bytes)
+    "tag", // Optional categorization (string)
   ],
 };
 

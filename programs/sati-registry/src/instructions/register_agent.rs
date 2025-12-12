@@ -165,7 +165,7 @@ pub fn handler(
             &anchor_spl::token_2022::ID,
             &ctx.accounts.agent_mint.key(),
             Some(ctx.accounts.registry_config.key()), // authority is registry PDA
-            Some(ctx.accounts.agent_mint.key()), // member address is the mint itself
+            Some(ctx.accounts.agent_mint.key()),      // member address is the mint itself
         )?;
 
     anchor_lang::solana_program::program::invoke(
@@ -204,10 +204,10 @@ pub fn handler(
     // 2f. Initialize TokenMetadata
     let init_token_metadata_ix = initialize_metadata(
         &anchor_spl::token_2022::ID,
-        &ctx.accounts.agent_mint.key(),      // metadata account
-        &ctx.accounts.owner.key(),           // update authority
-        &ctx.accounts.agent_mint.key(),      // mint
-        &ctx.accounts.payer.key(),           // mint authority
+        &ctx.accounts.agent_mint.key(), // metadata account
+        &ctx.accounts.owner.key(),      // update authority
+        &ctx.accounts.agent_mint.key(), // mint
+        &ctx.accounts.payer.key(),      // mint authority
         name.clone(),
         symbol.clone(),
         uri.clone(),
@@ -325,9 +325,7 @@ pub fn handler(
 
     // === PHASE 3: Write state after CPIs succeed ===
     let registry = &mut ctx.accounts.registry_config;
-    registry.total_agents = current_count
-        .checked_add(1)
-        .ok_or(SatiError::Overflow)?;
+    registry.total_agents = current_count.checked_add(1).ok_or(SatiError::Overflow)?;
 
     // === Emit Event ===
     emit!(AgentRegistered {

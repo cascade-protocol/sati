@@ -14,28 +14,31 @@ import {
 } from "@solana/kit";
 import { SATI_REGISTRY_PROGRAM_ADDRESS } from "../programs";
 
+/** InvalidGroupMint: Invalid group mint - must be owned by Token-2022 */
+export const SATI_REGISTRY_ERROR__INVALID_GROUP_MINT = 0x1770; // 6000
 /** InvalidAuthority: Invalid authority */
-export const SATI_REGISTRY_ERROR__INVALID_AUTHORITY = 0x1770; // 6000
+export const SATI_REGISTRY_ERROR__INVALID_AUTHORITY = 0x1771; // 6001
 /** ImmutableAuthority: Authority is immutable (renounced) */
-export const SATI_REGISTRY_ERROR__IMMUTABLE_AUTHORITY = 0x1771; // 6001
+export const SATI_REGISTRY_ERROR__IMMUTABLE_AUTHORITY = 0x1772; // 6002
 /** NameTooLong: Name too long (max 32 bytes) */
-export const SATI_REGISTRY_ERROR__NAME_TOO_LONG = 0x1772; // 6002
+export const SATI_REGISTRY_ERROR__NAME_TOO_LONG = 0x1773; // 6003
 /** SymbolTooLong: Symbol too long (max 10 bytes) */
-export const SATI_REGISTRY_ERROR__SYMBOL_TOO_LONG = 0x1773; // 6003
+export const SATI_REGISTRY_ERROR__SYMBOL_TOO_LONG = 0x1774; // 6004
 /** UriTooLong: URI too long (max 200 bytes) */
-export const SATI_REGISTRY_ERROR__URI_TOO_LONG = 0x1774; // 6004
+export const SATI_REGISTRY_ERROR__URI_TOO_LONG = 0x1775; // 6005
 /** TooManyMetadataEntries: Too many metadata entries (max 10) */
-export const SATI_REGISTRY_ERROR__TOO_MANY_METADATA_ENTRIES = 0x1775; // 6005
+export const SATI_REGISTRY_ERROR__TOO_MANY_METADATA_ENTRIES = 0x1776; // 6006
 /** MetadataKeyTooLong: Metadata key too long (max 32 bytes) */
-export const SATI_REGISTRY_ERROR__METADATA_KEY_TOO_LONG = 0x1776; // 6006
+export const SATI_REGISTRY_ERROR__METADATA_KEY_TOO_LONG = 0x1777; // 6007
 /** MetadataValueTooLong: Metadata value too long (max 200 bytes) */
-export const SATI_REGISTRY_ERROR__METADATA_VALUE_TOO_LONG = 0x1777; // 6007
+export const SATI_REGISTRY_ERROR__METADATA_VALUE_TOO_LONG = 0x1778; // 6008
 /** Overflow: Arithmetic overflow */
-export const SATI_REGISTRY_ERROR__OVERFLOW = 0x1778; // 6008
+export const SATI_REGISTRY_ERROR__OVERFLOW = 0x1779; // 6009
 
 export type SatiRegistryError =
   | typeof SATI_REGISTRY_ERROR__IMMUTABLE_AUTHORITY
   | typeof SATI_REGISTRY_ERROR__INVALID_AUTHORITY
+  | typeof SATI_REGISTRY_ERROR__INVALID_GROUP_MINT
   | typeof SATI_REGISTRY_ERROR__METADATA_KEY_TOO_LONG
   | typeof SATI_REGISTRY_ERROR__METADATA_VALUE_TOO_LONG
   | typeof SATI_REGISTRY_ERROR__NAME_TOO_LONG
@@ -49,6 +52,7 @@ if (process.env.NODE_ENV !== "production") {
   satiRegistryErrorMessages = {
     [SATI_REGISTRY_ERROR__IMMUTABLE_AUTHORITY]: `Authority is immutable (renounced)`,
     [SATI_REGISTRY_ERROR__INVALID_AUTHORITY]: `Invalid authority`,
+    [SATI_REGISTRY_ERROR__INVALID_GROUP_MINT]: `Invalid group mint - must be owned by Token-2022`,
     [SATI_REGISTRY_ERROR__METADATA_KEY_TOO_LONG]: `Metadata key too long (max 32 bytes)`,
     [SATI_REGISTRY_ERROR__METADATA_VALUE_TOO_LONG]: `Metadata value too long (max 200 bytes)`,
     [SATI_REGISTRY_ERROR__NAME_TOO_LONG]: `Name too long (max 32 bytes)`,

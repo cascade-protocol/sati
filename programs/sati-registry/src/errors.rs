@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum SatiError {
-    #[msg("Invalid group mint - must be owned by Token-2022")]
+    #[msg("Invalid group mint - must be owned by Token-2022 with TokenGroup extension")]
     InvalidGroupMint,
 
     #[msg("Invalid authority")]

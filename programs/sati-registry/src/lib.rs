@@ -6,7 +6,6 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 
-
 use instructions::*;
 use state::MetadataEntry;
 
@@ -42,7 +41,14 @@ pub mod sati_registry {
         additional_metadata: Option<Vec<MetadataEntry>>,
         non_transferable: bool,
     ) -> Result<()> {
-        instructions::register_agent::handler(ctx, name, symbol, uri, additional_metadata, non_transferable)
+        instructions::register_agent::handler(
+            ctx,
+            name,
+            symbol,
+            uri,
+            additional_metadata,
+            non_transferable,
+        )
     }
 
     /// Transfer or renounce registry authority

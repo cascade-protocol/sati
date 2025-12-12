@@ -57,7 +57,7 @@ ERC-8004 requires a canonical registry address per chain for discoverability. On
 - Without a program, someone must manually co-sign every registration (centralized)
 - A minimal program holds the authority as a PDA and provides atomic registration
 
-The registry program is a **thin wrapper** (~200 lines) around Token-2022, not a replacement.
+The registry program is a **thin wrapper** (~500 lines) around Token-2022, not a replacement.
 
 ### Why Token-2022 for Identity?
 
@@ -120,7 +120,7 @@ On Solana, **Token-2022 achieves the same benefits**:
 
 ### Overview
 
-The SATI Registry is a minimal Anchor program (~200 lines) that:
+The SATI Registry is a minimal Anchor program (~500 lines) that:
 - Provides a **canonical program address** (`satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`)
 - Holds TokenGroup `update_authority` as a PDA
 - Enables **permissionless, atomic registration**
@@ -159,9 +159,10 @@ pub const MAX_METADATA_VALUE_LENGTH: usize = 200;
 | Account | Seeds | Description |
 |---------|-------|-------------|
 | `RegistryConfig` | `[b"registry"]` | Singleton registry configuration |
-| `group_mint` | `[b"group_mint"]` | SATI TokenGroup collection mint |
 
-Agent NFT mints are **not PDAs** - they are randomly generated keypairs for uniqueness.
+**Non-PDA Accounts:**
+- `group_mint` - TokenGroup collection mint, created by client before `initialize()`
+- Agent NFT mints - randomly generated keypairs for uniqueness
 
 ### Account Structures
 
@@ -223,13 +224,9 @@ pub struct Initialize<'info> {
     )]
     pub registry_config: Account<'info, RegistryConfig>,
 
-    /// TokenGroup mint PDA
-    /// CHECK: Initialized via CPI to Token-2022
-    #[account(
-        mut,
-        seeds = [b"group_mint"],
-        bump
-    )]
+    /// TokenGroup mint - created by client before initialize()
+    /// CHECK: Validated as Token-2022 mint with TokenGroup extension
+    #[account(mut)]
     pub group_mint: UncheckedAccount<'info>,
 
     pub token_2022_program: Program<'info, Token2022>,
@@ -676,6 +673,48 @@ Solana Attestation Service (SAS) by Solana Foundation:
 - **Repository**: https://github.com/solana-foundation/solana-attestation-service
 - **NPM**: https://www.npmjs.com/package/sas-lib
 
+### SAS Schema Layout Types
+
+The `layout` array uses numeric type identifiers from the Solana Attestation Service:
+
+| Type ID | Type | Description |
+|---------|------|-------------|
+| 0 | U8 | Unsigned 8-bit integer (0-255) |
+| 1 | U16 | Unsigned 16-bit integer (0-65535) |
+| 2 | U32 | Unsigned 32-bit integer |
+| 3 | U64 | Unsigned 64-bit integer |
+| 8 | I64 | Signed 64-bit integer (for timestamps) |
+| 12 | String | UTF-8 string with 4-byte length prefix |
+| 13 | VecU8 | Byte array with 4-byte length prefix |
+
+**Example**: `layout: [12, 0, 12, 13]` means:
+- Field 1: String
+- Field 2: U8
+- Field 3: String
+- Field 4: VecU8
+
+### Attestation Nonce Computation
+
+SAS attestation PDAs are derived using `["attestation", credential, schema, nonce]`.
+The nonce must be unique per attestation to avoid PDA collisions.
+
+**SATI Nonce Formulas** (using keccak256 hash → base58 encoded):
+
+| Attestation Type | Nonce Formula |
+|------------------|---------------|
+| FeedbackAuth | `keccak256("feedbackAuth:" + agentMint + ":" + clientPubkey)` |
+| Feedback | `keccak256("feedback:" + agentMint + ":" + clientPubkey + ":" + timestamp)` |
+| FeedbackResponse | `keccak256("response:" + feedbackId + ":" + responderPubkey + ":" + index)` |
+| ValidationRequest | `keccak256("validationReq:" + agentMint + ":" + validatorPubkey + ":" + userNonce)` |
+| ValidationResponse | `keccak256("validationResp:" + requestId + ":" + responseIndex)` |
+
+This ensures:
+- **FeedbackAuth**: One per client per agent
+- **Feedback**: Multiple allowed via timestamp
+- **FeedbackResponse**: Multiple responders via index
+- **ValidationRequest**: Multiple requests via userNonce
+- **ValidationResponse**: Multiple responses via responseIndex
+
 ### Schema Definitions
 
 #### 1. FeedbackAuth Schema
@@ -687,9 +726,9 @@ const FEEDBACK_AUTH_SCHEMA = {
   name: "SATIFeedbackAuth",
   version: 1,
   description: "Authorization for client to submit feedback",
-  layout: [12, 2, 8],  // String, U16, I64
+  layout: [12, 1, 8],  // String, U16, I64
   fieldNames: [
-    "agent_mint",        // Agent NFT mint address
+    "agent_mint",        // Agent NFT mint address (base58 string)
     "index_limit",       // Maximum feedback index allowed (ERC-8004 indexLimit)
     "expiry",            // Unix timestamp (0 = use SAS expiry)
   ]
@@ -699,7 +738,7 @@ const FEEDBACK_AUTH_SCHEMA = {
 // - credential = agent NFT mint
 // - subject = client pubkey (authorized reviewer)
 // - issuer = agent owner
-// - nonce = hash(agentMint, clientPubkey)
+// - nonce = keccak256("feedbackAuth:" + agentMint + ":" + clientPubkey)
 ```
 
 #### 2. Feedback Schema
@@ -709,12 +748,12 @@ const FEEDBACK_SCHEMA = {
   name: "SATIFeedback",
   version: 1,
   description: "Client feedback for agent (ERC-8004 compatible)",
-  layout: [12, 2, 0, 0, 0, 13, 0],  // Pubkey, U16, String, String, String, VecU8, String
+  layout: [12, 0, 12, 12, 12, 13, 12],  // String, U8, String, String, String, VecU8, String
   fieldNames: [
-    "agent_mint",      // Agent NFT mint receiving feedback
-    "score",           // 0-100 as U16 (see note below)
-    "tag1",            // Optional categorization
-    "tag2",            // Optional categorization
+    "agent_mint",      // Agent NFT mint receiving feedback (base58 string)
+    "score",           // 0-100 as U8 (matches ERC-8004 uint8)
+    "tag1",            // Optional categorization (string)
+    "tag2",            // Optional categorization (string)
     "fileuri",         // Off-chain feedback details (IPFS)
     "filehash",        // SHA-256 hash (32 bytes)
     "payment_proof",   // x402 transaction reference (optional)
@@ -724,12 +763,11 @@ const FEEDBACK_SCHEMA = {
 // Attestation configuration:
 // - credential = agent NFT mint
 // - issuer = client (feedback giver)
-// - nonce = hash(agentMint, clientPubkey, timestamp)
+// - nonce = keccak256("feedback:" + agentMint + ":" + clientPubkey + ":" + timestamp)
 ```
 
-> **Score Type Rationale**: Score uses U16 (type 2) instead of String for type safety
-> and efficient serialization. ERC-8004 uses uint8 (0-255); U16 provides equivalent
-> range with headroom for extended scoring if needed.
+> **Score Type Rationale**: Score uses U8 (type 0) for type safety and efficient
+> serialization. This matches ERC-8004's uint8 (0-255) range exactly.
 
 #### 3. FeedbackResponse Schema
 
@@ -738,9 +776,9 @@ const FEEDBACK_RESPONSE_SCHEMA = {
   name: "SATIFeedbackResponse",
   version: 1,
   description: "Response to feedback (ERC-8004 appendResponse)",
-  layout: [12, 0, 13],  // Pubkey, String, VecU8
+  layout: [12, 12, 13],  // String, String, VecU8
   fieldNames: [
-    "feedback_id",      // Reference to feedback attestation pubkey
+    "feedback_id",      // Reference to feedback attestation pubkey (base58 string)
     "response_uri",     // Off-chain response details
     "response_hash",    // Content hash (32 bytes)
   ]
@@ -749,7 +787,7 @@ const FEEDBACK_RESPONSE_SCHEMA = {
 // Attestation configuration:
 // - credential = agent NFT mint
 // - issuer = responder (agent owner, auditor, etc.)
-// - nonce = hash(feedbackId, responderPubkey, index)
+// - nonce = keccak256("response:" + feedbackId + ":" + responderPubkey + ":" + index)
 ```
 
 #### 4. ValidationRequest Schema
@@ -759,9 +797,9 @@ const VALIDATION_REQUEST_SCHEMA = {
   name: "SATIValidationRequest",
   version: 1,
   description: "Agent requests work validation",
-  layout: [12, 0, 0, 13],  // Pubkey, String, String, VecU8
+  layout: [12, 12, 12, 13],  // String, String, String, VecU8
   fieldNames: [
-    "agent_mint",      // Agent NFT mint requesting validation
+    "agent_mint",      // Agent NFT mint requesting validation (base58 string)
     "method_id",       // Validation method (SATI extension, see note below)
     "request_uri",     // Off-chain validation data
     "request_hash",    // Content hash (32 bytes)
@@ -772,7 +810,7 @@ const VALIDATION_REQUEST_SCHEMA = {
 // - credential = agent NFT mint
 // - subject = validator pubkey
 // - issuer = agent owner
-// - nonce = hash(agentMint, validatorPubkey, userNonce)
+// - nonce = keccak256("validationReq:" + agentMint + ":" + validatorPubkey + ":" + userNonce)
 ```
 
 > **method_id Extension**: The `method_id` field is a SATI-specific extension not present
@@ -787,10 +825,10 @@ const VALIDATION_RESPONSE_SCHEMA = {
   name: "SATIValidationResponse",
   version: 1,
   description: "Validator responds to request",
-  layout: [12, 2, 0, 13, 0],  // Pubkey, U16, String, VecU8, String
+  layout: [12, 0, 12, 13, 12],  // String, U8, String, VecU8, String
   fieldNames: [
-    "request_id",       // Reference to request attestation pubkey
-    "response",         // 0-100 as U16 (0=fail, 100=pass)
+    "request_id",       // Reference to request attestation pubkey (base58 string)
+    "response",         // 0-100 as U8 (0=fail, 100=pass)
     "response_uri",     // Off-chain evidence
     "response_hash",    // Content hash
     "tag",              // Optional categorization
@@ -800,7 +838,7 @@ const VALIDATION_RESPONSE_SCHEMA = {
 // Attestation configuration:
 // - credential = agent NFT mint (from request)
 // - issuer = validator
-// - nonce = hash(requestId, responseIndex)
+// - nonce = keccak256("validationResp:" + requestId + ":" + responseIndex)
 ```
 
 ### Off-Chain Feedback File Structure
@@ -1120,7 +1158,7 @@ registry.total_agents = registry.total_agents
 #### 3. PDA Security
 
 - Registry PDA bump stored for efficient CPI signing
-- Group mint uses deterministic seeds (`[b"group_mint"]`)
+- Group mint is client-created, validated for TokenGroup extension
 - Agent mints are random keypairs (not PDAs) for uniqueness
 
 #### 4. CPI Security
@@ -1453,7 +1491,7 @@ ipfs://QmYourRegistrationFileHash
 ### Implementation Order
 
 1. ~~**Grind vanity keypair**~~ ✅ `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`
-2. **Implement sati-registry program** (~200 lines)
+2. **Implement sati-registry program** (~500 lines)
 3. **Write comprehensive tests**
 4. **Security audit**
 5. **Deploy to devnet**
@@ -1561,7 +1599,7 @@ sati/
 ├── rust-toolchain.toml          # Rust 1.89.0
 │
 ├── programs/
-│   └── sati-registry/           # Minimal Anchor program (~200 lines)
+│   └── sati-registry/           # Minimal Anchor program (~500 lines)
 │       ├── Cargo.toml           # Program dependencies
 │       └── src/
 │           ├── lib.rs           # Entry point, #[program] macro, security_txt!
@@ -1624,7 +1662,7 @@ These can be added as separate schemas/programs without breaking changes.
 
 SATI v2 achieves 100% ERC-8004 functional compatibility with:
 
-- **SATI Registry Program** - Canonical address, atomic registration (~200 lines)
+- **SATI Registry Program** - Canonical address, atomic registration (~500 lines)
 - **Token-2022** for identity (wallet support, transfers, collections)
 - **SAS** for reputation and validation attestations
 - **TypeScript SDK**

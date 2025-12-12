@@ -58,32 +58,9 @@
         {
           "name": "group_mint",
           "docs": [
-            "TokenGroup mint PDA"
+            "TokenGroup mint - created and initialized by client, then finalized here"
           ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  103,
-                  114,
-                  111,
-                  117,
-                  112,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          "writable": true
         },
         {
           "name": "system_program",
@@ -320,46 +297,51 @@
   "errors": [
     {
       "code": 6000,
+      "name": "InvalidGroupMint",
+      "msg": "Invalid group mint - must be owned by Token-2022"
+    },
+    {
+      "code": 6001,
       "name": "InvalidAuthority",
       "msg": "Invalid authority"
     },
     {
-      "code": 6001,
+      "code": 6002,
       "name": "ImmutableAuthority",
       "msg": "Authority is immutable (renounced)"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "NameTooLong",
       "msg": "Name too long (max 32 bytes)"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "SymbolTooLong",
       "msg": "Symbol too long (max 10 bytes)"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "UriTooLong",
       "msg": "URI too long (max 200 bytes)"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "TooManyMetadataEntries",
       "msg": "Too many metadata entries (max 10)"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "MetadataKeyTooLong",
       "msg": "Metadata key too long (max 32 bytes)"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "MetadataValueTooLong",
       "msg": "Metadata value too long (max 200 bytes)"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
     }

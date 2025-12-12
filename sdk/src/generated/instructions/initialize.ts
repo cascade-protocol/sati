@@ -47,8 +47,6 @@ export type InitializeInstruction<
   TAccountAuthority extends string | AccountMeta<string> = string,
   TAccountRegistryConfig extends string | AccountMeta<string> = string,
   TAccountGroupMint extends string | AccountMeta<string> = string,
-  TAccountToken2022Program extends string | AccountMeta<string> =
-    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
   TAccountSystemProgram extends string | AccountMeta<string> =
     "11111111111111111111111111111111",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -66,9 +64,6 @@ export type InitializeInstruction<
       TAccountGroupMint extends string
         ? WritableAccount<TAccountGroupMint>
         : TAccountGroupMint,
-      TAccountToken2022Program extends string
-        ? ReadonlyAccount<TAccountToken2022Program>
-        : TAccountToken2022Program,
       TAccountSystemProgram extends string
         ? ReadonlyAccount<TAccountSystemProgram>
         : TAccountSystemProgram,
@@ -107,16 +102,14 @@ export type InitializeAsyncInput<
   TAccountAuthority extends string = string,
   TAccountRegistryConfig extends string = string,
   TAccountGroupMint extends string = string,
-  TAccountToken2022Program extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
   /** Initial registry authority (will be multisig in production) */
   authority: TransactionSigner<TAccountAuthority>;
   /** Registry configuration PDA */
   registryConfig?: Address<TAccountRegistryConfig>;
-  /** TokenGroup mint PDA */
-  groupMint?: Address<TAccountGroupMint>;
-  token2022Program?: Address<TAccountToken2022Program>;
+  /** TokenGroup mint - created and initialized by client, then finalized here */
+  groupMint: Address<TAccountGroupMint>;
   systemProgram?: Address<TAccountSystemProgram>;
 };
 
@@ -124,7 +117,6 @@ export async function getInitializeInstructionAsync<
   TAccountAuthority extends string,
   TAccountRegistryConfig extends string,
   TAccountGroupMint extends string,
-  TAccountToken2022Program extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
 >(
@@ -132,7 +124,6 @@ export async function getInitializeInstructionAsync<
     TAccountAuthority,
     TAccountRegistryConfig,
     TAccountGroupMint,
-    TAccountToken2022Program,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
@@ -142,7 +133,6 @@ export async function getInitializeInstructionAsync<
     TAccountAuthority,
     TAccountRegistryConfig,
     TAccountGroupMint,
-    TAccountToken2022Program,
     TAccountSystemProgram
   >
 > {
@@ -155,10 +145,6 @@ export async function getInitializeInstructionAsync<
     authority: { value: input.authority ?? null, isWritable: true },
     registryConfig: { value: input.registryConfig ?? null, isWritable: true },
     groupMint: { value: input.groupMint ?? null, isWritable: true },
-    token2022Program: {
-      value: input.token2022Program ?? null,
-      isWritable: false,
-    },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
@@ -177,20 +163,6 @@ export async function getInitializeInstructionAsync<
       ],
     });
   }
-  if (!accounts.groupMint.value) {
-    accounts.groupMint.value = await getProgramDerivedAddress({
-      programAddress,
-      seeds: [
-        getBytesEncoder().encode(
-          new Uint8Array([103, 114, 111, 117, 112, 95, 109, 105, 110, 116]),
-        ),
-      ],
-    });
-  }
-  if (!accounts.token2022Program.value) {
-    accounts.token2022Program.value =
-      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" as Address<"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb">;
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -202,7 +174,6 @@ export async function getInitializeInstructionAsync<
       getAccountMeta(accounts.authority),
       getAccountMeta(accounts.registryConfig),
       getAccountMeta(accounts.groupMint),
-      getAccountMeta(accounts.token2022Program),
       getAccountMeta(accounts.systemProgram),
     ],
     data: getInitializeInstructionDataEncoder().encode({}),
@@ -212,7 +183,6 @@ export async function getInitializeInstructionAsync<
     TAccountAuthority,
     TAccountRegistryConfig,
     TAccountGroupMint,
-    TAccountToken2022Program,
     TAccountSystemProgram
   >);
 }
@@ -221,16 +191,14 @@ export type InitializeInput<
   TAccountAuthority extends string = string,
   TAccountRegistryConfig extends string = string,
   TAccountGroupMint extends string = string,
-  TAccountToken2022Program extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
   /** Initial registry authority (will be multisig in production) */
   authority: TransactionSigner<TAccountAuthority>;
   /** Registry configuration PDA */
   registryConfig: Address<TAccountRegistryConfig>;
-  /** TokenGroup mint PDA */
+  /** TokenGroup mint - created and initialized by client, then finalized here */
   groupMint: Address<TAccountGroupMint>;
-  token2022Program?: Address<TAccountToken2022Program>;
   systemProgram?: Address<TAccountSystemProgram>;
 };
 
@@ -238,7 +206,6 @@ export function getInitializeInstruction<
   TAccountAuthority extends string,
   TAccountRegistryConfig extends string,
   TAccountGroupMint extends string,
-  TAccountToken2022Program extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
 >(
@@ -246,7 +213,6 @@ export function getInitializeInstruction<
     TAccountAuthority,
     TAccountRegistryConfig,
     TAccountGroupMint,
-    TAccountToken2022Program,
     TAccountSystemProgram
   >,
   config?: { programAddress?: TProgramAddress },
@@ -255,7 +221,6 @@ export function getInitializeInstruction<
   TAccountAuthority,
   TAccountRegistryConfig,
   TAccountGroupMint,
-  TAccountToken2022Program,
   TAccountSystemProgram
 > {
   // Program address.
@@ -267,10 +232,6 @@ export function getInitializeInstruction<
     authority: { value: input.authority ?? null, isWritable: true },
     registryConfig: { value: input.registryConfig ?? null, isWritable: true },
     groupMint: { value: input.groupMint ?? null, isWritable: true },
-    token2022Program: {
-      value: input.token2022Program ?? null,
-      isWritable: false,
-    },
     systemProgram: { value: input.systemProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
@@ -279,10 +240,6 @@ export function getInitializeInstruction<
   >;
 
   // Resolve default values.
-  if (!accounts.token2022Program.value) {
-    accounts.token2022Program.value =
-      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" as Address<"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb">;
-  }
   if (!accounts.systemProgram.value) {
     accounts.systemProgram.value =
       "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
@@ -294,7 +251,6 @@ export function getInitializeInstruction<
       getAccountMeta(accounts.authority),
       getAccountMeta(accounts.registryConfig),
       getAccountMeta(accounts.groupMint),
-      getAccountMeta(accounts.token2022Program),
       getAccountMeta(accounts.systemProgram),
     ],
     data: getInitializeInstructionDataEncoder().encode({}),
@@ -304,7 +260,6 @@ export function getInitializeInstruction<
     TAccountAuthority,
     TAccountRegistryConfig,
     TAccountGroupMint,
-    TAccountToken2022Program,
     TAccountSystemProgram
   >);
 }
@@ -319,10 +274,9 @@ export type ParsedInitializeInstruction<
     authority: TAccountMetas[0];
     /** Registry configuration PDA */
     registryConfig: TAccountMetas[1];
-    /** TokenGroup mint PDA */
+    /** TokenGroup mint - created and initialized by client, then finalized here */
     groupMint: TAccountMetas[2];
-    token2022Program: TAccountMetas[3];
-    systemProgram: TAccountMetas[4];
+    systemProgram: TAccountMetas[3];
   };
   data: InitializeInstructionData;
 };
@@ -335,7 +289,7 @@ export function parseInitializeInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedInitializeInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 5) {
+  if (instruction.accounts.length < 4) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -351,7 +305,6 @@ export function parseInitializeInstruction<
       authority: getNextAccount(),
       registryConfig: getNextAccount(),
       groupMint: getNextAccount(),
-      token2022Program: getNextAccount(),
       systemProgram: getNextAccount(),
     },
     data: getInitializeInstructionDataDecoder().decode(instruction.data),

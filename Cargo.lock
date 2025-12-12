@@ -2613,6 +2613,7 @@ dependencies = [
  "mollusk-svm-programs-token",
  "solana-sdk",
  "solana-security-txt",
+ "solana-system-interface",
  "spl-associated-token-account",
  "spl-token-2022",
  "spl-token-group-interface",

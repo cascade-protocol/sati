@@ -1,15 +1,17 @@
 //! Instruction builders for Mollusk tests
 //!
-//! NOTE: This is written for mollusk-svm 0.5.1 with solana-sdk 2.2
-//! All imports from solana_sdk::*, not modular crates
+//! These helpers are shared across multiple test files. Each test binary
+//! only uses a subset, so dead_code warnings are expected and suppressed.
+
+#![allow(dead_code)]
 
 use {
     mollusk_svm_programs_token::token2022,
     solana_sdk::{
         instruction::{AccountMeta, Instruction},
         pubkey::Pubkey,
-        system_program,
     },
+    solana_system_interface::program as system_program,
     spl_associated_token_account,
 };
 
@@ -47,9 +49,8 @@ pub fn derive_ata_token2022(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
 /// Accounts:
 /// 0. authority (writable, signer) - Initial registry authority
 /// 1. registry_config (writable) - PDA to initialize
-/// 2. group_mint (writable) - TokenGroup mint PDA
-/// 3. token_2022_program
-/// 4. system_program
+/// 2. group_mint (writable) - TokenGroup mint (client-created)
+/// 3. system_program
 pub fn build_initialize(
     authority: Pubkey,
     registry_config: Pubkey,
@@ -61,7 +62,6 @@ pub fn build_initialize(
             AccountMeta::new(authority, true),
             AccountMeta::new(registry_config, false),
             AccountMeta::new(group_mint, false),
-            AccountMeta::new_readonly(token2022::ID, false),
             AccountMeta::new_readonly(system_program::id(), false),
         ],
         data: DISCRIMINATOR_INITIALIZE.to_vec(),
@@ -80,6 +80,7 @@ pub fn build_initialize(
 /// 6. token_2022_program
 /// 7. associated_token_program
 /// 8. system_program
+#[allow(clippy::too_many_arguments)]
 pub fn build_register_agent(
     payer: Pubkey,
     owner: Pubkey,

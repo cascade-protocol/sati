@@ -4,16 +4,13 @@
 
 mod helpers;
 
-use {
-    helpers::{
-        accounts::{system_account, system_program_account, token2022_program_account, uninitialized_account},
-        instructions::{build_initialize, derive_group_mint, derive_registry_config, PROGRAM_ID},
-        serialization::REGISTRY_CONFIG_SIZE,
-        setup_mollusk,
-    },
-    mollusk_svm::result::Check,
-    solana_sdk::pubkey::Pubkey,
+use helpers::{
+    accounts::{system_account, system_program_account, uninitialized_account},
+    instructions::{build_initialize, derive_group_mint, derive_registry_config, PROGRAM_ID},
+    setup_mollusk,
 };
+use mollusk_svm::result::Check;
+use solana_sdk::pubkey::Pubkey;
 
 // NOTE: test_initialize_success is skipped in Mollusk tests.
 // The initialize instruction performs complex Token-2022 CPIs (GroupPointer + TokenGroup)
@@ -47,13 +44,14 @@ fn test_initialize_already_initialized_fails() {
             helpers::accounts::program_account(1_000_000, existing_data, PROGRAM_ID),
         ),
         (group_mint, uninitialized_account()),
-        token2022_program_account(),
         system_program_account(),
     ];
 
     // Should fail because registry is already initialized
     // Anchor init constraint error
-    let checks = vec![Check::err(solana_sdk::program_error::ProgramError::Custom(0))];
+    let checks = vec![Check::err(solana_sdk::program_error::ProgramError::Custom(
+        0,
+    ))];
 
     mollusk.process_and_validate_instruction(&instruction, &accounts, &checks);
 }

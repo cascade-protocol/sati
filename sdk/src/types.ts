@@ -49,8 +49,8 @@ export interface Feedback {
   paymentProof?: string;
   /** Feedback giver's address */
   issuer: Address;
-  /** Unix timestamp of submission */
-  timestamp: number;
+  /** Attestation expiry timestamp (0 = no expiry) */
+  expiry: number;
   /** Whether attestation is revoked */
   revoked: boolean;
 }
@@ -113,8 +113,8 @@ export interface ValidationStatus {
   validator: Address;
   /** Whether validation is complete */
   completed: boolean;
-  /** Response timestamp */
-  respondedAt?: number;
+  /** Response attestation expiry timestamp */
+  responseExpiry?: number;
 }
 
 /**

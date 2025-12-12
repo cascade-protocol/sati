@@ -4,19 +4,17 @@
 
 mod helpers;
 
-use {
-    helpers::{
-        accounts::{program_account, system_account},
-        error_code,
-        instructions::{
-            build_update_registry_authority, derive_group_mint, derive_registry_config, PROGRAM_ID,
-        },
-        serialization::{serialize_registry_config, REGISTRY_CONFIG_SIZE},
-        setup_mollusk, SatiError,
+use helpers::{
+    accounts::{program_account, system_account},
+    errors::{error_code, SatiError},
+    instructions::{
+        build_update_registry_authority, derive_group_mint, derive_registry_config, PROGRAM_ID,
     },
-    mollusk_svm::result::Check,
-    solana_sdk::{program_error::ProgramError, pubkey::Pubkey, rent::Rent},
+    serialization::{serialize_registry_config, REGISTRY_CONFIG_SIZE},
+    setup_mollusk,
 };
+use mollusk_svm::result::Check;
+use solana_sdk::{program_error::ProgramError, pubkey::Pubkey, rent::Rent};
 
 /// Helper to create an initialized registry config account
 fn initialized_registry_config(authority: Pubkey, bump: u8) -> (Vec<u8>, u64) {

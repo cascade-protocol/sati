@@ -15,6 +15,9 @@ export * from "./generated";
 // SAS schema definitions for reputation and validation
 export * from "./schemas";
 
+// SAS integration helpers
+export * from "./sas";
+
 // Utility helpers and PDA derivation
 export * from "./helpers";
 

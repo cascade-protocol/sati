@@ -34,6 +34,7 @@ spl-associated-token-account = { version = "7.0", features = ["no-entrypoint"] }
 mollusk-svm = "0.5.1"
 mollusk-svm-programs-token = "0.5.1"
 solana-sdk = "2.2"
+solana-system-interface = "1.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

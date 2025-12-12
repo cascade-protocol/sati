@@ -1,16 +1,9 @@
 //! Test helpers for SATI Registry Mollusk tests
-//!
-//! NOTE: This module is written for mollusk-svm 0.5.1 with solana-sdk 2.2
-//! Key differences from 0.7.x:
-//! - All imports from solana_sdk::* (not modular crates like solana_pubkey)
-//! - Token accounts MUST have owner explicitly set to token program
 
 pub mod accounts;
 pub mod errors;
 pub mod instructions;
 pub mod serialization;
-
-pub use errors::*;
 
 use mollusk_svm::Mollusk;
 use mollusk_svm_programs_token::token2022;

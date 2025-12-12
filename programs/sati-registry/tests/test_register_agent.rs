@@ -8,20 +8,22 @@
 
 mod helpers;
 
-use {
-    helpers::{
-        accounts::{program_account, system_account, system_program_account, token2022_program_account, uninitialized_account},
-        error_code,
-        instructions::{
-            build_register_agent, derive_ata_token2022, derive_group_mint, derive_registry_config,
-            PROGRAM_ID,
-        },
-        serialization::{serialize_registry_config, REGISTRY_CONFIG_SIZE},
-        setup_mollusk, SatiError,
+use helpers::{
+    accounts::{
+        program_account, system_account, system_program_account, token2022_program_account,
+        uninitialized_account,
     },
-    mollusk_svm::result::Check,
-    solana_sdk::{program_error::ProgramError, pubkey::Pubkey, rent::Rent, signature::Keypair, signer::Signer},
-    spl_associated_token_account,
+    errors::{error_code, SatiError},
+    instructions::{
+        build_register_agent, derive_ata_token2022, derive_group_mint, derive_registry_config,
+        PROGRAM_ID,
+    },
+    serialization::{serialize_registry_config, REGISTRY_CONFIG_SIZE},
+    setup_mollusk,
+};
+use mollusk_svm::result::Check;
+use solana_sdk::{
+    program_error::ProgramError, pubkey::Pubkey, rent::Rent, signature::Keypair, signer::Signer,
 };
 
 /// Helper to create an initialized registry config account

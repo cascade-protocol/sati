@@ -1,4 +1,7 @@
 use anchor_lang::prelude::*;
+use spl_token_2022::extension::{BaseStateWithExtensions, StateWithExtensions};
+use spl_token_2022::state::Mint;
+use spl_token_group_interface::state::TokenGroup;
 
 use crate::errors::SatiError;
 use crate::state::RegistryConfig;
@@ -45,6 +48,26 @@ pub fn handler(ctx: Context<Initialize>) -> Result<()> {
         ctx.accounts.group_mint.owner == &anchor_spl::token_2022::ID,
         SatiError::InvalidGroupMint
     );
+
+    // Deserialize and validate the mint account
+    let mint_data = ctx.accounts.group_mint.try_borrow_data()?;
+    let mint =
+        StateWithExtensions::<Mint>::unpack(&mint_data).map_err(|_| SatiError::InvalidGroupMint)?;
+
+    // Verify mint is initialized with decimals = 0 (collection token)
+    require!(mint.base.is_initialized, SatiError::InvalidGroupMint);
+    require!(mint.base.decimals == 0, SatiError::InvalidGroupMint);
+
+    // Verify TokenGroup extension exists
+    let _group = mint
+        .get_extension::<TokenGroup>()
+        .map_err(|_| SatiError::InvalidGroupMint)?;
+
+    // Note: We don't verify update_authority here because the group mint
+    // is created by the client before this instruction. The client must
+    // initialize it with the registry PDA as update_authority. The register_agent
+    // instruction will fail if the update_authority is incorrect when trying
+    // to add members to the group.
 
     // Store registry configuration
     let registry = &mut ctx.accounts.registry_config;
