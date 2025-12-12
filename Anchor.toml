@@ -5,30 +5,25 @@ package_manager = "pnpm"
 resolution = true
 skip-lint = false
 
-[provider]
-cluster = "Devnet"
-wallet = "~/.config/solana/id.json"
-
 [programs.localnet]
-identity_registry = "SAT1111111111111111111111111111111111111111"
-reputation_registry = "SAT2111111111111111111111111111111111111111"
-mandate_registry = "SAT3111111111111111111111111111111111111111"
+sati_registry = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
 
 [programs.devnet]
-identity_registry = "SAT1111111111111111111111111111111111111111"
-reputation_registry = "SAT2111111111111111111111111111111111111111"
-mandate_registry = "SAT3111111111111111111111111111111111111111"
+sati_registry = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
 
 [programs.mainnet]
-identity_registry = "SAT1111111111111111111111111111111111111111"
-reputation_registry = "SAT2111111111111111111111111111111111111111"
-mandate_registry = "SAT3111111111111111111111111111111111111111"
+sati_registry = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
 
 [registry]
 url = "https://api.apr.dev"
 
-[scripts]
-test = "pnpm exec ts-mocha -p ./tsconfig.json -t 1000000 'tests/**/*.ts'"
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
 
 [test]
+upgradeable = true
 startup_wait = 10000
+
+[scripts]
+test = "pnpm vitest run tests/"

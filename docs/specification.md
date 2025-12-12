@@ -113,7 +113,6 @@ On Solana, **Token-2022 achieves the same benefits**:
 | **SATI Registry** | Canonical entry point, atomic registration, group authority |
 | **Token-2022** | Identity storage, metadata, transfers (direct calls) |
 | **SAS** | Reputation attestations, validation attestations |
-| **Indexer** | Aggregation queries (getSummary, getAllFeedback) |
 
 ---
 
@@ -452,8 +451,8 @@ pub struct RegistryAuthorityUpdated {
 ```rust
 #[error_code]
 pub enum SatiError {
-    #[msg("Registry already initialized")]
-    AlreadyInitialized,
+    // Note: AlreadyInitialized not needed - Anchor's `init` constraint
+    // automatically prevents double initialization
 
     #[msg("Invalid authority")]
     InvalidAuthority,
@@ -801,7 +800,6 @@ If schemas need updates:
 1. **Version in name** - `SATIFeedbackV1`, `SATIFeedbackV2`, etc.
 2. **Old schemas remain valid** - Never delete, only add new versions
 3. **SDK handles both** - Query multiple schema versions, present unified interface
-4. **Indexer aggregates** - Combine feedback from V1 and V2 schemas in `getSummary()`
 
 ### Authority Separation
 
@@ -961,30 +959,6 @@ export class SATI {
   }): Promise<{ attestation: PublicKey }>;
 
   async getValidationStatus(attestation: PublicKey): Promise<ValidationStatus | null>;
-}
-```
-
-### Indexer Queries
-
-For aggregation queries (standard Solana pattern - programs have no view functions):
-
-```typescript
-export interface SATIIndexer {
-  getSummary(params: {
-    agentMint: PublicKey;
-    clientAddresses?: PublicKey[];
-    tag1?: string;
-    tag2?: string;
-  }): Promise<{ count: number; averageScore: number }>;
-
-  getAllFeedback(params: {
-    agentMint: PublicKey;
-    includeRevoked?: boolean;
-  }): Promise<Feedback[]>;
-
-  getFeedbackCount(agentMint: PublicKey, client: PublicKey): Promise<number>;
-
-  getAgentValidations(agentMint: PublicKey): Promise<ValidationRequest[]>;
 }
 ```
 
@@ -1171,10 +1145,9 @@ anchor-spl = "0.32.1"
 solana-security-txt = "1.1.1"
 
 [dev-dependencies]
-litesvm = "0.6"
+mollusk-svm = "0.5.1"
+mollusk-svm-programs-token = "0.5.1"
 solana-sdk = "2.2"
-spl-token-2022 = "7.0"
-spl-associated-token-account = { version = "6.0", features = ["no-entrypoint"] }
 ```
 
 ### Security.txt
@@ -1203,68 +1176,73 @@ security_txt! {
 | anchor-lang | 0.32.1 |
 | anchor-spl | 0.32.1 |
 | solana-sdk | 2.2 |
-| spl-token-2022 | 7.0 |
-| litesvm | 0.6 |
+| spl-token-2022 | 8.0 |
+| mollusk-svm | 0.5.1 |
 
 ---
 
 ## Testing
 
-### Rust Unit Tests (litesvm)
+### Rust Unit Tests (mollusk-svm)
 
-SATI uses **litesvm** for fast, deterministic unit tests:
+SATI uses **mollusk-svm** for fast, deterministic unit tests. Mollusk provides
+lightweight SVM testing with built-in program support:
 
 ```rust
 #[cfg(test)]
 mod tests {
-    use litesvm::LiteSVM;
+    use mollusk_svm::{Mollusk, result::Check};
     use solana_sdk::{
         pubkey::Pubkey,
         signature::{Keypair, Signer},
-        transaction::Transaction,
+        program_error::ProgramError,
     };
 
-    fn setup_svm() -> LiteSVM {
-        let mut svm = LiteSVM::new();
+    fn setup_mollusk() -> Mollusk {
+        let mut mollusk = Mollusk::new(&PROGRAM_ID, "sati_registry");
 
-        // Add Token-2022 program
-        svm.add_program_from_file(
-            spl_token_2022::ID,
-            "../../target/deploy/spl_token_2022.so"
-        ).unwrap();
+        // Add Token-2022 program (bundled with mollusk-svm-programs-token)
+        mollusk_svm_programs_token::token2022::add_program(&mut mollusk);
 
-        // Add SATI Registry program
-        svm.add_program_from_file(
-            crate::ID,
-            "../../target/deploy/sati_registry.so"
-        ).unwrap();
-
-        svm
+        mollusk
     }
 
     #[test]
-    fn test_initialize() {
-        let mut svm = setup_svm();
-        let authority = Keypair::new();
+    fn test_register_agent_name_too_long_fails() {
+        let mollusk = setup_mollusk();
 
-        // Airdrop SOL
-        svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
+        // Setup accounts
+        let payer = Pubkey::new_unique();
+        let agent_mint = Keypair::new();
 
-        // Build and send initialize transaction
-        // ...
+        // Build instruction with name > 32 bytes
+        let long_name = "x".repeat(33);
+        let instruction = build_register_agent(
+            payer, payer, agent_mint.pubkey(),
+            &long_name, "AGENT", "https://example.com/agent.json",
+            None, false,
+        );
+
+        // Should fail with NameTooLong error
+        let checks = vec![Check::err(ProgramError::Custom(
+            error_code(SatiError::NameTooLong)
+        ))];
+
+        mollusk.process_and_validate_instruction(&instruction, &accounts, &checks);
     }
 
     #[test]
-    fn test_register_agent() {
-        let mut svm = setup_svm();
-        // Test agent registration...
+    fn test_register_agent_metadata_key_too_long_fails() {
+        let mollusk = setup_mollusk();
+        // Test metadata key > 32 bytes
+        // Expect SatiError::MetadataKeyTooLong
     }
 
     #[test]
-    fn test_register_agent_name_too_long() {
-        let mut svm = setup_svm();
-        // Test error case: name exceeds MAX_NAME_LENGTH
-        // Expect SatiError::NameTooLong
+    fn test_register_agent_metadata_value_too_long_fails() {
+        let mollusk = setup_mollusk();
+        // Test metadata value > 200 bytes
+        // Expect SatiError::MetadataValueTooLong
     }
 }
 ```
@@ -1488,9 +1466,6 @@ sati/
 │   │   ├── schemas.ts           # SAS schema definitions
 │   │   └── types.ts
 │   └── tests/
-│
-├── indexer/                     # Query layer (optional)
-│   └── src/
 │
 ├── examples/
 │   ├── register-agent.ts

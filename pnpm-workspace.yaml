@@ -1,3 +1,9 @@
+packages:
+  - sdk
+
 onlyBuiltDependencies:
+  - '@swc/core'
+  - bigint-buffer
   - bufferutil
+  - esbuild
   - utf-8-validate

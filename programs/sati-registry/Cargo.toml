@@ -1,0 +1,39 @@
+[package]
+name = "sati-registry"
+version = "0.1.0"
+description = "Minimal agent identity registry for Solana - ERC-8004 compatible"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sati_registry"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang.workspace = true
+anchor-spl.workspace = true
+solana-security-txt.workspace = true
+spl-token-2022 = "8.0"
+spl-token-metadata-interface = "0.7"
+spl-token-group-interface = "0.6"
+spl-type-length-value = "0.8"
+spl-associated-token-account = { version = "7.0", features = ["no-entrypoint"] }
+
+[dev-dependencies]
+mollusk-svm = "0.5.1"
+mollusk-svm-programs-token = "0.5.1"
+solana-sdk = "2.2"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

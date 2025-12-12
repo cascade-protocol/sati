@@ -16,3 +16,4 @@ codegen-units = 1
 anchor-lang = "0.32.1"
 anchor-spl = "0.32.1"
 solana-security-txt = "1.1.1"
+solana-sdk = "2.3"

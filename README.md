@@ -1,201 +1,178 @@
 # SATI: Solana Agent Trust Infrastructure
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status: Community Standard (Proposed)](https://img.shields.io/badge/Status-Proposed-yellow.svg)]()
+[![Status: Implementation Ready](https://img.shields.io/badge/Status-Implementation_Ready-green.svg)]()
 
-**Solana's answer to Ethereum's ERC-8004** - A four-registry protocol enabling autonomous AI agents to establish verifiable identity, accumulate portable reputation, manage user delegation, and handle payment mandate lifecycle across organizational boundaries.
-
----
-
-## 🎯 The Problem
-
-Solana has **50,000+ AI agents** deployed (ElizaOS, Solana Agent Kit, GOAT) but **zero formal standards** for:
-- ✗ Agent identity and discovery
-- ✗ Cross-platform reputation
-- ✗ User-to-agent delegation
-- ✗ Payment mandate lifecycle (IntentMandate/CartMandate)
-- ✗ Work validation proofs
-
-Meanwhile, Ethereum has ERC-8004 and Google's AP2 protocol. Protocols like Hubble AI choose Base because Solana lacks complete agent infrastructure.
-
-**SATI fixes this.** First Solana standard with **complete AP2 support.**
+**Solana's answer to Ethereum's ERC-8004** - A lightweight agent trust infrastructure providing ERC-8004 compatible identity, reputation, and validation using native Solana primitives.
 
 ---
 
-## 🏗️ Architecture
+## Overview
 
-SATI provides four composable registries:
+SATI v2 combines three components:
 
-### 1. Identity Registry (SATI-native, ZK Compressed)
-- Globally unique agent identifiers
-- DID support (did:solana, did:pkh, did:web)
-- Protocol endpoint discovery (A2A, MCP, AP2)
-- **Cost: $2,000 for 1M agents** (vs $3.4M traditional)
+| Component | Purpose |
+|-----------|---------|
+| **SATI Registry** | Canonical entry point, atomic registration, collection authority |
+| **Token-2022** | Agent identity NFTs with metadata and collection membership |
+| **SAS** | Reputation and validation attestations |
 
-### 2. Reputation Registry (SATI-native, Event-Based)
-- Pre-authorized client feedback (spam resistant)
-- x402 payment proof integration
-- Off-chain details with on-chain commitments
-- **150ms finality** with Alpenglow
-
-### 3. Delegation Registry (SAS-based Attestations)
-- User→agent authorization with expiry
-- Capability scoping and spending limits
-- Built on Solana Attestation Service primitives
-
-### 4. Mandate Registry (SATI-native, ZK Compressed)
-- **Full AP2 IntentMandate & CartMandate support**
-- Lifecycle states (Active/Revoked/Executed/Zombie/Amended)
-- Context drift detection (prevents "zombie mandates")
-- Revalidation triggers for changed user context
-- **First Solana solution to AP2 mandate lifecycle problem**
-
-**Plus:** TEE validation attestations (Phala, Intel TDX, AMD SEV) via SAS
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SATI Registry Program                        │
+│           (satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF)         │
+├─────────────────────────────────────────────────────────────────┤
+│  initialize()              → Create registry + TokenGroup       │
+│  register_agent()          → Token-2022 NFT + group membership  │
+│  update_registry_authority() → Transfer/renounce control        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────┐  ┌──────────────────────────────────┐
+│      Token-2022          │  │  Solana Attestation Service      │
+│  • Identity storage      │  │  • FeedbackAuth schema           │
+│  • TokenMetadata         │  │  • Feedback schema               │
+│  • TokenGroup            │  │  • ValidationRequest schema      │
+│  • Direct updates/xfers  │  │  • ValidationResponse schema     │
+└──────────────────────────┘  └──────────────────────────────────┘
+```
 
 ---
 
-## 🚀 Quick Start
+## Why SATI?
+
+| Feature | SATI v2 | ERC-8004 |
+|---------|---------|----------|
+| **Identity** | Token-2022 NFT | ERC-721 NFT |
+| **Wallet support** | Phantom, Solflare, Backpack | MetaMask, etc. |
+| **Metadata** | On-chain (TokenMetadata extension) | On-chain (tokenURI) |
+| **Collections** | TokenGroup extension | Contract-level |
+| **Transfers** | Native token instruction | transferFrom() |
+| **Reputation** | SAS attestations | On-chain events |
+| **Finality** | ~400ms (Alpenglow: 150ms) | ~12s |
+
+---
+
+## Quick Start
 
 ```bash
 # Clone repository
 git clone https://github.com/tenequm/sati.git
 cd sati
 
-# Install dependencies (uses pnpm)
+# Install dependencies
 pnpm install
 
-# Build programs (requires Anchor 0.32.1+)
+# Build program
 anchor build
 
 # Build SDK
-cd sdk && pnpm build
+pnpm --filter @sati/sdk build
 
 # Run tests
 anchor test
 ```
 
-**Note:** This is a scaffolded repository. Full implementation planned for Q1 2026 (13-week roadmap).
-
 **Requirements:**
 - Rust 1.89.0
-- Solana CLI 1.18+
+- Solana CLI 2.0+
 - Anchor 0.32.1+
 - Node.js 18+
-- pnpm (not npm/yarn)
+- pnpm
 
 ---
 
-## 💡 Why SATI?
+## SDK Usage
 
-| Feature | SATI | aeamcp | s8004 | ERC-8004 |
-|---------|------|--------|-------|----------|
-| **ZK Compression** | ✅ 1,600x cheaper | ❌ | ❌ | N/A |
-| **Alpenglow Ready** | ✅ 150ms finality | ❌ | ❌ | N/A |
-| **SAS Integration** | ✅ Production-tested | ❌ | ❌ | N/A |
-| **Cross-chain DIDs** | ✅ Ethereum compatible | ❌ | ❌ | ✅ |
-| **User Delegation** | ✅ Native | Planned | ❌ | ❌ |
-| **Mandate Lifecycle** | ✅ Full AP2 support | ❌ | ❌ | ❌ |
-| **Zombie Detection** | ✅ Context drift | ❌ | ❌ | ❌ |
-| **Status** | Proposed | Devnet | POC | Draft |
+```typescript
+import {
+  getRegisterAgentInstructionAsync,
+  SATI_REGISTRY_PROGRAM_ADDRESS,
+} from "@sati/sdk";
 
----
+// Register an agent
+const registerIx = await getRegisterAgentInstructionAsync({
+  payer,
+  owner: payer.address,
+  groupMint,
+  agentMint,
+  agentTokenAccount,
+  name: "MyAgent",
+  symbol: "SATI",
+  uri: "ipfs://QmRegistrationFile",
+  additionalMetadata: [
+    { key: "agentWallet", value: `solana:${payer.address}` },
+    { key: "a2a", value: "https://agent.example/.well-known/agent-card.json" },
+  ],
+  nonTransferable: false,
+});
+```
 
-## 🎯 Use Cases
-
-**For Agent Frameworks:**
-- ElizaOS, Solana Agent Kit, GOAT can use SATI for identity
-- Agents gain portable reputation across platforms
-- Cross-framework agent discovery becomes possible
-
-**For Payment Protocols:**
-- x402 agents get verifiable identities
-- Payment proofs integrate with reputation
-- **Full AP2 mandate lifecycle support** (IntentMandate/CartMandate)
-- Context drift detection prevents "zombie mandate" chargebacks
-- Value-weighted feedback prevents Sybil attacks
-
-**For Enterprises:**
-- Hubble AI can build on Solana (complete AP2 + ERC-8004 compatibility)
-- Trust infrastructure for PayAI ecosystem
-- Cross-chain agent interoperability (Solana ↔ Ethereum)
-- Regulatory compliance (context revalidation for subscription-style payments)
+See [examples/](./examples/) for complete usage examples.
 
 ---
 
-## 📚 Documentation
+## ERC-8004 Compatibility
 
-- [Complete Specification](./docs/SPECIFICATION.md) - 14,000 word technical spec
-- [Architecture Overview](./docs/ARCHITECTURE.md) - Visual system design
-- [ERC-8004 Comparison](./docs/COMPARISON_ERC8004.md) - Alignment analysis
-- [TypeScript SDK](./sdk/) - Developer integration guide
+SATI achieves **100% functional compatibility** with ERC-8004:
 
----
-
-## 🛣️ Roadmap
-
-**Phase 1: Core Infrastructure (13 weeks)**
-- Identity Registry with ZK Compression
-- Reputation Registry with x402 integration
-- **Mandate Registry with full AP2 lifecycle support**
-- **Context drift detection and zombie mandate prevention**
-- SAS delegation and validation schemas
-- Cross-chain DID support
-
-**Phase 2: Advanced Features (6 months post-launch)**
-- Multi-validator consensus orchestrator
-- zkML validation implementation
-- Wormhole/LayerZero bridge integration
-- Light client cross-chain verification
-- Advanced mandate revalidation automation
+| ERC-8004 Feature | SATI Equivalent |
+|------------------|-----------------|
+| `registrationFile` | Token-2022 `uri` field (IPFS/HTTP) |
+| `transfer()` | Native Token-2022 transfer |
+| `setApprovalForAll()` | Token-2022 delegate |
+| `Feedback.request()` | SAS `FeedbackAuth` attestation |
+| `Feedback.submit()` | SAS `Feedback` attestation |
+| Collection membership | TokenGroup extension |
 
 ---
 
-## 🤝 Contributing
+## Documentation
 
-SATI is a community-driven standard. We welcome:
-- Feedback on specification
-- Integration proposals (frameworks, protocols)
-- Implementation contributions
-- Documentation improvements
+- [Complete Specification](./docs/specification.md) - Full technical specification
+- [TypeScript SDK](./sdk/) - Developer SDK with generated client
+- [Examples](./examples/) - Usage examples
+
+---
+
+## Security
+
+See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
+
+**Program Audits:** Planned for Q1 2026 pre-mainnet.
+
+---
+
+## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 **Inspired by:**
 - [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) (Ethereum Foundation, MetaMask, Google, Coinbase)
-- [Solana Attestation Service](https://github.com/civic/solana-attestation-service) (Solana Foundation)
+- [Solana Attestation Service](https://github.com/solana-foundation/solana-attestation-service)
 - Google's Agent-to-Agent (A2A) Protocol
 - Anthropic's Model Context Protocol (MCP)
 
 **Built on:**
-- [Light Protocol ZK Compression](https://www.lightprotocol.com) (1,600x cost reduction)
-- [Anchor Framework](https://www.anchor-lang.com) (Solana development)
-- [Solana Attestation Service](https://github.com/civic/solana-attestation-service) (Attestation primitives)
-
-**Motivated by:**
-- Seeing Hubble AI choose Base due to ERC-8004
-- Realizing Solana's 50,000+ agents lack trust infrastructure
-- Believing Solana deserves best-in-class agent standards
+- [Token-2022](https://spl.solana.com/token-2022) (SPL Token Extensions)
+- [Anchor Framework](https://www.anchor-lang.com)
+- [Solana Attestation Service](https://github.com/solana-foundation/solana-attestation-service)
 
 ---
 
-## 📞 Connect
+## Connect
 
 - **Twitter:** [@opwizardx](https://twitter.com/opwizardx)
-- **Related Project:** [CascadePay](https://github.com/tenequm/cascadepay) (x402 payment splitting)
 - **Discussion:** [GitHub Discussions](https://github.com/tenequm/sati/discussions)
-
-**Built during [Solana x402 Hackathon](https://payai.network) - November 2025**
 
 ---
 
-## 📄 License
+## License
 
 [Apache License 2.0](./LICENSE)
 
 Copyright 2025 Cascade Protocol
-
-*SATI is free to use, modify, and build upon under the Apache 2.0 license.*
