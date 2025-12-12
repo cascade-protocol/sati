@@ -6,7 +6,7 @@ pub mod instructions;
 pub mod serialization;
 
 use mollusk_svm::Mollusk;
-use mollusk_svm_programs_token::token2022;
+use mollusk_svm_programs_token::{associated_token, token2022};
 
 /// Setup Mollusk for testing with Token-2022 program
 ///
@@ -30,6 +30,9 @@ pub fn setup_mollusk() -> Mollusk {
 
     // Add Token-2022 program (required for SATI)
     token2022::add_program(&mut mollusk);
+
+    // Add Associated Token program (required for ATA creation)
+    associated_token::add_program(&mut mollusk);
 
     mollusk
 }

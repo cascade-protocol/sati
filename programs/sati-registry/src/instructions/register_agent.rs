@@ -9,7 +9,11 @@ use anchor_spl::token_2022::spl_token_2022::{
 use spl_token_group_interface::instruction::initialize_member;
 use spl_token_metadata_interface::instruction::initialize as initialize_metadata;
 
-use crate::constants::*;
+use crate::constants::{
+    LARGE_METADATA_THRESHOLD, MAX_METADATA_ENTRIES, MAX_METADATA_KEY_LENGTH,
+    MAX_METADATA_VALUE_LENGTH, MAX_NAME_LENGTH, MAX_SYMBOL_LENGTH, MAX_URI_LENGTH,
+    TLV_OVERHEAD_PADDING,
+};
 use crate::errors::SatiError;
 use crate::events::AgentRegistered;
 use crate::state::{MetadataEntry, RegistryConfig};
@@ -125,9 +129,12 @@ pub fn handler(
     // Add space for TokenGroupMember: 72 bytes
     let group_member_space = 72;
 
-    let total_len = mint_len + metadata_space + group_member_space + 100; // +100 padding for TLV overhead
+    // Total size needed after all extensions are initialized
+    // TokenMetadata and GroupMember will reallocate the account when initialized
+    let total_len = mint_len + metadata_space + group_member_space + TLV_OVERHEAD_PADDING;
 
-    // Create the agent_mint account
+    // Create account with exact mint_len space (required by Token-2022's InitializeMint2)
+    // but fund with enough lamports for the eventual total_len after reallocations
     let lamports = Rent::get()?.minimum_balance(total_len);
 
     anchor_lang::solana_program::program::invoke(
@@ -135,7 +142,7 @@ pub fn handler(
             &ctx.accounts.payer.key(),
             &ctx.accounts.agent_mint.key(),
             lamports,
-            total_len as u64,
+            mint_len as u64, // Use exact size for pointer extensions; metadata/group will reallocate
             &anchor_spl::token_2022::ID,
         ),
         &[
@@ -224,7 +231,16 @@ pub fn handler(
     )?;
 
     // 2g. Add additional metadata fields if provided
+    // NOTE: Each metadata entry adds one CPI call (~5-10k compute units).
+    // For >5 entries, clients should request 400k CUs via SetComputeUnitLimit.
+    // See SDK documentation for compute budget examples.
     if let Some(ref metadata) = additional_metadata {
+        if metadata.len() > LARGE_METADATA_THRESHOLD {
+            msg!(
+                "Large metadata ({} entries): ensure 400k compute units requested",
+                metadata.len()
+            );
+        }
         for entry in metadata {
             let update_field_ix = spl_token_metadata_interface::instruction::update_field(
                 &anchor_spl::token_2022::ID,

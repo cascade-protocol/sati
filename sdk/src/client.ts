@@ -205,6 +205,12 @@ export class SATI {
    *
    * Creates a Token-2022 NFT with metadata and group membership atomically.
    *
+   * **Compute Budget Note:**
+   * Each additional metadata entry adds ~5-10k compute units.
+   * When using >5 entries, the on-chain program logs a warning suggesting
+   * 400k CUs. If transactions fail with compute exceeded, prepend a
+   * SetComputeUnitLimit instruction to your transaction.
+   *
    * @param params - Registration parameters
    * @returns Mint address and member number
    */

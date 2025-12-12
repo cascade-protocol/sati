@@ -1,6 +1,12 @@
 use anchor_lang::prelude::*;
 
 #[event]
+pub struct RegistryInitialized {
+    pub authority: Pubkey,
+    pub group_mint: Pubkey,
+}
+
+#[event]
 pub struct AgentRegistered {
     pub mint: Pubkey,
     pub owner: Pubkey,

@@ -4,6 +4,7 @@ use spl_token_2022::state::Mint;
 use spl_token_group_interface::state::TokenGroup;
 
 use crate::errors::SatiError;
+use crate::events::RegistryInitialized;
 use crate::state::RegistryConfig;
 
 #[derive(Accounts)]
@@ -58,16 +59,20 @@ pub fn handler(ctx: Context<Initialize>) -> Result<()> {
     require!(mint.base.is_initialized, SatiError::InvalidGroupMint);
     require!(mint.base.decimals == 0, SatiError::InvalidGroupMint);
 
-    // Verify TokenGroup extension exists
-    let _group = mint
+    // Verify TokenGroup extension exists and has correct update_authority
+    let group = mint
         .get_extension::<TokenGroup>()
         .map_err(|_| SatiError::InvalidGroupMint)?;
 
-    // Note: We don't verify update_authority here because the group mint
-    // is created by the client before this instruction. The client must
-    // initialize it with the registry PDA as update_authority. The register_agent
-    // instruction will fail if the update_authority is incorrect when trying
-    // to add members to the group.
+    // SECURITY: Verify the TokenGroup's update_authority is the registry PDA
+    // This is critical - if wrong, the registry would be permanently bricked
+    // because register_agent requires registry PDA to sign as group update_authority
+    let registry_config_key = ctx.accounts.registry_config.key();
+    let group_update_authority: Option<Pubkey> = group.update_authority.into();
+    require!(
+        group_update_authority == Some(registry_config_key),
+        SatiError::InvalidGroupMint
+    );
 
     // Store registry configuration
     let registry = &mut ctx.accounts.registry_config;
@@ -75,6 +80,11 @@ pub fn handler(ctx: Context<Initialize>) -> Result<()> {
     registry.group_mint = group_mint_key;
     registry.total_agents = 0;
     registry.bump = registry_bump;
+
+    emit!(RegistryInitialized {
+        authority: authority_key,
+        group_mint: group_mint_key,
+    });
 
     Ok(())
 }
