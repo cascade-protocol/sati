@@ -65,12 +65,10 @@ export interface FeedbackAuthorization {
   agentMint: Address;
   /** Authorized client address */
   client: Address;
-  /** Maximum number of feedback submissions allowed */
-  maxSubmissions: number;
-  /** Number of submissions used */
-  submissionsUsed: number;
+  /** Maximum feedback index allowed (ERC-8004 indexLimit) */
+  indexLimit: number;
   /** Expiration timestamp (0 = no expiry) */
-  expiresAt: number;
+  expiry: number;
   /** Whether authorization is revoked */
   revoked: boolean;
 }

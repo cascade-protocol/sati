@@ -581,8 +581,9 @@ interface TokenMetadata {
   additionalMetadata: [string, string][];  // Key-value pairs
 }
 
-// Example additionalMetadata:
-// ["agentWallet", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"]
+// Example additionalMetadata (CAIP-10 format for wallets):
+// ["agentWallet", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv"]
+//                         ^^ chain (mainnet genesis hash)   ^^ account pubkey
 // ["did", "did:web:agent.example.com"]
 // ["a2a", "https://agent.example/.well-known/agent-card.json"]
 // ["mcp", "https://mcp.agent.example/"]
@@ -688,9 +689,9 @@ const FEEDBACK_AUTH_SCHEMA = {
   description: "Authorization for client to submit feedback",
   layout: [12, 2, 8],  // String, U16, I64
   fieldNames: [
-    "agent_mint",       // Agent NFT mint address
-    "max_submissions",  // Maximum feedbacks allowed
-    "expires_at",       // Unix timestamp (0 = use SAS expiry)
+    "agent_mint",        // Agent NFT mint address
+    "index_limit",       // Maximum feedback index allowed (ERC-8004 indexLimit)
+    "expiry",            // Unix timestamp (0 = use SAS expiry)
   ]
 };
 
@@ -698,7 +699,7 @@ const FEEDBACK_AUTH_SCHEMA = {
 // - credential = agent NFT mint
 // - subject = client pubkey (authorized reviewer)
 // - issuer = agent owner
-// - nonce = hash(agent_mint, client_pubkey)
+// - nonce = hash(agentMint, clientPubkey)
 ```
 
 #### 2. Feedback Schema
@@ -708,23 +709,27 @@ const FEEDBACK_SCHEMA = {
   name: "SATIFeedback",
   version: 1,
   description: "Client feedback for agent (ERC-8004 compatible)",
-  layout: [12, 0, 12, 12, 12, 13, 12],
+  layout: [12, 2, 0, 0, 0, 13, 0],  // Pubkey, U16, String, String, String, VecU8, String
   fieldNames: [
-    "agent_mint",     // Agent NFT mint receiving feedback
-    "score",          // 0-100
-    "tag1",           // Optional categorization
-    "tag2",           // Optional categorization
-    "file_uri",       // Off-chain feedback details (IPFS)
-    "file_hash",      // SHA-256 hash (32 bytes)
-    "payment_proof",  // x402 transaction reference (optional)
+    "agent_mint",      // Agent NFT mint receiving feedback
+    "score",           // 0-100 as U16 (see note below)
+    "tag1",            // Optional categorization
+    "tag2",            // Optional categorization
+    "fileuri",         // Off-chain feedback details (IPFS)
+    "filehash",        // SHA-256 hash (32 bytes)
+    "payment_proof",   // x402 transaction reference (optional)
   ]
 };
 
 // Attestation configuration:
 // - credential = agent NFT mint
 // - issuer = client (feedback giver)
-// - nonce = hash(agent_mint, client_pubkey, timestamp)
+// - nonce = hash(agentMint, clientPubkey, timestamp)
 ```
+
+> **Score Type Rationale**: Score uses U16 (type 2) instead of String for type safety
+> and efficient serialization. ERC-8004 uses uint8 (0-255); U16 provides equivalent
+> range with headroom for extended scoring if needed.
 
 #### 3. FeedbackResponse Schema
 
@@ -733,18 +738,18 @@ const FEEDBACK_RESPONSE_SCHEMA = {
   name: "SATIFeedbackResponse",
   version: 1,
   description: "Response to feedback (ERC-8004 appendResponse)",
-  layout: [12, 12, 13],
+  layout: [12, 0, 13],  // Pubkey, String, VecU8
   fieldNames: [
-    "feedback_id",     // Reference to feedback attestation pubkey
-    "response_uri",    // Off-chain response details
-    "response_hash",   // Content hash (32 bytes)
+    "feedback_id",      // Reference to feedback attestation pubkey
+    "response_uri",     // Off-chain response details
+    "response_hash",    // Content hash (32 bytes)
   ]
 };
 
 // Attestation configuration:
 // - credential = agent NFT mint
 // - issuer = responder (agent owner, auditor, etc.)
-// - nonce = hash(feedback_id, responder_pubkey, index)
+// - nonce = hash(feedbackId, responderPubkey, index)
 ```
 
 #### 4. ValidationRequest Schema
@@ -754,12 +759,12 @@ const VALIDATION_REQUEST_SCHEMA = {
   name: "SATIValidationRequest",
   version: 1,
   description: "Agent requests work validation",
-  layout: [12, 12, 12, 13],
+  layout: [12, 0, 0, 13],  // Pubkey, String, String, VecU8
   fieldNames: [
-    "agent_mint",     // Agent NFT mint requesting validation
-    "method_id",      // Validation method ("tee", "zkml", "restake")
-    "request_uri",    // Off-chain validation data
-    "request_hash",   // Content hash (32 bytes)
+    "agent_mint",      // Agent NFT mint requesting validation
+    "method_id",       // Validation method (SATI extension, see note below)
+    "request_uri",     // Off-chain validation data
+    "request_hash",    // Content hash (32 bytes)
   ]
 };
 
@@ -767,8 +772,13 @@ const VALIDATION_REQUEST_SCHEMA = {
 // - credential = agent NFT mint
 // - subject = validator pubkey
 // - issuer = agent owner
-// - nonce = hash(agent_mint, validator_pubkey, user_nonce)
+// - nonce = hash(agentMint, validatorPubkey, userNonce)
 ```
+
+> **method_id Extension**: The `method_id` field is a SATI-specific extension not present
+> in ERC-8004. It explicitly identifies the validation approach ("tee", "zkml", "restake")
+> since SATI validators may support multiple methods. ERC-8004 relies on the validator
+> contract address to implicitly determine the method.
 
 #### 5. ValidationResponse Schema
 
@@ -777,21 +787,65 @@ const VALIDATION_RESPONSE_SCHEMA = {
   name: "SATIValidationResponse",
   version: 1,
   description: "Validator responds to request",
-  layout: [12, 0, 12, 13, 12],
+  layout: [12, 2, 0, 13, 0],  // Pubkey, U16, String, VecU8, String
   fieldNames: [
-    "request_id",      // Reference to request attestation pubkey
-    "response",        // 0-100 (0=fail, 100=pass)
-    "response_uri",    // Off-chain evidence
-    "response_hash",   // Content hash
-    "tag",             // Optional categorization
+    "request_id",       // Reference to request attestation pubkey
+    "response",         // 0-100 as U16 (0=fail, 100=pass)
+    "response_uri",     // Off-chain evidence
+    "response_hash",    // Content hash
+    "tag",              // Optional categorization
   ]
 };
 
 // Attestation configuration:
 // - credential = agent NFT mint (from request)
 // - issuer = validator
-// - nonce = hash(request_id, response_index)
+// - nonce = hash(requestId, responseIndex)
 ```
+
+### Off-Chain Feedback File Structure
+
+When using `fileuri` in feedback attestations, the referenced file should follow this structure:
+
+```json
+{
+  "agentId": "sati:devnet:ABC123mintPubkey",
+  "agentRegistry": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF",
+  "clientAddress": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv",
+  "createdAt": "2025-01-15T12:00:00Z",
+  "score": 85,
+  "tag1": "quality",
+  "tag2": "speed",
+  "skill": "code-review",
+  "context": "Pull request review for authentication module",
+  "paymentProof": {
+    "protocol": "x402",
+    "txSignature": "5K8Hg7...",
+    "amount": "0.001",
+    "token": "USDC"
+  },
+  "details": {
+    "taskDescription": "Review PR #123 for security issues",
+    "completionTime": 3600,
+    "additionalNotes": "Found 2 critical issues, both resolved"
+  }
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `agentId` | Yes | SATI canonical identifier of the agent |
+| `agentRegistry` | Yes | CAIP-2 address of the registry program |
+| `clientAddress` | Yes | CAIP-10 address of the feedback giver |
+| `createdAt` | Yes | ISO 8601 timestamp |
+| `score` | Yes | Numeric score (0-100) |
+| `tag1`, `tag2` | No | Categorization tags (should match on-chain) |
+| `skill` | No | Specific skill being evaluated |
+| `context` | No | Brief description of the interaction |
+| `paymentProof` | No | x402 payment details if applicable |
+| `details` | No | Extended feedback information |
+
+The `filehash` on-chain field should contain the SHA-256 hash of this JSON file for integrity verification.
 
 ### Schema Versioning
 
@@ -831,7 +885,7 @@ SATI v2 uses the **exact same registration file format** as ERC-8004:
   "endpoints": [
     { "name": "A2A", "endpoint": "https://agent.example/agent-card.json", "version": "0.3.0" },
     { "name": "MCP", "endpoint": "https://mcp.agent.example/", "version": "2025-06-18" },
-    { "name": "agentWallet", "endpoint": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" }
+    { "name": "agentWallet", "endpoint": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv" }
   ],
   "registrations": [
     { "agentId": "sati:devnet:ABC123mint", "agentRegistry": "solana:devnet:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF" },
@@ -862,8 +916,78 @@ SATI v2 uses the **exact same registration file format** as ERC-8004:
 | `validationResponse()` | ✅ | SAS ValidationResponse attestation |
 | Wallet display | ✅ | Phantom, Solflare, Backpack |
 | Cross-chain DID | ✅ | additionalMetadata["did"] |
+| CAIP-2/CAIP-10 | ✅ | Chain-agnostic identifiers |
 
 **Summary**: 100% functionally compatible. All ERC-8004 operations supported.
+
+### CAIP and DID Support
+
+SATI uses [Chain Agnostic Improvement Proposals](https://github.com/ChainAgnostic/CAIPs) for cross-chain interoperability:
+
+#### CAIP-2: Blockchain ID
+
+Chain identifiers follow CAIP-2 format: `namespace:reference`
+
+| Chain | CAIP-2 Identifier |
+|-------|-------------------|
+| Solana Mainnet | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
+| Solana Devnet | `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
+| Ethereum Mainnet | `eip155:1` |
+| Base | `eip155:8453` |
+
+#### CAIP-10: Account ID
+
+Account identifiers follow CAIP-10 format: `chain_id:account_address`
+
+```
+// Solana account on mainnet:
+solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv
+
+// Ethereum account:
+eip155:1:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7
+```
+
+#### DID Support
+
+Agents can advertise DIDs via `additionalMetadata`:
+
+```typescript
+// Supported DID methods:
+["did", "did:web:agent.example.com"]           // Web-based DID
+["did", "did:pkh:solana:5eykt4...:7S3P4..."]   // PKH (blockchain account)
+["did", "did:key:z6Mkf..."]                    // Key-based DID
+```
+
+#### SATI Canonical Identifier
+
+SATI uses a custom format for agent identification following CAIP-2 patterns:
+
+```
+sati:<network>:<mint_address>
+
+// Examples:
+sati:mainnet:ABC123mintPubkey
+sati:devnet:XYZ789mintPubkey
+```
+
+The registry program address is stored separately in the `agentRegistry` field using CAIP-2 format:
+
+```json
+{
+  "agentId": "sati:devnet:ABC123mintPubkey",
+  "agentRegistry": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
+}
+```
+
+This separation allows:
+- Compact agent identifiers (no redundant registry in every reference)
+- Clear CAIP-2 compliance for registry addresses
+- Flexibility for multi-registry scenarios
+
+This format is used in:
+- `registrations[]` array in registration files
+- Cross-chain agent resolution
+- Event indexing
 
 ---
 
