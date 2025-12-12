@@ -45,15 +45,16 @@ async function createGroupMint(
   groupMint: Keypair,
   registryConfig: PublicKey,
 ): Promise<string> {
-  const payerPublicKey = "publicKey" in payer ? payer.publicKey : payer.publicKey;
-  const payerSigner = "payer" in payer ? (payer as anchor.Wallet).payer : payer;
+  const payerPublicKey = "payer" in payer ? payer.publicKey : payer.publicKey;
+  const payerSigner = "payer" in payer ? payer.payer : payer;
 
-  // Calculate space: GroupPointer extension only, but pay lamports for TokenGroup too
+  // Calculate space for GroupPointer only - InitializeGroup should reallocate for TokenGroup
+  // Note: This fails on local validator with "Failed to reallocate account data"
+  // Pre-allocating for both extensions fails with "InvalidAccountData" on InitializeMint
   const mintLen = getMintLen([ExtensionType.GroupPointer]);
   const lamports = await connection.getMinimumBalanceForRentExemption(mintLen + TOKEN_GROUP_SIZE);
 
   const transaction = new anchor.web3.Transaction().add(
-    // 1. Create account with space for GroupPointer (lamports cover full size)
     SystemProgram.createAccount({
       fromPubkey: payerPublicKey,
       newAccountPubkey: groupMint.publicKey,
@@ -84,7 +85,7 @@ async function createGroupMint(
       mint: groupMint.publicKey,
       mintAuthority: payerPublicKey, // payer is current mint authority
       updateAuthority: registryConfig, // registry PDA will be update authority
-      maxSize: 0, // unlimited
+      maxSize: 0n, // unlimited
     }),
     // 5. Transfer mint authority to registry PDA
     createSetAuthorityInstruction(
@@ -149,9 +150,9 @@ async function initializeRegistry(
     .rpc();
 }
 
-// TODO: Fix Token-2022 GroupPointer + TokenGroup extension space allocation
-// Issue: InitializeGroup fails with "Failed to reallocate account data" on local validator
-// Root cause: CPI reallocation restrictions for Token-2022 extensions need investigation
+// TODO: Token-2022 GroupPointer + TokenGroup pre-allocation causes InitializeMint to fail
+// with "InvalidAccountData". Reallocation approach fails with "Failed to reallocate".
+// Need to investigate proper extension initialization order.
 describe.skip("sati-registry: initialize", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -649,11 +650,14 @@ describe.skip("sati-registry: update_registry_authority", () => {
     // Ensure registry is initialized
     const existingAccount = await connection.getAccountInfo(registryConfig);
     if (!existingAccount) {
-      const [groupMint] = PublicKey.findProgramAddressSync(
+      const [groupMintPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("group_mint")],
         program.programId,
       );
-      await program.methods.initialize().accounts({ authority: payer.publicKey }).rpc();
+      await program.methods.initialize().accounts({
+        authority: payer.publicKey,
+        groupMint: groupMintPda,
+      }).rpc();
     }
   });
 
@@ -804,7 +808,10 @@ describe.skip("sati-registry: Token-2022 integration", () => {
     // Ensure registry is initialized
     const existingAccount = await connection.getAccountInfo(registryConfig);
     if (!existingAccount) {
-      await program.methods.initialize().accounts({ authority: payer.publicKey }).rpc();
+      await program.methods.initialize().accounts({
+        authority: payer.publicKey,
+        groupMint,
+      }).rpc();
     }
   });
 
@@ -829,7 +836,7 @@ describe.skip("sati-registry: Token-2022 integration", () => {
       .accounts({
         payer: payer.publicKey,
         owner: payer.publicKey,
-        groupMint: groupMint.publicKey,
+        groupMint,
         agentMint: agentMint.publicKey,
         agentTokenAccount,
       })
@@ -869,7 +876,7 @@ describe.skip("sati-registry: Token-2022 integration", () => {
       .accounts({
         payer: payer.publicKey,
         owner: payer.publicKey,
-        groupMint: groupMint.publicKey,
+        groupMint,
         agentMint: agentMint.publicKey,
         agentTokenAccount,
       })

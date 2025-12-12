@@ -44,9 +44,13 @@ const TOKEN_2022_PROGRAM_ID = new PublicKey(
  */
 function setupLiteSVM(): LiteSVM {
   const svm = new LiteSVM();
+  // Path works from both sdk/ and root (anchor test runs from root)
+  const programPath = process.cwd().endsWith("sdk")
+    ? "../target/deploy/sati_registry.so"
+    : "./target/deploy/sati_registry.so";
   svm.addProgramFromFile(
     new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
-    "../target/deploy/sati_registry.so"
+    programPath
   );
   return svm;
 }

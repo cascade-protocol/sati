@@ -7,7 +7,7 @@
     "build": "anchor build",
     "test": "anchor test",
     "test:sdk": "pnpm --filter @sati/sdk test",
-    "type-check": "pnpm --filter @sati/sdk type-check",
+    "type-check": "tsc --noEmit && pnpm --filter @sati/sdk type-check",
     "clean": "rm -rf target test-ledger .anchor"
   },
   "devDependencies": {
