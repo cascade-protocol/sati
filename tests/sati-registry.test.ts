@@ -79,13 +79,15 @@ async function createGroupMint(
       TOKEN_2022_PROGRAM_ID,
     ),
     // 4. Initialize TokenGroup extension (payer signs as mint authority)
+    // NOTE: maxSize = 0 means "no members allowed", NOT unlimited!
+    // For unlimited, use u64::MAX
     createInitializeGroupInstruction({
       programId: TOKEN_2022_PROGRAM_ID,
       group: groupMint.publicKey,
       mint: groupMint.publicKey,
       mintAuthority: payerPublicKey, // payer is current mint authority
       updateAuthority: registryConfig, // registry PDA will be update authority
-      maxSize: 0n, // unlimited
+      maxSize: BigInt("18446744073709551615"), // u64::MAX = unlimited
     }),
     // 5. Transfer mint authority to registry PDA
     createSetAuthorityInstruction(
