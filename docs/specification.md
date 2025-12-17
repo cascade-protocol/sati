@@ -11,13 +11,13 @@
 
 ## Abstract
 
-SATI v2 is a lightweight agent trust infrastructure for Solana providing ERC-8004 compatible agent identity, reputation, and validation. It combines:
+SATI is trust infrastructure for million-agent economies on Solana. It provides ERC-8004 compatible agent identity, reputation, and validation through:
 
 - **SATI Registry Program** - Minimal Anchor program for canonical address and atomic registration
 - **Token-2022** for agent identity (NFTs with native metadata and collection membership)
 - **Solana Attestation Service (SAS)** for reputation and validation attestations
 
-This design achieves **100% ERC-8004 functional compatibility** with native wallet support, standard transfer semantics, and a canonical registry address.
+This architecture is **compression-ready** — when SAS ships ZK-compressed attestations, reputation costs drop ~100x with no changes to SATI. This enables storing complete feedback histories on-chain rather than just averages, unlocking spam detection, reviewer reputation weighting, and time-decay scoring at scale.
 
 ---
 
@@ -35,6 +35,7 @@ This design achieves **100% ERC-8004 functional compatibility** with native wall
 10. [Testing](#testing)
 11. [Deployment](#deployment)
 12. [Governance](#governance)
+13. [Scalability: ZK Compression](#scalability-zk-compression)
 
 ---
 
@@ -42,12 +43,12 @@ This design achieves **100% ERC-8004 functional compatibility** with native wall
 
 ### Why v2?
 
-SATI v1 proposed multiple custom programs with ZK compression. Analysis revealed:
+SATI v1 proposed custom programs with built-in ZK compression. Analysis revealed a better path:
 
-1. **Overcomplicated**: Custom programs add audit burden and attack surface
-2. **Premature optimization**: ZK compression savings irrelevant at current scale
-3. **Reinventing wheels**: Token-2022 + SAS already provide needed primitives
-4. **Deferred features**: Mandate/AP2 lifecycle solves problems that don't exist yet
+1. **Delegate compression to SAS**: SAS is adding ZK-compressed attestations ([PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101)). SATI benefits automatically.
+2. **Minimal custom code**: Token-2022 + SAS already provide needed primitives
+3. **Ship now, scale later**: Launch with PDAs today, gain 100x cost reduction when SAS compression ships
+4. **Avoid audit burden**: Custom compression code = more attack surface
 
 ### Why a Registry Program?
 
@@ -102,8 +103,9 @@ On Solana, **Token-2022 achieves the same benefits**:
 │  • TokenMetadata         │  │  • Feedback schema               │
 │  • TokenGroup            │  │  • FeedbackResponse schema       │
 │  • Direct updates/xfers  │  │  • ValidationRequest schema      │
-└──────────────────────────┘  │  • ValidationResponse schema     │
-                              └──────────────────────────────────┘
+│                          │  │  • ValidationResponse schema     │
+│                          │  │  • Certification schema          │
+└──────────────────────────┘  └──────────────────────────────────┘
 ```
 
 ### Component Responsibilities
@@ -675,6 +677,37 @@ Solana Attestation Service (SAS) by Solana Foundation:
 
 - **Repository**: https://github.com/solana-foundation/solana-attestation-service
 - **NPM**: https://www.npmjs.com/package/sas-lib
+
+### SATI-Maintained Schemas
+
+SATI maintains a canonical credential and 6 schemas on SAS. The SDK auto-loads these addresses per network — users don't need to deploy their own schemas.
+
+**Devnet Deployment:**
+
+| Component | Address |
+|-----------|---------|
+| **SATI Credential** | `7HCCiuYUHptR1SXXHBRqkKUPb5G3hPvnKfy5v8n2cFmY` |
+| SATIFeedbackAuth | `DNFKm4xxbc4kRkSSMNH3jVapja4FpZ3ZTrpPjyCvKsS2` |
+| SATIFeedback | `ThaSG2CDHu2zoFwwr7ymv4EuJ196GEG7b96hUZUaYau` |
+| SATIFeedbackResponse | `6QumCz2bLZ4knxQ4cBdAQwb7UNhVq6Kt5CJEV2Wv1D2E` |
+| SATIValidationRequest | `EfpXKG3UxAGy1S96b5nTmyxbZ2UPWVUa4LkwzxFYYxHt` |
+| SATIValidationResponse | `EsKybaVzREeUDtVNmqkxP5bYnWzesAmjU24J7yUN5P2m` |
+| SATICertification | `FS9btVi37tSUzvZnfbSKJGfkxshQ5kJs821CUeN6spsb` |
+
+**Mainnet Deployment:** TBD (pre-launch)
+
+**SDK Auto-Loading:**
+
+```typescript
+// Schemas are automatically loaded based on network
+const sati = new SATI({ network: "devnet" });
+
+// Or manually set custom config (e.g., for localnet testing)
+sati.setSASConfig({
+  credential: "...",
+  schemas: { feedbackAuth: "...", feedback: "...", ... }
+});
+```
 
 ### SAS Schema Layout Types
 
@@ -1553,7 +1586,7 @@ ipfs://QmYourRegistrationFileHash
 4. **Security audit**
 5. **Deploy to devnet**
 6. **Initialize registry** (create TokenGroup)
-7. **Create SAS schemas** (5 schemas)
+7. **Create SAS schemas** (6 schemas)
 8. **Implement SDK**
 9. **Test on devnet**
 10. **Deploy to mainnet**
@@ -1575,13 +1608,14 @@ const sasCredential = await sas.createCredential({
   signers: [satiMultisig],
 });
 
-// 3. Create SAS schemas (5 transactions)
+// 3. Create SAS schemas (6 transactions)
 const schemas = {
   feedbackAuth: await sas.createSchema({ ... }),
   feedback: await sas.createSchema({ ... }),
   feedbackResponse: await sas.createSchema({ ... }),
   validationRequest: await sas.createSchema({ ... }),
   validationResponse: await sas.createSchema({ ... }),
+  certification: await sas.createSchema({ ... }),
 };
 
 // 4. Publish addresses
@@ -1611,7 +1645,7 @@ console.log("SAS Schemas:", schemas);
 | Operation | Cost | Notes |
 |-----------|------|-------|
 | Initialize registry | ~0.005 SOL | One-time |
-| Setup SAS schemas (5) | ~0.015 SOL | One-time |
+| Setup SAS schemas (6) | ~0.018 SOL | One-time |
 | Register agent (minimal) | ~0.003 SOL | Mint + metadata + group member |
 | Register agent (3 fields) | ~0.0035 SOL | +additional metadata |
 | Register agent (10 fields) | ~0.005 SOL | Maximum metadata |
@@ -1690,17 +1724,20 @@ sati/
 ├── tests/                       # TypeScript E2E tests (vitest)
 │   └── smoke.test.ts
 │
-├── sdk/                         # @cascade-splits/sati-sdk
+├── sdk/                         # @sati/sdk
 │   ├── package.json
+│   ├── scripts/
+│   │   └── deploy-sas-schemas.ts  # Schema deployment CLI
 │   ├── src/
 │   │   ├── index.ts
-│   │   ├── sati.ts              # Main SDK class
-│   │   ├── registry.ts          # Registry program client
-│   │   ├── identity.ts          # Token-2022 NFT operations
-│   │   ├── reputation.ts        # SAS reputation operations
-│   │   ├── validation.ts        # SAS validation operations
+│   │   ├── client.ts            # Main SATI client class
 │   │   ├── schemas.ts           # SAS schema definitions
-│   │   └── types.ts
+│   │   ├── types.ts             # TypeScript type definitions
+│   │   ├── sas.ts               # SAS helper functions
+│   │   └── deployed/            # Auto-loaded network configs
+│   │       ├── index.ts         # Config loader
+│   │       ├── devnet.json      # Devnet schema addresses
+│   │       └── mainnet.json     # Mainnet schema addresses
 │   └── tests/
 │
 ├── examples/
@@ -1718,17 +1755,77 @@ sati/
 
 ---
 
-## What's NOT Included
+## What's NOT Included (Yet)
 
-| Feature | Reason |
+| Feature | Status |
 |---------|--------|
-| Mandates / AP2 lifecycle | No demand yet |
-| User→Agent delegation | Can add via SAS later if needed |
-| ZK Compression | Scale doesn't justify complexity |
-| On-chain aggregation | Indexer is standard Solana pattern |
+| ZK Compression | Automatic when SAS ships [PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101) — no SATI changes needed |
+| Mandates / AP2 lifecycle | Can add via SAS schemas when demand emerges |
+| User→Agent delegation | Can add via SAS schemas if needed |
+| On-chain aggregation | Indexer is standard Solana pattern; compression enables richer on-chain analysis |
 | Wrapped metadata/transfer | Direct Token-2022 calls are simpler |
 
-These can be added as separate schemas/programs without breaking changes.
+The SAS-based architecture means new capabilities can be added as schemas without breaking changes or program upgrades.
+
+---
+
+## Scalability: ZK Compression
+
+### Why Compression Matters
+
+Systems constrained by storage costs store only aggregates (averages, counts). With compressed attestations, SATI can store **complete feedback histories** on-chain, enabling:
+
+| Capability | Without Compression | With Compression |
+|------------|---------------------|------------------|
+| Feedback storage | Aggregates only (gas prohibitive) | Complete history |
+| Spam detection | Off-chain heuristics | On-chain pattern analysis |
+| Reviewer reputation | Trust all equally | Weight by reviewer quality |
+| Time-decay scoring | Not practical | Recent feedback weighted higher |
+| Scale | ~10K feedbacks practical | 1M+ feedbacks practical |
+
+### SAS Compressed Attestations
+
+SAS [PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101) adds three instructions via Light Protocol integration:
+
+| Instruction | Purpose |
+|-------------|---------|
+| `CreateCompressedAttestation` | Create attestation as compressed account (~100x cheaper) |
+| `CloseCompressedAttestation` | Close compressed attestation |
+| `CompressAttestations` | Batch-migrate existing PDAs to compressed (reclaims rent) |
+
+**Cost comparison:**
+
+| Operation | PDA Attestation | Compressed Attestation |
+|-----------|-----------------|------------------------|
+| Feedback | ~0.002 SOL | ~0.00002 SOL |
+| 1,000 feedbacks | ~2 SOL | ~0.02 SOL |
+| 100,000 feedbacks | ~200 SOL | ~2 SOL |
+| 1,000,000 feedbacks | ~2,000 SOL | ~20 SOL |
+
+### SATI Integration Path
+
+**No SATI code changes required.** When SAS ships compressed attestations:
+
+1. **SDK update only** — Use `CreateCompressedAttestation` instead of `CreateAttestation` for high-volume operations
+2. **Migration optional** — Existing PDA attestations continue working; can batch-compress to reclaim rent
+3. **Hybrid approach** — Use PDAs for authorization (FeedbackAuth), compressed for high-volume (Feedback, ValidationResponse)
+
+**Recommended pattern post-compression:**
+
+| Schema | Storage | Reason |
+|--------|---------|--------|
+| FeedbackAuth | PDA | Needs on-chain queryability for authorization checks |
+| Feedback | Compressed | High volume, ~100x savings |
+| FeedbackResponse | Compressed | High volume |
+| ValidationRequest | PDA | Needs state tracking |
+| ValidationResponse | Compressed | High volume |
+| Certification | PDA | Low volume, needs direct queries |
+
+### Timeline
+
+- **PR Status**: Open, marked "NOT AUDITED"
+- **Dependencies**: Light Protocol infrastructure (Photon indexer, merkle trees)
+- **SATI Action**: Monitor PR, update SDK when merged
 
 ---
 

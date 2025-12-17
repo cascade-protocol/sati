@@ -46,7 +46,7 @@ Building an agent framework or protocol? We'd love to hear about:
 # - pnpm
 
 # Setup
-git clone https://github.com/tenequm/sati.git
+git clone https://github.com/cascade-protocol/sati.git
 cd sati
 pnpm install
 anchor build
@@ -146,7 +146,7 @@ cd sdk && pnpm build && pnpm test
 
 ## Community
 
-- **Questions:** Use [GitHub Discussions](https://github.com/tenequm/sati/discussions)
+- **Questions:** Use [GitHub Discussions](https://github.com/cascade-protocol/sati/discussions)
 - **Bugs:** Open an issue with reproduction steps
 - **Features:** Discuss in issue before implementing
 - **Twitter:** [@opwizardx](https://twitter.com/opwizardx)

@@ -181,8 +181,8 @@ async function main() {
   console.log(`• Storage: Ledger + ZK proofs (vs full on-chain)`);
   console.log(`• Mandate operations: ~$0.00001 per operation\n`);
 
-  console.log(`${colors.bright}${colors.cyan}🔗 Learn more: https://github.com/tenequm/sati${colors.reset}`);
-  console.log(`${colors.bright}${colors.cyan}📝 Read spec: https://github.com/tenequm/sati/blob/main/docs/SPECIFICATION.md${colors.reset}\n`);
+  console.log(`${colors.bright}${colors.cyan}🔗 Learn more: https://github.com/cascade-protocol/sati${colors.reset}`);
+  console.log(`${colors.bright}${colors.cyan}📝 Read spec: https://github.com/cascade-protocol/sati/blob/main/docs/specification.md${colors.reset}\n`);
 }
 
 // Run the demo

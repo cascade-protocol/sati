@@ -3,19 +3,19 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status: Implementation Ready](https://img.shields.io/badge/Status-Implementation_Ready-green.svg)]()
 
-**Solana's answer to Ethereum's ERC-8004** - A lightweight agent trust infrastructure providing ERC-8004 compatible identity, reputation, and validation using native Solana primitives.
+**Trust infrastructure for million-agent economies on Solana** — identity, reputation, and validation designed for continuous feedback at scale.
 
 ---
 
 ## Overview
 
-SATI v2 combines three components:
+SATI enables agents to establish trust across organizational boundaries without pre-existing relationships. Built on Solana Attestation Service (SAS), SATI is architected for **compression-ready reputation** — storing complete feedback histories on-chain rather than just averages.
 
 | Component | Purpose |
 |-----------|---------|
 | **SATI Registry** | Canonical entry point, atomic registration, collection authority |
 | **Token-2022** | Agent identity NFTs with metadata and collection membership |
-| **SAS** | Reputation and validation attestations |
+| **SAS** | Reputation and validation attestations (compression-ready) |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -32,8 +32,10 @@ SATI v2 combines three components:
 │      Token-2022          │  │  Solana Attestation Service      │
 │  • Identity storage      │  │  • FeedbackAuth schema           │
 │  • TokenMetadata         │  │  • Feedback schema               │
-│  • TokenGroup            │  │  • ValidationRequest schema      │
-│  • Direct updates/xfers  │  │  • ValidationResponse schema     │
+│  • TokenGroup            │  │  • FeedbackResponse schema       │
+│  • Direct updates/xfers  │  │  • ValidationRequest schema      │
+│                          │  │  • ValidationResponse schema     │
+│                          │  │  • Certification schema          │
 └──────────────────────────┘  └──────────────────────────────────┘
 ```
 
@@ -41,15 +43,20 @@ SATI v2 combines three components:
 
 ## Why SATI?
 
-| Feature | SATI v2 | ERC-8004 |
-|---------|---------|----------|
-| **Identity** | Token-2022 NFT | ERC-721 NFT |
-| **Wallet support** | Phantom, Solflare, Backpack | MetaMask, etc. |
-| **Metadata** | On-chain (TokenMetadata extension) | On-chain (tokenURI) |
-| **Collections** | TokenGroup extension | Contract-level |
-| **Transfers** | Native token instruction | transferFrom() |
-| **Reputation** | SAS attestations | On-chain events |
-| **Finality** | ~400ms (Alpenglow: 150ms) | ~12s |
+**Designed for scale.** SATI uses Solana Attestation Service for reputation, which means:
+
+- **Complete histories, not just averages** — Store every feedback on-chain, aggregate algorithmically
+- **Compression-ready** — When SAS ships [ZK-compressed attestations](https://github.com/solana-foundation/solana-attestation-service/pull/101), reputation costs drop ~100x
+- **Sub-second finality** — ~400ms today, ~150ms with Alpenglow
+- **Native wallet support** — Agents visible in Phantom, Solflare, Backpack
+
+| Capability | Today | With Compression |
+|------------|-------|------------------|
+| Feedback cost | ~0.002 SOL | ~0.00002 SOL |
+| Practical scale | 10K feedbacks | 1M+ feedbacks |
+| On-chain history | Full | Full |
+
+**100% ERC-8004 compatible** — same registration file format, same functional interfaces, cross-chain agent identity via DIDs.
 
 ---
 
@@ -57,7 +64,7 @@ SATI v2 combines three components:
 
 ```bash
 # Clone repository
-git clone https://github.com/tenequm/sati.git
+git clone https://github.com/cascade-protocol/sati.git
 cd sati
 
 # Install dependencies
@@ -85,26 +92,29 @@ anchor test
 ## SDK Usage
 
 ```typescript
-import {
-  getRegisterAgentInstructionAsync,
-  SATI_REGISTRY_PROGRAM_ADDRESS,
-} from "@sati/sdk";
+import { SATI } from "@sati/sdk";
+
+// Initialize client (auto-loads deployed schema addresses)
+const sati = new SATI({ network: "devnet" });
 
 // Register an agent
-const registerIx = await getRegisterAgentInstructionAsync({
-  payer,
-  owner: payer.address,
-  groupMint,
-  agentMint,
-  agentTokenAccount,
+const { mint, memberNumber } = await sati.registerAgent({
+  payer: keypair,
   name: "MyAgent",
   symbol: "SATI",
   uri: "ipfs://QmRegistrationFile",
   additionalMetadata: [
-    { key: "agentWallet", value: `solana:${payer.address}` },
-    { key: "a2a", value: "https://agent.example/.well-known/agent-card.json" },
+    ["agentWallet", `solana:${keypair.address}`],
+    ["a2a", "https://agent.example/.well-known/agent-card.json"],
   ],
-  nonTransferable: false,
+});
+
+// Give feedback (uses auto-loaded SAS schemas)
+const { attestation } = await sati.giveFeedback({
+  payer: keypair,
+  agentMint: mint,
+  score: 85,
+  tag1: "quality",
 });
 ```
 
@@ -112,19 +122,48 @@ See [examples/](./examples/) for complete usage examples.
 
 ---
 
-## Performance & Costs
+## Costs
 
-| Operation | Compute Units | Est. Cost (SOL) |
-|-----------|---------------|-----------------|
-| Register agent (minimal) | 58,342 | ~0.003 |
-| Register agent (3 metadata fields) | 82,877 | ~0.0035 |
-| Register agent (max 10 fields) | 168,097 | ~0.005 |
-| Update metadata | - | ~0.00001 |
-| Transfer agent | - | ~0.00001 |
+**Registration** (one-time, rent is reclaimable):
 
-Token-2022's embedded extensions keep costs low by storing metadata directly in the mint account.
+| Operation | Cost (SOL) |
+|-----------|------------|
+| Register agent (minimal) | ~0.003 |
+| Register agent (3 metadata fields) | ~0.0035 |
+| Register agent (max 10 fields) | ~0.005 |
 
-See [benchmarks](./docs/benchmarks/) for detailed measurements.
+**Reputation** (per attestation):
+
+| Operation | Today | With Compression |
+|-----------|-------|------------------|
+| Authorize feedback | ~0.002 SOL | ~0.00002 SOL |
+| Give feedback | ~0.002 SOL | ~0.00002 SOL |
+| Validation request | ~0.002 SOL | ~0.00002 SOL |
+
+See [benchmarks](./docs/benchmarks/) for detailed CU measurements.
+
+---
+
+## Scalability Roadmap
+
+SATI's architecture is designed to scale with Solana's infrastructure:
+
+**Today:** PDA-based attestations via SAS
+- Full ERC-8004 compatibility
+- Complete on-chain feedback histories
+- ~0.002 SOL per attestation
+
+**When SAS ships compressed attestations ([PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101)):**
+- ~100x cost reduction for reputation operations
+- Million-agent scale becomes practical
+- No SATI code changes required — SAS handles compression transparently
+
+**Why this matters:**
+Systems constrained by gas costs store only aggregates (averages, counts). SATI stores complete histories, enabling:
+- Spam detection via pattern analysis
+- Reviewer reputation (weight feedback by reviewer quality)
+- Time-decay scoring (recent feedback matters more)
+- Payment-verified feedback (x402 proofs)
 
 ---
 
@@ -183,7 +222,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 ## Connect
 
 - **Twitter:** [@opwizardx](https://twitter.com/opwizardx)
-- **Discussion:** [GitHub Discussions](https://github.com/tenequm/sati/discussions)
+- **Discussion:** [GitHub Discussions](https://github.com/cascade-protocol/sati/discussions)
 
 ---
 
