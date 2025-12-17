@@ -896,6 +896,60 @@ If schemas need updates:
 2. **Old schemas remain valid** - Never delete, only add new versions
 3. **SDK handles both** - Query multiple schema versions, present unified interface
 
+### Immutable Claims & Certifications
+
+For permanent, unmodifiable records (security audits, compliance certifications, credential attestations), **use SAS attestations rather than agent metadata**.
+
+**Why not add immutable metadata to the registry?**
+
+1. **Token-2022 TokenMetadata doesn't support per-field immutability** - would require additional PDA layer
+2. **SAS attestations are already immutable by design** - attestation content cannot be modified after creation
+3. **Simpler architecture** - no additional program complexity or audit surface
+
+**Example: Security Certification**
+
+```typescript
+// Create immutable certification via SAS attestation
+const CERTIFICATION_SCHEMA = {
+  name: "SATICertification",
+  version: 1,
+  description: "Immutable certification for agent",
+  layout: [12, 12, 12, 8],  // String, String, String, I64
+  fieldNames: [
+    "certifier",      // Certifying entity (e.g., "OtterSec")
+    "cert_type",      // Certification type (e.g., "security-audit")
+    "cert_uri",       // Link to full certificate/report
+    "issued_at",      // Unix timestamp
+  ]
+};
+
+// Attestation is permanent - cannot be modified or deleted by issuer
+await sas.createAttestation({
+  schema: certificationSchema,
+  credential: agentMint,
+  issuer: certifierPubkey,
+  data: {
+    certifier: "OtterSec",
+    cert_type: "security-audit",
+    cert_uri: "ipfs://QmAuditReport...",
+    issued_at: Date.now() / 1000,
+  }
+});
+```
+
+**Use cases for SAS-based immutable claims:**
+- Security audit completions
+- Compliance certifications (SOC2, GDPR)
+- Professional credentials
+- Third-party verifications
+- Historical performance records
+
+**Use `additionalMetadata` for mutable agent properties:**
+- Agent wallet address
+- Endpoint URLs
+- DID references
+- Current capabilities
+
 ### Authority Separation
 
 | Authority | Controls | Can Be Renounced? |
@@ -1539,15 +1593,32 @@ console.log("SAS Schemas:", schemas);
 
 ### Costs
 
+#### Compute Units (Benchmarked)
+
+| Operation | CUs | % of 1.4M Budget |
+|-----------|-----|------------------|
+| initialize | 10,918 | 0.8% |
+| register_agent (minimal) | 58,342 | 4.2% |
+| register_agent (3 metadata fields) | 82,877 | 5.9% |
+| register_agent (max 10 fields) | 168,097 | 12.0% |
+| register_agent (soulbound) | 79,255 | 5.7% |
+| update_registry_authority | 3,516 | 0.3% |
+
+*See [benchmarks/](./benchmarks/) for detailed measurements and methodology.*
+
+#### Rent Costs (Estimated)
+
 | Operation | Cost | Notes |
 |-----------|------|-------|
 | Initialize registry | ~0.005 SOL | One-time |
 | Setup SAS schemas (5) | ~0.015 SOL | One-time |
-| Register agent | ~0.003 SOL | Per agent (mint + metadata + group member) |
+| Register agent (minimal) | ~0.003 SOL | Mint + metadata + group member |
+| Register agent (3 fields) | ~0.0035 SOL | +additional metadata |
+| Register agent (10 fields) | ~0.005 SOL | Maximum metadata |
 | Update metadata | ~0.00001 SOL | Transaction fee only |
 | Transfer agent | ~0.00001 SOL | Transaction fee only |
-| Authorize feedback | ~0.002 SOL | Per authorization |
-| Give feedback | ~0.002 SOL | Per feedback |
+| Authorize feedback | ~0.002 SOL | SAS attestation |
+| Give feedback | ~0.002 SOL | SAS attestation |
 | Close attestation | Rent refund | Get SOL back |
 
 ---

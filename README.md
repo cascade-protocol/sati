@@ -112,6 +112,22 @@ See [examples/](./examples/) for complete usage examples.
 
 ---
 
+## Performance & Costs
+
+| Operation | Compute Units | Est. Cost (SOL) |
+|-----------|---------------|-----------------|
+| Register agent (minimal) | 58,342 | ~0.003 |
+| Register agent (3 metadata fields) | 82,877 | ~0.0035 |
+| Register agent (max 10 fields) | 168,097 | ~0.005 |
+| Update metadata | - | ~0.00001 |
+| Transfer agent | - | ~0.00001 |
+
+Token-2022's embedded extensions keep costs low by storing metadata directly in the mint account.
+
+See [benchmarks](./docs/benchmarks/) for detailed measurements.
+
+---
+
 ## ERC-8004 Compatibility
 
 SATI achieves **100% functional compatibility** with ERC-8004:
