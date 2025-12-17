@@ -32,9 +32,14 @@ spl-associated-token-account = { version = "7.0", features = ["no-entrypoint"] }
 
 [dev-dependencies]
 mollusk-svm = "0.5.1"
+mollusk-svm-bencher = "0.5.1"
 mollusk-svm-programs-token = "0.5.1"
 solana-sdk = "2.2"
 solana-system-interface = "1.0"
+
+[[bench]]
+name = "compute_units"
+harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
