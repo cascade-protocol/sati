@@ -7,7 +7,7 @@
  * ERC-8004 compatible field naming conventions are used.
  */
 
-import type { Address, KeyPairSigner, TransactionSigner } from "@solana/kit";
+import type { Address, TransactionSigner } from "@solana/kit";
 import { address } from "@solana/kit";
 import { keccak_256 } from "@noble/hashes/sha3";
 import bs58 from "bs58";
@@ -33,6 +33,7 @@ import {
   FEEDBACK_RESPONSE_SCHEMA,
   VALIDATION_REQUEST_SCHEMA,
   VALIDATION_RESPONSE_SCHEMA,
+  CERTIFICATION_SCHEMA,
   type SASSchema,
 } from "./schemas";
 
@@ -69,17 +70,22 @@ export const SATI_SCHEMA_NAMES = {
   FEEDBACK_RESPONSE: "SATIFeedbackResponse",
   VALIDATION_REQUEST: "SATIValidationRequest",
   VALIDATION_RESPONSE: "SATIValidationResponse",
+  CERTIFICATION: "SATICertification",
 } as const;
 
 /**
  * All SATI schemas with their definitions (keyed by schema name constant)
  */
-export const SATI_SAS_SCHEMAS: Record<keyof typeof SATI_SCHEMA_NAMES, SASSchema> = {
+export const SATI_SAS_SCHEMAS: Record<
+  keyof typeof SATI_SCHEMA_NAMES,
+  SASSchema
+> = {
   FEEDBACK_AUTH: FEEDBACK_AUTH_SCHEMA,
   FEEDBACK: FEEDBACK_SCHEMA,
   FEEDBACK_RESPONSE: FEEDBACK_RESPONSE_SCHEMA,
   VALIDATION_REQUEST: VALIDATION_REQUEST_SCHEMA,
   VALIDATION_RESPONSE: VALIDATION_RESPONSE_SCHEMA,
+  CERTIFICATION: CERTIFICATION_SCHEMA,
 };
 
 /**
@@ -89,7 +95,7 @@ export const SATI_SAS_SCHEMAS: Record<keyof typeof SATI_SCHEMA_NAMES, SASSchema>
  * @returns Credential PDA and bump
  */
 export async function deriveSatiCredentialPda(
-  authority: Address
+  authority: Address,
 ): Promise<readonly [Address, number]> {
   return deriveCredentialPda({
     authority,
@@ -108,7 +114,7 @@ export async function deriveSatiCredentialPda(
 export async function deriveSatiSchemaPda(
   credentialPda: Address,
   schemaName: string,
-  version: number = 1
+  version: number = 1,
 ): Promise<readonly [Address, number]> {
   return deriveSchemaPda({
     credential: credentialPda,
@@ -128,7 +134,7 @@ export async function deriveSatiSchemaPda(
 export async function deriveSatiAttestationPda(
   credentialPda: Address,
   schemaPda: Address,
-  nonce: Address
+  nonce: Address,
 ): Promise<readonly [Address, number]> {
   return deriveAttestationPda({
     credential: credentialPda,
@@ -150,6 +156,7 @@ export interface SATISASConfig {
     feedbackResponse: Address;
     validationRequest: Address;
     validationResponse: Address;
+    certification: Address;
   };
 }
 
@@ -194,7 +201,7 @@ export function getCreateSatiSchemaInstruction(params: {
     schema: params.schemaPda,
     name: params.schema.name,
     description: params.schema.description,
-    layout: Buffer.from(params.schema.layout),
+    layout: new Uint8Array(params.schema.layout),
     fieldNames: params.schema.fieldNames,
   });
 }
@@ -212,7 +219,7 @@ export function serializeFeedbackAuthData(
     index_limit: number;
     expiry: number;
   },
-  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"]
+  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"],
 ): Uint8Array {
   return serializeAttestationData(schemaData, data);
 }
@@ -234,7 +241,7 @@ export function serializeFeedbackData(
     filehash?: Uint8Array;
     payment_proof?: string;
   },
-  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"]
+  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"],
 ): Uint8Array {
   return serializeAttestationData(schemaData, {
     agent_mint: data.agent_mint,
@@ -260,7 +267,7 @@ export function serializeFeedbackResponseData(
     response_uri: string;
     response_hash?: Uint8Array;
   },
-  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"]
+  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"],
 ): Uint8Array {
   return serializeAttestationData(schemaData, {
     feedback_id: data.feedback_id,
@@ -283,7 +290,7 @@ export function serializeValidationRequestData(
     request_uri: string;
     request_hash?: Uint8Array;
   },
-  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"]
+  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"],
 ): Uint8Array {
   return serializeAttestationData(schemaData, {
     agent_mint: data.agent_mint,
@@ -308,7 +315,7 @@ export function serializeValidationResponseData(
     response_hash?: Uint8Array;
     tag?: string;
   },
-  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"]
+  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"],
 ): Uint8Array {
   return serializeAttestationData(schemaData, {
     request_id: data.request_id,
@@ -329,9 +336,11 @@ export function serializeValidationResponseData(
  */
 export function computeFeedbackAuthNonce(
   agentMint: Address,
-  clientPubkey: Address
+  clientPubkey: Address,
 ): Address {
-  const data = new TextEncoder().encode(`feedbackAuth:${agentMint}:${clientPubkey}`);
+  const data = new TextEncoder().encode(
+    `feedbackAuth:${agentMint}:${clientPubkey}`,
+  );
   const hash = keccak_256(data);
   return address(bs58.encode(hash));
 }
@@ -348,9 +357,11 @@ export function computeFeedbackAuthNonce(
 export function computeFeedbackNonce(
   agentMint: Address,
   clientPubkey: Address,
-  timestamp: number
+  timestamp: number,
 ): Address {
-  const data = new TextEncoder().encode(`feedback:${agentMint}:${clientPubkey}:${timestamp}`);
+  const data = new TextEncoder().encode(
+    `feedback:${agentMint}:${clientPubkey}:${timestamp}`,
+  );
   const hash = keccak_256(data);
   return address(bs58.encode(hash));
 }
@@ -367,9 +378,11 @@ export function computeFeedbackNonce(
 export function computeFeedbackResponseNonce(
   feedbackId: Address,
   responderPubkey: Address,
-  index: number
+  index: number,
 ): Address {
-  const data = new TextEncoder().encode(`response:${feedbackId}:${responderPubkey}:${index}`);
+  const data = new TextEncoder().encode(
+    `response:${feedbackId}:${responderPubkey}:${index}`,
+  );
   const hash = keccak_256(data);
   return address(bs58.encode(hash));
 }
@@ -386,9 +399,11 @@ export function computeFeedbackResponseNonce(
 export function computeValidationRequestNonce(
   agentMint: Address,
   validatorPubkey: Address,
-  userNonce: number
+  userNonce: number,
 ): Address {
-  const data = new TextEncoder().encode(`validationReq:${agentMint}:${validatorPubkey}:${userNonce}`);
+  const data = new TextEncoder().encode(
+    `validationReq:${agentMint}:${validatorPubkey}:${userNonce}`,
+  );
   const hash = keccak_256(data);
   return address(bs58.encode(hash));
 }
@@ -403,9 +418,53 @@ export function computeValidationRequestNonce(
  */
 export function computeValidationResponseNonce(
   requestId: Address,
-  responseIndex: number
+  responseIndex: number,
 ): Address {
-  const data = new TextEncoder().encode(`validationResp:${requestId}:${responseIndex}`);
+  const data = new TextEncoder().encode(
+    `validationResp:${requestId}:${responseIndex}`,
+  );
+  const hash = keccak_256(data);
+  return address(bs58.encode(hash));
+}
+
+/**
+ * Serialize certification data for attestation
+ *
+ * @param data - Certification data
+ * @param schemaData - Schema account data from fetchSchema
+ * @returns Serialized data buffer
+ */
+export function serializeCertificationData(
+  data: {
+    certifier: string;
+    cert_type: string;
+    cert_uri: string;
+    issued_at: number;
+  },
+  schemaData: Awaited<ReturnType<typeof fetchSchema>>["data"],
+): Uint8Array {
+  return serializeAttestationData(schemaData, data);
+}
+
+/**
+ * Compute nonce for Certification attestation
+ * nonce = keccak256("certification:" + agentMint + ":" + certifierPubkey + ":" + certType + ":" + issuedAt)
+ *
+ * @param agentMint - Agent NFT mint address
+ * @param certifierPubkey - Certifier public key
+ * @param certType - Certification type (e.g., "security-audit")
+ * @param issuedAt - Unix timestamp
+ * @returns Nonce as Address (base58)
+ */
+export function computeCertificationNonce(
+  agentMint: Address,
+  certifierPubkey: Address,
+  certType: string,
+  issuedAt: number,
+): Address {
+  const data = new TextEncoder().encode(
+    `certification:${agentMint}:${certifierPubkey}:${certType}:${issuedAt}`,
+  );
   const hash = keccak_256(data);
   return address(bs58.encode(hash));
 }

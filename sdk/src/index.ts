@@ -6,6 +6,13 @@
  * - SAS Schemas: Reputation and validation attestation schemas
  * - Client: High-level SATI class for convenient interaction
  *
+ * This main entry point is browser-compatible (@solana/kit native).
+ *
+ * For @solana/web3.js compatibility (Node.js only):
+ * ```typescript
+ * import { toAddress, toPublicKey, toWeb3Instruction } from "@sati/sdk/web3-compat";
+ * ```
+ *
  * @packageDocumentation
  */
 

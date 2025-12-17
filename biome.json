@@ -1,0 +1,60 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": [
+      "tests/**/*.ts",
+      "scripts/**/*.ts",
+      "sdk/**/*.ts",
+      "**/*.json",
+      "!!**/dist",
+      "!**/idl.json",
+      "!sdk/**/generated"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "useValidAnchor": "off",
+        "noLabelWithoutControl": "off"
+      },
+      "style": {
+        "useComponentExportOnlyModules": "off",
+        "noRestrictedGlobals": {
+          "level": "error",
+          "options": {
+            "deniedGlobals": {
+              "Buffer": "Buffer is a Node.js global. Use Uint8Array + atob() for browser compatibility."
+            }
+          }
+        }
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "off",
+        "recommended": true
+      }
+    }
+  }
+}

@@ -1,11 +1,7 @@
 // biome-ignore-all lint/style/noRestrictedGlobals: Buffer is required for @solana/web3.js PDA derivation
 import * as anchor from "@coral-xyz/anchor";
 import type { Program } from "@coral-xyz/anchor";
-import {
-  Keypair,
-  PublicKey,
-  SystemProgram,
-} from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
   getAssociatedTokenAddressSync,
@@ -52,7 +48,9 @@ async function createGroupMint(
   // Note: This fails on local validator with "Failed to reallocate account data"
   // Pre-allocating for both extensions fails with "InvalidAccountData" on InitializeMint
   const mintLen = getMintLen([ExtensionType.GroupPointer]);
-  const lamports = await connection.getMinimumBalanceForRentExemption(mintLen + TOKEN_GROUP_SIZE);
+  const lamports = await connection.getMinimumBalanceForRentExemption(
+    mintLen + TOKEN_GROUP_SIZE,
+  );
 
   const transaction = new anchor.web3.Transaction().add(
     SystemProgram.createAccount({
@@ -182,7 +180,13 @@ describe.skip("sati-registry: initialize", () => {
       return;
     }
 
-    await initializeRegistry(program, connection, payer, registryConfig, groupMint);
+    await initializeRegistry(
+      program,
+      connection,
+      payer,
+      registryConfig,
+      groupMint,
+    );
 
     // Verify registry config
     const config = await program.account.registryConfig.fetch(registryConfig);
@@ -191,16 +195,26 @@ describe.skip("sati-registry: initialize", () => {
     expect(config.totalAgents.toNumber()).toBe(0);
 
     // Verify group mint was created with TokenGroup extension
-    const groupMintAccount = await connection.getAccountInfo(groupMint.publicKey);
+    const groupMintAccount = await connection.getAccountInfo(
+      groupMint.publicKey,
+    );
     expect(groupMintAccount).not.toBeNull();
-    expect(groupMintAccount?.owner.toBase58()).toBe(TOKEN_2022_PROGRAM_ID.toBase58());
+    expect(groupMintAccount?.owner.toBase58()).toBe(
+      TOKEN_2022_PROGRAM_ID.toBase58(),
+    );
   });
 
   test("fails to initialize twice (Anchor init constraint)", async () => {
     // Ensure registry is initialized first
     const existingAccount = await connection.getAccountInfo(registryConfig);
     if (!existingAccount) {
-      await initializeRegistry(program, connection, payer, registryConfig, groupMint);
+      await initializeRegistry(
+        program,
+        connection,
+        payer,
+        registryConfig,
+        groupMint,
+      );
     }
 
     // Second initialization should fail (Anchor init constraint on registry_config)
@@ -216,7 +230,7 @@ describe.skip("sati-registry: initialize", () => {
             groupMint: newGroupMint.publicKey,
           })
           .rpc();
-      })()
+      })(),
     ).rejects.toThrow();
   });
 });
@@ -243,7 +257,13 @@ describe.skip("sati-registry: register_agent - success cases", () => {
     // Ensure registry is initialized
     const existingAccount = await connection.getAccountInfo(registryConfig);
     if (!existingAccount) {
-      await initializeRegistry(program, connection, payer, registryConfig, groupMint);
+      await initializeRegistry(
+        program,
+        connection,
+        payer,
+        registryConfig,
+        groupMint,
+      );
     }
   });
 
@@ -256,7 +276,8 @@ describe.skip("sati-registry: register_agent - success cases", () => {
       TOKEN_2022_PROGRAM_ID,
     );
 
-    const configBefore = await program.account.registryConfig.fetch(registryConfig);
+    const configBefore =
+      await program.account.registryConfig.fetch(registryConfig);
     const countBefore = configBefore.totalAgents.toNumber();
 
     await program.methods
@@ -278,7 +299,8 @@ describe.skip("sati-registry: register_agent - success cases", () => {
       .rpc();
 
     // Verify counter incremented
-    const configAfter = await program.account.registryConfig.fetch(registryConfig);
+    const configAfter =
+      await program.account.registryConfig.fetch(registryConfig);
     expect(configAfter.totalAgents.toNumber()).toBe(countBefore + 1);
 
     // Verify NFT was minted to owner
@@ -304,10 +326,7 @@ describe.skip("sati-registry: register_agent - success cases", () => {
     expect(mintInfo.mintAuthority).toBeNull();
 
     // Verify token metadata
-    const metadata = await getTokenMetadata(
-      connection,
-      agentMint.publicKey,
-    );
+    const metadata = await getTokenMetadata(connection, agentMint.publicKey);
     expect(metadata?.name).toBe("TestAgent");
     expect(metadata?.symbol).toBe("AGENT");
     expect(metadata?.uri).toBe("https://example.com/agent.json");
@@ -388,7 +407,9 @@ describe.skip("sati-registry: register_agent - success cases", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID,
     );
-    expect(tokenAccount.owner.toBase58()).toBe(customOwner.publicKey.toBase58());
+    expect(tokenAccount.owner.toBase58()).toBe(
+      customOwner.publicKey.toBase58(),
+    );
     expect(tokenAccount.amount.toString()).toBe("1");
   });
 
@@ -456,7 +477,13 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
     // Ensure registry is initialized
     const existingAccount = await connection.getAccountInfo(registryConfig);
     if (!existingAccount) {
-      await initializeRegistry(program, connection, payer, registryConfig, groupMint);
+      await initializeRegistry(
+        program,
+        connection,
+        payer,
+        registryConfig,
+        groupMint,
+      );
     }
   });
 
@@ -482,7 +509,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
           agentTokenAccount,
         })
         .signers([agentMint])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/NameTooLong|Name too long/);
   });
 
@@ -499,7 +526,13 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
 
     await expect(
       program.methods
-        .registerAgent("TestAgent", longSymbol, "https://example.com", null, false)
+        .registerAgent(
+          "TestAgent",
+          longSymbol,
+          "https://example.com",
+          null,
+          false,
+        )
         .accounts({
           payer: payer.publicKey,
           owner: payer.publicKey,
@@ -508,7 +541,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
           agentTokenAccount,
         })
         .signers([agentMint])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/SymbolTooLong|Symbol too long/);
   });
 
@@ -521,7 +554,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
       TOKEN_2022_PROGRAM_ID,
     );
 
-    const longUri = "https://example.com/" + "a".repeat(MAX_URI_LENGTH);
+    const longUri = `https://example.com/${"a".repeat(MAX_URI_LENGTH)}`;
 
     await expect(
       program.methods
@@ -534,7 +567,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
           agentTokenAccount,
         })
         .signers([agentMint])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/UriTooLong|URI too long/);
   });
 
@@ -547,14 +580,23 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
       TOKEN_2022_PROGRAM_ID,
     );
 
-    const tooManyEntries = Array.from({ length: MAX_METADATA_ENTRIES + 1 }, (_, i) => ({
-      key: `key${i}`,
-      value: `value${i}`,
-    }));
+    const tooManyEntries = Array.from(
+      { length: MAX_METADATA_ENTRIES + 1 },
+      (_, i) => ({
+        key: `key${i}`,
+        value: `value${i}`,
+      }),
+    );
 
     await expect(
       program.methods
-        .registerAgent("TestAgent", "TEST", "https://example.com", tooManyEntries, false)
+        .registerAgent(
+          "TestAgent",
+          "TEST",
+          "https://example.com",
+          tooManyEntries,
+          false,
+        )
         .accounts({
           payer: payer.publicKey,
           owner: payer.publicKey,
@@ -563,7 +605,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
           agentTokenAccount,
         })
         .signers([agentMint])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/TooManyMetadataEntries|Too many metadata/);
   });
 
@@ -595,7 +637,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
           agentTokenAccount,
         })
         .signers([agentMint])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/MetadataKeyTooLong|Metadata key too long/);
   });
 
@@ -627,7 +669,7 @@ describe.skip("sati-registry: register_agent - validation errors", () => {
           agentTokenAccount,
         })
         .signers([agentMint])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/MetadataValueTooLong|Metadata value too long/);
   });
 });
@@ -656,16 +698,20 @@ describe.skip("sati-registry: update_registry_authority", () => {
         [Buffer.from("group_mint")],
         program.programId,
       );
-      await program.methods.initialize().accounts({
-        authority: payer.publicKey,
-        groupMint: groupMintPda,
-      }).rpc();
+      await program.methods
+        .initialize()
+        .accounts({
+          authority: payer.publicKey,
+          groupMint: groupMintPda,
+        })
+        .rpc();
     }
   });
 
   test("transfers authority to new address", async () => {
     // Skip if authority is already renounced
-    const configBefore = await program.account.registryConfig.fetch(registryConfig);
+    const configBefore =
+      await program.account.registryConfig.fetch(registryConfig);
     if (configBefore.authority.equals(PublicKey.default)) {
       console.log("Authority already renounced, skipping transfer test");
       return;
@@ -681,8 +727,11 @@ describe.skip("sati-registry: update_registry_authority", () => {
       .rpc();
 
     // Verify authority changed
-    const configAfter = await program.account.registryConfig.fetch(registryConfig);
-    expect(configAfter.authority.toBase58()).toBe(newAuthority.publicKey.toBase58());
+    const configAfter =
+      await program.account.registryConfig.fetch(registryConfig);
+    expect(configAfter.authority.toBase58()).toBe(
+      newAuthority.publicKey.toBase58(),
+    );
 
     // Transfer back for subsequent tests
     await program.methods
@@ -694,8 +743,11 @@ describe.skip("sati-registry: update_registry_authority", () => {
       .rpc();
 
     // Verify restored
-    const configRestored = await program.account.registryConfig.fetch(registryConfig);
-    expect(configRestored.authority.toBase58()).toBe(payer.publicKey.toBase58());
+    const configRestored =
+      await program.account.registryConfig.fetch(registryConfig);
+    expect(configRestored.authority.toBase58()).toBe(
+      payer.publicKey.toBase58(),
+    );
   });
 
   test("fails when non-authority tries to update", async () => {
@@ -703,7 +755,10 @@ describe.skip("sati-registry: update_registry_authority", () => {
     const newAuthority = Keypair.generate();
 
     // Airdrop some SOL to random user for transaction fees
-    const sig = await connection.requestAirdrop(randomUser.publicKey, 1_000_000_000);
+    const sig = await connection.requestAirdrop(
+      randomUser.publicKey,
+      1_000_000_000,
+    );
     await connection.confirmTransaction(sig);
 
     await expect(
@@ -713,7 +768,7 @@ describe.skip("sati-registry: update_registry_authority", () => {
           authority: randomUser.publicKey,
         })
         .signers([randomUser])
-        .rpc()
+        .rpc(),
     ).rejects.toThrow();
   });
 });
@@ -727,7 +782,7 @@ describe.skip("sati-registry: authority renounce flow", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.SatiRegistry as Program<SatiRegistry>;
-  const connection = provider.connection;
+  const _connection = provider.connection;
   const payer = provider.wallet as anchor.Wallet;
 
   let registryConfig: PublicKey;
@@ -740,7 +795,8 @@ describe.skip("sati-registry: authority renounce flow", () => {
   });
 
   test("renounces authority (sets to null/default)", async () => {
-    const configBefore = await program.account.registryConfig.fetch(registryConfig);
+    const configBefore =
+      await program.account.registryConfig.fetch(registryConfig);
 
     // Skip if already renounced
     if (configBefore.authority.equals(PublicKey.default)) {
@@ -753,7 +809,7 @@ describe.skip("sati-registry: authority renounce flow", () => {
           .accounts({
             authority: payer.publicKey,
           })
-          .rpc()
+          .rpc(),
       ).rejects.toThrow(/ImmutableAuthority|immutable/i);
 
       return;
@@ -768,7 +824,8 @@ describe.skip("sati-registry: authority renounce flow", () => {
       .rpc();
 
     // Verify authority is now default (all zeros)
-    const configAfter = await program.account.registryConfig.fetch(registryConfig);
+    const configAfter =
+      await program.account.registryConfig.fetch(registryConfig);
     expect(configAfter.authority.equals(PublicKey.default)).toBe(true);
   });
 
@@ -780,7 +837,7 @@ describe.skip("sati-registry: authority renounce flow", () => {
         .accounts({
           authority: payer.publicKey,
         })
-        .rpc()
+        .rpc(),
     ).rejects.toThrow(/ImmutableAuthority|immutable/i);
   });
 });
@@ -810,10 +867,13 @@ describe.skip("sati-registry: Token-2022 integration", () => {
     // Ensure registry is initialized
     const existingAccount = await connection.getAccountInfo(registryConfig);
     if (!existingAccount) {
-      await program.methods.initialize().accounts({
-        authority: payer.publicKey,
-        groupMint,
-      }).rpc();
+      await program.methods
+        .initialize()
+        .accounts({
+          authority: payer.publicKey,
+          groupMint,
+        })
+        .rpc();
     }
   });
 
@@ -846,7 +906,7 @@ describe.skip("sati-registry: Token-2022 integration", () => {
       .rpc();
 
     // Verify initial URI
-    let metadata = await getTokenMetadata(connection, agentMint.publicKey);
+    const metadata = await getTokenMetadata(connection, agentMint.publicKey);
     expect(metadata?.uri).toBe("https://example.com/v1.json");
 
     // Note: Direct Token-2022 metadata update would require building the instruction
@@ -857,7 +917,7 @@ describe.skip("sati-registry: Token-2022 integration", () => {
 
   test("transferable NFT can be transferred", async () => {
     const agentMint = Keypair.generate();
-    const newOwner = Keypair.generate();
+    const _newOwner = Keypair.generate();
 
     const agentTokenAccount = getAssociatedTokenAddressSync(
       agentMint.publicKey,
@@ -886,7 +946,7 @@ describe.skip("sati-registry: Token-2022 integration", () => {
       .rpc();
 
     // Verify payer owns it
-    let tokenAccount = await getAccount(
+    const tokenAccount = await getAccount(
       connection,
       agentTokenAccount,
       undefined,

@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noRestrictedGlobals: Buffer is required for @solana/web3.js PDA derivation and test data
+
 /**
  * SATI SDK Tests using LiteSVM
  *
@@ -7,12 +9,8 @@
  */
 import { describe, test, expect, beforeAll } from "vitest";
 import { LiteSVM } from "litesvm";
-import {
-  PublicKey,
-  Keypair,
-  LAMPORTS_PER_SOL,
-} from "@solana/web3.js";
-import { MintLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { MintLayout } from "@solana/spl-token";
 import { address } from "@solana/kit";
 
 // Import Codama-generated code
@@ -32,7 +30,7 @@ import { findRegistryConfigPda, findGroupMintPda } from "../src/helpers";
 // =============================================================================
 
 const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 );
 
 // =============================================================================
@@ -50,7 +48,7 @@ function setupLiteSVM(): LiteSVM {
     : "./target/deploy/sati_registry.so";
   svm.addProgramFromFile(
     new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
-    programPath
+    programPath,
   );
   return svm;
 }
@@ -61,7 +59,7 @@ function setupLiteSVM(): LiteSVM {
 function deriveRegistryConfigPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("registry")],
-    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS)
+    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
   );
 }
 
@@ -71,7 +69,7 @@ function deriveRegistryConfigPda(): [PublicKey, number] {
 function deriveGroupMintPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("group_mint")],
-    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS)
+    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
   );
 }
 
@@ -82,7 +80,7 @@ function setupRegistryConfig(
   svm: LiteSVM,
   groupMint: PublicKey,
   authority: PublicKey,
-  totalAgents: bigint = 0n
+  totalAgents: bigint = 0n,
 ): PublicKey {
   const [registryConfigPda, bump] = deriveRegistryConfigPda();
 
@@ -110,7 +108,7 @@ function setupRegistryConfig(
 function setupGroupMint(
   svm: LiteSVM,
   mintPubkey: PublicKey,
-  mintAuthority: PublicKey
+  mintAuthority: PublicKey,
 ): void {
   // For testing purposes, we use a simplified mint structure
   // In production, this would include GroupPointer and TokenGroup extensions
@@ -125,7 +123,7 @@ function setupGroupMint(
       freezeAuthorityOption: 0,
       freezeAuthority: PublicKey.default,
     },
-    mintData
+    mintData,
   );
 
   svm.setAccount(mintPubkey, {
@@ -159,17 +157,17 @@ describe("SDK: Registry Config Encoder", () => {
 
     // Verify discriminator
     expect(Buffer.from(data.slice(0, 8))).toEqual(
-      Buffer.from(REGISTRY_CONFIG_DISCRIMINATOR)
+      Buffer.from(REGISTRY_CONFIG_DISCRIMINATOR),
     );
 
     // Verify groupMint at offset 8
     expect(Buffer.from(data.slice(8, 40))).toEqual(
-      Buffer.from(groupMint.toBytes())
+      Buffer.from(groupMint.toBytes()),
     );
 
     // Verify authority at offset 40
     expect(Buffer.from(data.slice(40, 72))).toEqual(
-      Buffer.from(authority.toBytes())
+      Buffer.from(authority.toBytes()),
     );
 
     // Verify totalAgents at offset 72 (u64 LE)
@@ -239,15 +237,20 @@ describe("SDK: LiteSVM Integration", () => {
 
   test("fetches pre-seeded registry config", () => {
     const groupMint = Keypair.generate().publicKey;
-    const registryPda = setupRegistryConfig(svm, groupMint, authority.publicKey, 100n);
+    const registryPda = setupRegistryConfig(
+      svm,
+      groupMint,
+      authority.publicKey,
+      100n,
+    );
 
     // Fetch and decode
     const account = svm.getAccount(registryPda);
     expect(account).not.toBeNull();
-    expect(account!.data.length).toBe(81);
+    expect(account?.data.length).toBe(81);
 
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account!.data);
+    const decoded = decoder.decode(account?.data);
 
     expect(decoded.groupMint).toBe(address(groupMint.toBase58()));
     expect(decoded.authority).toBe(address(authority.publicKey.toBase58()));
@@ -262,14 +265,14 @@ describe("SDK: LiteSVM Integration", () => {
 
     const account = svm.getAccount(groupMint);
     expect(account).not.toBeNull();
-    expect(account!.owner.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
+    expect(account?.owner.equals(TOKEN_2022_PROGRAM_ID)).toBe(true);
   });
 
   test("program is loaded and executable", () => {
     const programAccount = svm.getAccount(
-      new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS)
+      new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
     );
     expect(programAccount).not.toBeNull();
-    expect(programAccount!.executable).toBe(true);
+    expect(programAccount?.executable).toBe(true);
   });
 });

@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noRestrictedGlobals: Buffer is required for @solana/web3.js PDA derivation
+
 /**
  * SATI Registry Smoke Tests
  *
@@ -50,7 +52,7 @@ function getConnection(cluster: Cluster): Connection {
 
 function getProgram(
   connection: Connection,
-  wallet: anchor.Wallet
+  wallet: anchor.Wallet,
 ): Program<SatiRegistry> {
   const provider = new anchor.AnchorProvider(connection, wallet, {
     commitment: "confirmed",
@@ -88,8 +90,8 @@ describe("sati-registry: smoke tests", () => {
     // Load wallet from default location or ANCHOR_WALLET
     const walletPath =
       process.env.ANCHOR_WALLET || `${process.env.HOME}/.config/solana/id.json`;
-    const keypairData = await import("fs").then((fs) =>
-      JSON.parse(fs.readFileSync(walletPath, "utf-8"))
+    const keypairData = await import("node:fs").then((fs) =>
+      JSON.parse(fs.readFileSync(walletPath, "utf-8")),
     );
     const keypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
     wallet = new anchor.Wallet(keypair);
@@ -99,7 +101,7 @@ describe("sati-registry: smoke tests", () => {
     // Derive PDAs
     [registryConfig] = PublicKey.findProgramAddressSync(
       [Buffer.from("registry")],
-      PROGRAM_ID
+      PROGRAM_ID,
     );
 
     console.log(`  Wallet: ${wallet.publicKey.toBase58()}`);
@@ -134,13 +136,15 @@ describe("sati-registry: smoke tests", () => {
         connection,
         config.groupMint,
         undefined,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
       expect(mintInfo).toBeDefined();
       expect(mintInfo.decimals).toBe(0);
       // Group mint authority should be the registry PDA
-      expect(mintInfo.mintAuthority?.toBase58()).toBe(registryConfig.toBase58());
+      expect(mintInfo.mintAuthority?.toBase58()).toBe(
+        registryConfig.toBase58(),
+      );
     });
   });
 
@@ -166,7 +170,7 @@ describe("sati-registry: smoke tests", () => {
         agentMint.publicKey,
         wallet.publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
       console.log(`    Registering agent: ${agentName}`);
@@ -179,7 +183,7 @@ describe("sati-registry: smoke tests", () => {
           agentSymbol,
           agentUri,
           [{ key: "test", value: "smoke" }], // minimal metadata
-          false // transferable
+          false, // transferable
         )
         .accounts({
           payer: wallet.publicKey,
@@ -197,9 +201,8 @@ describe("sati-registry: smoke tests", () => {
       await connection.confirmTransaction(tx, "confirmed");
 
       // Verify counter incremented
-      const configAfter = await program.account.registryConfig.fetch(
-        registryConfig
-      );
+      const configAfter =
+        await program.account.registryConfig.fetch(registryConfig);
       expect(configAfter.totalAgents.toNumber()).toBe(countBefore + 1);
 
       // Verify NFT minted to owner
@@ -207,7 +210,7 @@ describe("sati-registry: smoke tests", () => {
         connection,
         agentTokenAccount,
         undefined,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
       expect(tokenAccount.amount.toString()).toBe("1");
       expect(tokenAccount.owner.toBase58()).toBe(wallet.publicKey.toBase58());
@@ -217,7 +220,7 @@ describe("sati-registry: smoke tests", () => {
         connection,
         agentMint.publicKey,
         undefined,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
       expect(mintInfo.supply.toString()).toBe("1");
       expect(mintInfo.decimals).toBe(0);
@@ -233,7 +236,9 @@ describe("sati-registry: smoke tests", () => {
       const additionalMap = new Map(metadata?.additionalMetadata || []);
       expect(additionalMap.get("test")).toBe("smoke");
 
-      console.log(`    Agent #${configAfter.totalAgents} registered successfully`);
+      console.log(
+        `    Agent #${configAfter.totalAgents} registered successfully`,
+      );
     });
 
     test("registers non-transferable (soulbound) agent", async () => {
@@ -246,7 +251,7 @@ describe("sati-registry: smoke tests", () => {
         agentMint.publicKey,
         wallet.publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
       console.log(`    Registering soulbound agent...`);
@@ -257,7 +262,7 @@ describe("sati-registry: smoke tests", () => {
           "SOUL",
           `https://example.com/soul-${timestamp}.json`,
           null,
-          true // non-transferable
+          true, // non-transferable
         )
         .accounts({
           payer: wallet.publicKey,
@@ -276,11 +281,13 @@ describe("sati-registry: smoke tests", () => {
         connection,
         agentTokenAccount,
         undefined,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
       expect(tokenAccount.amount.toString()).toBe("1");
 
-      console.log(`    Soulbound agent registered: ${agentMint.publicKey.toBase58()}`);
+      console.log(
+        `    Soulbound agent registered: ${agentMint.publicKey.toBase58()}`,
+      );
     });
   });
 
@@ -298,7 +305,7 @@ describe("sati-registry: smoke tests", () => {
         agentMint.publicKey,
         wallet.publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
       const longName = "A".repeat(33);
@@ -314,7 +321,7 @@ describe("sati-registry: smoke tests", () => {
             agentTokenAccount,
           })
           .signers([agentMint])
-          .rpc()
+          .rpc(),
       ).rejects.toThrow(/NameTooLong|Name too long/);
     });
 
@@ -327,14 +334,20 @@ describe("sati-registry: smoke tests", () => {
         agentMint.publicKey,
         wallet.publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
       const longSymbol = "S".repeat(11);
 
       await expect(
         program.methods
-          .registerAgent("TestAgent", longSymbol, "https://example.com", null, false)
+          .registerAgent(
+            "TestAgent",
+            longSymbol,
+            "https://example.com",
+            null,
+            false,
+          )
           .accounts({
             payer: wallet.publicKey,
             owner: wallet.publicKey,
@@ -343,7 +356,7 @@ describe("sati-registry: smoke tests", () => {
             agentTokenAccount,
           })
           .signers([agentMint])
-          .rpc()
+          .rpc(),
       ).rejects.toThrow(/SymbolTooLong|Symbol too long/);
     });
 
@@ -356,10 +369,10 @@ describe("sati-registry: smoke tests", () => {
         agentMint.publicKey,
         wallet.publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
-      const longUri = "https://example.com/" + "a".repeat(200);
+      const longUri = `https://example.com/${"a".repeat(200)}`;
 
       await expect(
         program.methods
@@ -372,7 +385,7 @@ describe("sati-registry: smoke tests", () => {
             agentTokenAccount,
           })
           .signers([agentMint])
-          .rpc()
+          .rpc(),
       ).rejects.toThrow(/UriTooLong|URI too long/);
     });
 
@@ -385,7 +398,7 @@ describe("sati-registry: smoke tests", () => {
         agentMint.publicKey,
         wallet.publicKey,
         false,
-        TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID,
       );
 
       const tooManyEntries = Array.from({ length: 11 }, (_, i) => ({
@@ -400,7 +413,7 @@ describe("sati-registry: smoke tests", () => {
             "TEST",
             "https://example.com",
             tooManyEntries,
-            false
+            false,
           )
           .accounts({
             payer: wallet.publicKey,
@@ -410,7 +423,7 @@ describe("sati-registry: smoke tests", () => {
             agentTokenAccount,
           })
           .signers([agentMint])
-          .rpc()
+          .rpc(),
       ).rejects.toThrow(/TooManyMetadataEntries|Too many metadata/);
     });
   });

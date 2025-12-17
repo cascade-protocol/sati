@@ -16,6 +16,16 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./web3-compat": {
+      "import": {
+        "types": "./dist/web3-compat/index.d.mts",
+        "default": "./dist/web3-compat/index.mjs"
+      },
+      "require": {
+        "types": "./dist/web3-compat/index.d.cts",
+        "default": "./dist/web3-compat/index.cjs"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -46,7 +56,13 @@
   "peerDependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana-program/token-2022": "^0.6.1",
-    "@solana/kit": "^5.0.0"
+    "@solana/kit": "^5.0.0",
+    "@solana/web3.js": "^1.98.0"
+  },
+  "peerDependenciesMeta": {
+    "@solana/web3.js": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
