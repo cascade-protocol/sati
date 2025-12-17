@@ -28,7 +28,6 @@ import {
   getSignatureFromTransaction,
   type Address,
   type KeyPairSigner,
-  type TransactionSigner,
 } from "@solana/kit";
 
 import {
@@ -72,7 +71,6 @@ import {
   computeFeedbackResponseNonce,
   computeValidationRequestNonce,
   computeValidationResponseNonce,
-  SATI_CREDENTIAL_NAME,
   SATI_SCHEMA_NAMES,
   SATI_SAS_SCHEMAS,
   SAS_PROGRAM_ID,
@@ -117,7 +115,7 @@ type SignedBlockhashTransaction = Awaited<
  * Helper to unwrap Option type from @solana/kit
  */
 function unwrapOption<T>(
-  option: { __option: "Some"; value: T } | { __option: "None" }
+  option: { __option: "Some"; value: T } | { __option: "None" },
 ): T | null {
   if (option.__option === "Some") {
     return option.value;
@@ -190,7 +188,7 @@ export class SATI {
   private requireSASConfig(): SATISASConfig {
     if (!this.sasConfig) {
       throw new Error(
-        "SAS configuration not set. Call setSASConfig() or setupSASSchemas() first."
+        "SAS configuration not set. Call setSASConfig() or setupSASSchemas() first.",
       );
     }
     return this.sasConfig;
@@ -248,7 +246,7 @@ export class SATI {
     const ownerAddress = owner ?? payer.address;
     const [agentTokenAccount] = await findAssociatedTokenAddress(
       agentMint.address,
-      ownerAddress
+      ownerAddress,
     );
 
     // Build instruction
@@ -266,13 +264,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(registerIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(registerIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -282,7 +283,10 @@ export class SATI {
 
     // Get member number from registry
     const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
+    const registryConfig = await fetchRegistryConfig(
+      this.rpc,
+      registryConfigAddress,
+    );
     const memberNumber = registryConfig.data.totalAgents;
 
     // Extract signature from signed transaction
@@ -305,7 +309,10 @@ export class SATI {
     isImmutable: boolean;
   }> {
     const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
+    const registryConfig = await fetchRegistryConfig(
+      this.rpc,
+      registryConfigAddress,
+    );
 
     const isImmutable =
       registryConfig.data.authority === "11111111111111111111111111111111";
@@ -339,7 +346,7 @@ export class SATI {
       const extensions = unwrapOption(
         mintAccount.data.extensions as
           | { __option: "Some"; value: Extension[] }
-          | { __option: "None" }
+          | { __option: "None" },
       );
 
       if (!extensions) {
@@ -349,7 +356,7 @@ export class SATI {
       // Find TokenMetadata extension
       const metadataExt = extensions.find(
         (ext: Extension): ext is Extension & { __kind: "TokenMetadata" } =>
-          ext.__kind === "TokenMetadata"
+          ext.__kind === "TokenMetadata",
       );
 
       if (!metadataExt) {
@@ -359,12 +366,12 @@ export class SATI {
       // Find TokenGroupMember extension for member number
       const groupMemberExt = extensions.find(
         (ext: Extension): ext is Extension & { __kind: "TokenGroupMember" } =>
-          ext.__kind === "TokenGroupMember"
+          ext.__kind === "TokenGroupMember",
       );
 
       // Find NonTransferable extension
       const nonTransferableExt = extensions.find(
-        (ext: Extension) => ext.__kind === "NonTransferable"
+        (ext: Extension) => ext.__kind === "NonTransferable",
       );
 
       // Get owner by finding the token account
@@ -412,13 +419,13 @@ export class SATI {
       name?: string;
       uri?: string;
       additionalMetadata?: Array<{ key: string; value: string }>;
-    }
+    },
   ): Promise<void> {
     // Token-2022 metadata updates require the spl-token-metadata-interface
     // which needs to be called via raw instruction building.
     // This is better done through @solana/spl-token or direct instruction construction.
     throw new Error(
-      "updateAgentMetadata requires spl-token-metadata-interface - use @solana/spl-token updateTokenMetadataField() directly"
+      "updateAgentMetadata requires spl-token-metadata-interface - use @solana/spl-token updateTokenMetadataField() directly",
     );
   }
 
@@ -454,13 +461,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(transferIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(transferIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -493,7 +503,7 @@ export class SATI {
 
     // Find the account with balance > 0 (the holder)
     const holderAccount = response.value.find(
-      (acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n
+      (acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n,
     );
 
     if (!holderAccount) {
@@ -503,7 +513,7 @@ export class SATI {
     // Fetch the token account to get its owner
     const tokenAccount = await fetchToken2022Token(
       this.rpc,
-      address(holderAccount.address)
+      address(holderAccount.address),
     );
 
     return tokenAccount.data.owner;
@@ -554,13 +564,15 @@ export class SATI {
         const extensions = unwrapOption(
           mintAccount.data.extensions as
             | { __option: "Some"; value: Extension[] }
-            | { __option: "None" }
+            | { __option: "None" },
         );
 
         if (extensions) {
           const groupMemberExt = extensions.find(
-            (ext: Extension): ext is Extension & { __kind: "TokenGroupMember" } =>
-              ext.__kind === "TokenGroupMember"
+            (
+              ext: Extension,
+            ): ext is Extension & { __kind: "TokenGroupMember" } =>
+              ext.__kind === "TokenGroupMember",
           );
 
           if (groupMemberExt && groupMemberExt.group === groupMint) {
@@ -601,14 +613,21 @@ export class SATI {
     expiry?: number;
   }): Promise<AttestationResult> {
     const sasConfig = this.requireSASConfig();
-    const { payer, agentOwner, agentMint, client, indexLimit, expiry = 0 } = params;
+    const {
+      payer,
+      agentOwner,
+      agentMint,
+      client,
+      indexLimit,
+      expiry = 0,
+    } = params;
 
     // Derive attestation PDA
     const nonce = computeFeedbackAuthNonce(agentMint, client);
     const [attestationPda] = await deriveSatiAttestationPda(
       sasConfig.credential,
       sasConfig.schemas.feedbackAuth,
-      nonce
+      nonce,
     );
 
     // Fetch schema for serialization
@@ -621,11 +640,12 @@ export class SATI {
         index_limit: indexLimit,
         expiry,
       },
-      schema.data
+      schema.data,
     );
 
     // Calculate expiry timestamp (1 year from now if not specified)
-    const expiryTimestamp = expiry || Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+    const expiryTimestamp =
+      expiry || Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
 
     // Create attestation instruction
     const createAttestationIx = await getCreateAttestationInstruction({
@@ -640,13 +660,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -694,13 +717,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(closeIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(closeIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -765,7 +791,7 @@ export class SATI {
     const [attestationPda] = await deriveSatiAttestationPda(
       sasConfig.credential,
       sasConfig.schemas.feedback,
-      nonce
+      nonce,
     );
 
     // Fetch schema for serialization
@@ -782,7 +808,7 @@ export class SATI {
         filehash,
         payment_proof: paymentProof,
       },
-      schema.data
+      schema.data,
     );
 
     // Default expiry: never (0 means use schema default or never)
@@ -801,13 +827,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -855,13 +884,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(closeIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(closeIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -897,22 +929,32 @@ export class SATI {
     responseIndex?: number;
   }): Promise<AttestationResult> {
     const sasConfig = this.requireSASConfig();
-    const { payer, responder, feedbackAttestation, responseUri, responseHash, responseIndex = 0 } = params;
+    const {
+      payer,
+      responder,
+      feedbackAttestation,
+      responseUri,
+      responseHash,
+      responseIndex = 0,
+    } = params;
 
     // Derive attestation PDA
     const nonce = computeFeedbackResponseNonce(
       feedbackAttestation,
       responder.address,
-      responseIndex
+      responseIndex,
     );
     const [attestationPda] = await deriveSatiAttestationPda(
       sasConfig.credential,
       sasConfig.schemas.feedbackResponse,
-      nonce
+      nonce,
     );
 
     // Fetch schema for serialization
-    const schema = await fetchSchema(this.rpc, sasConfig.schemas.feedbackResponse);
+    const schema = await fetchSchema(
+      this.rpc,
+      sasConfig.schemas.feedbackResponse,
+    );
 
     // Serialize attestation data
     const data = serializeFeedbackResponseData(
@@ -921,7 +963,7 @@ export class SATI {
         response_uri: responseUri,
         response_hash: responseHash,
       },
-      schema.data
+      schema.data,
     );
 
     // Create attestation instruction
@@ -937,13 +979,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -978,7 +1023,7 @@ export class SATI {
       // Deserialize attestation data
       const data = deserializeAttestationData(
         schema.data,
-        attestationAccount.data.data as Uint8Array
+        attestationAccount.data.data as Uint8Array,
       ) as {
         agent_mint: string;
         score: number;
@@ -1037,19 +1082,34 @@ export class SATI {
     requestHash?: Uint8Array;
   }): Promise<AttestationResult> {
     const sasConfig = this.requireSASConfig();
-    const { payer, agentOwner, agentMint, validator, methodId, requestUri, requestHash } = params;
+    const {
+      payer,
+      agentOwner,
+      agentMint,
+      validator,
+      methodId,
+      requestUri,
+      requestHash,
+    } = params;
 
     // Derive attestation PDA
     const userNonce = Math.floor(Date.now() / 1000); // Use timestamp as unique nonce
-    const nonce = computeValidationRequestNonce(agentMint, validator, userNonce);
+    const nonce = computeValidationRequestNonce(
+      agentMint,
+      validator,
+      userNonce,
+    );
     const [attestationPda] = await deriveSatiAttestationPda(
       sasConfig.credential,
       sasConfig.schemas.validationRequest,
-      nonce
+      nonce,
     );
 
     // Fetch schema for serialization
-    const schema = await fetchSchema(this.rpc, sasConfig.schemas.validationRequest);
+    const schema = await fetchSchema(
+      this.rpc,
+      sasConfig.schemas.validationRequest,
+    );
 
     // Serialize attestation data
     const data = serializeValidationRequestData(
@@ -1059,7 +1119,7 @@ export class SATI {
         request_uri: requestUri,
         request_hash: requestHash,
       },
-      schema.data
+      schema.data,
     );
 
     // Create attestation instruction
@@ -1075,13 +1135,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -1125,7 +1188,16 @@ export class SATI {
     responseIndex?: number;
   }): Promise<AttestationResult> {
     const sasConfig = this.requireSASConfig();
-    const { payer, validator, requestAttestation, response, responseUri, responseHash, tag, responseIndex = 0 } = params;
+    const {
+      payer,
+      validator,
+      requestAttestation,
+      response,
+      responseUri,
+      responseHash,
+      tag,
+      responseIndex = 0,
+    } = params;
 
     // Validate response score
     if (response < 0 || response > 100) {
@@ -1133,15 +1205,21 @@ export class SATI {
     }
 
     // Derive attestation PDA
-    const nonce = computeValidationResponseNonce(requestAttestation, responseIndex);
+    const nonce = computeValidationResponseNonce(
+      requestAttestation,
+      responseIndex,
+    );
     const [attestationPda] = await deriveSatiAttestationPda(
       sasConfig.credential,
       sasConfig.schemas.validationResponse,
-      nonce
+      nonce,
     );
 
     // Fetch schema for serialization
-    const schema = await fetchSchema(this.rpc, sasConfig.schemas.validationResponse);
+    const schema = await fetchSchema(
+      this.rpc,
+      sasConfig.schemas.validationResponse,
+    );
 
     // Serialize attestation data
     const data = serializeValidationResponseData(
@@ -1152,7 +1230,7 @@ export class SATI {
         response_hash: responseHash,
         tag,
       },
-      schema.data
+      schema.data,
     );
 
     // Create attestation instruction
@@ -1168,13 +1246,16 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg)
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -1201,7 +1282,7 @@ export class SATI {
    */
   async getValidationStatus(
     requestAttestation: Address,
-    responseIndex: number = 0
+    responseIndex: number = 0,
   ): Promise<ValidationStatus | null> {
     const sasConfig = this.requireSASConfig();
 
@@ -1213,9 +1294,9 @@ export class SATI {
       ]);
 
       // Deserialize request data
-      const requestData = deserializeAttestationData(
+      const _requestData = deserializeAttestationData(
         requestSchema.data,
-        requestAccount.data.data as Uint8Array
+        requestAccount.data.data as Uint8Array,
       ) as {
         agent_mint: string;
         method_id: string;
@@ -1224,11 +1305,14 @@ export class SATI {
       };
 
       // Try to find response attestation at the specified index
-      const responseNonce = computeValidationResponseNonce(requestAttestation, responseIndex);
+      const responseNonce = computeValidationResponseNonce(
+        requestAttestation,
+        responseIndex,
+      );
       const [responseAttestationPda] = await deriveSatiAttestationPda(
         sasConfig.credential,
         sasConfig.schemas.validationResponse,
-        responseNonce
+        responseNonce,
       );
 
       type ValidationResponseData = {
@@ -1239,7 +1323,8 @@ export class SATI {
         tag: string;
       };
       let responseData: ValidationResponseData | null = null;
-      let responseAccount: Awaited<ReturnType<typeof fetchAttestation>> | null = null;
+      let responseAccount: Awaited<ReturnType<typeof fetchAttestation>> | null =
+        null;
 
       try {
         const [respAccount, responseSchema] = await Promise.all([
@@ -1249,7 +1334,7 @@ export class SATI {
         responseAccount = respAccount;
         responseData = deserializeAttestationData(
           responseSchema.data,
-          respAccount.data.data as Uint8Array
+          respAccount.data.data as Uint8Array,
         ) as ValidationResponseData;
       } catch {
         // No response yet
@@ -1261,11 +1346,14 @@ export class SATI {
         responseAttestation: responseData ? responseAttestationPda : undefined,
         response: responseData?.response,
         responseUri: responseData?.response_uri || undefined,
-        responseHash: responseHash && responseHash.length > 0 ? responseHash : undefined,
+        responseHash:
+          responseHash && responseHash.length > 0 ? responseHash : undefined,
         tag: responseData?.tag || undefined,
         validator: requestAccount.data.signer, // Request signer is the agent owner
         completed: responseData !== null,
-        responseExpiry: responseAccount ? Number(responseAccount.data.expiry) : undefined,
+        responseExpiry: responseAccount
+          ? Number(responseAccount.data.expiry)
+          : undefined,
       };
     } catch {
       return null;
@@ -1293,7 +1381,11 @@ export class SATI {
     /** Authorized signers for attestations */
     authorizedSigners?: Address[];
   }): Promise<SATISASConfig> {
-    const { payer, authority, authorizedSigners = [authority.address] } = params;
+    const {
+      payer,
+      authority,
+      authorizedSigners = [authority.address],
+    } = params;
 
     // Derive credential PDA
     const [credentialPda] = await deriveSatiCredentialPda(authority.address);
@@ -1302,27 +1394,32 @@ export class SATI {
     const [feedbackAuthPda] = await deriveSatiSchemaPda(
       credentialPda,
       SATI_SCHEMA_NAMES.FEEDBACK_AUTH,
-      1
+      1,
     );
     const [feedbackPda] = await deriveSatiSchemaPda(
       credentialPda,
       SATI_SCHEMA_NAMES.FEEDBACK,
-      1
+      1,
     );
     const [feedbackResponsePda] = await deriveSatiSchemaPda(
       credentialPda,
       SATI_SCHEMA_NAMES.FEEDBACK_RESPONSE,
-      1
+      1,
     );
     const [validationRequestPda] = await deriveSatiSchemaPda(
       credentialPda,
       SATI_SCHEMA_NAMES.VALIDATION_REQUEST,
-      1
+      1,
     );
     const [validationResponsePda] = await deriveSatiSchemaPda(
       credentialPda,
       SATI_SCHEMA_NAMES.VALIDATION_RESPONSE,
-      1
+      1,
+    );
+    const [certificationPda] = await deriveSatiSchemaPda(
+      credentialPda,
+      SATI_SCHEMA_NAMES.CERTIFICATION,
+      1,
     );
 
     // Create credential instruction
@@ -1374,13 +1471,24 @@ export class SATI {
       schema: SATI_SAS_SCHEMAS.VALIDATION_RESPONSE,
     });
 
+    const createCertificationSchemaIx = getCreateSatiSchemaInstruction({
+      payer,
+      authority,
+      credentialPda,
+      schemaPda: certificationPda,
+      schema: SATI_SAS_SCHEMAS.CERTIFICATION,
+    });
+
     // Build and send transaction with all instructions
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) =>
         appendTransactionMessageInstructions(
           [
@@ -1390,9 +1498,10 @@ export class SATI {
             createFeedbackResponseSchemaIx,
             createValidationRequestSchemaIx,
             createValidationResponseSchemaIx,
+            createCertificationSchemaIx,
           ],
-          msg
-        )
+          msg,
+        ),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -1408,6 +1517,7 @@ export class SATI {
         feedbackResponse: feedbackResponsePda,
         validationRequest: validationRequestPda,
         validationResponse: validationResponsePda,
+        certification: certificationPda,
       },
     };
 

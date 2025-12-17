@@ -9,3 +9,4 @@
 export * from "./agentRegistered";
 export * from "./metadataEntry";
 export * from "./registryAuthorityUpdated";
+export * from "./registryInitialized";

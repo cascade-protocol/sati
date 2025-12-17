@@ -292,13 +292,26 @@
         212,
         154
       ]
+    },
+    {
+      "name": "RegistryInitialized",
+      "discriminator": [
+        144,
+        138,
+        62,
+        105,
+        58,
+        38,
+        100,
+        177
+      ]
     }
   ],
   "errors": [
     {
       "code": 6000,
       "name": "InvalidGroupMint",
-      "msg": "Invalid group mint - must be owned by Token-2022"
+      "msg": "Invalid group mint - must be owned by Token-2022 with TokenGroup extension"
     },
     {
       "code": 6001,
@@ -344,6 +357,11 @@
       "code": 6009,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6010,
+      "name": "MintAuthorityNotRenounced",
+      "msg": "Failed to renounce mint authority - supply guarantee violated"
     }
   ],
   "types": [
@@ -454,6 +472,22 @@
               "PDA bump seed (stored for efficient CPI signing)"
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RegistryInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "group_mint",
+            "type": "pubkey"
           }
         ]
       }

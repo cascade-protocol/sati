@@ -31,7 +31,7 @@ codama.accept(
     deleteFolderBeforeRendering: true,
     formatCode: true,
     useGranularImports: false,
-  })
+  }),
 );
 
 console.log(`✓ Generated SATI client in ${outputDir}`);

@@ -146,6 +146,33 @@ export const VALIDATION_RESPONSE_SCHEMA: SASSchema = {
   ],
 };
 
+// ============ CERTIFICATION SCHEMA ============
+
+/**
+ * Certification Schema - Immutable certification for agent
+ *
+ * For permanent, unmodifiable records (security audits, compliance
+ * certifications, credential attestations). SAS attestations are
+ * immutable by design - content cannot be modified after creation.
+ *
+ * Attestation configuration:
+ * - credential = agent NFT mint
+ * - issuer = certifier (e.g., audit firm)
+ * - nonce = hash(agent_mint, certifier_pubkey, cert_type, issued_at)
+ */
+export const CERTIFICATION_SCHEMA: SASSchema = {
+  name: "SATICertification",
+  version: 1,
+  description: "Immutable certification for agent",
+  layout: [12, 12, 12, 8], // String, String, String, I64
+  fieldNames: [
+    "certifier", // Certifying entity (e.g., "OtterSec")
+    "cert_type", // Certification type (e.g., "security-audit")
+    "cert_uri", // Link to full certificate/report
+    "issued_at", // Unix timestamp
+  ],
+};
+
 // ============ ALL SCHEMAS ============
 
 /**
@@ -157,6 +184,7 @@ export const SATI_SCHEMAS = {
   feedbackResponse: FEEDBACK_RESPONSE_SCHEMA,
   validationRequest: VALIDATION_REQUEST_SCHEMA,
   validationResponse: VALIDATION_RESPONSE_SCHEMA,
+  certification: CERTIFICATION_SCHEMA,
 } as const;
 
 /**
@@ -168,4 +196,5 @@ export const SCHEMA_NAMES = {
   FEEDBACK_RESPONSE: "SATIFeedbackResponse",
   VALIDATION_REQUEST: "SATIValidationRequest",
   VALIDATION_RESPONSE: "SATIValidationResponse",
+  CERTIFICATION: "SATICertification",
 } as const;
