@@ -7,6 +7,8 @@
     "build": "anchor build",
     "test": "anchor test",
     "test:sdk": "pnpm --filter @sati/sdk test",
+    "test:smoke": "SOLANA_CLUSTER=devnet pnpm vitest run tests/smoke.test.ts",
+    "test:smoke:mainnet": "SOLANA_CLUSTER=mainnet pnpm vitest run tests/smoke.test.ts",
     "type-check": "tsc --noEmit && pnpm --filter @sati/sdk type-check",
     "clean": "rm -rf target test-ledger .anchor"
   },

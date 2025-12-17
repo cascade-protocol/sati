@@ -31,4 +31,7 @@ pub enum SatiError {
 
     #[msg("Arithmetic overflow")]
     Overflow,
+
+    #[msg("Failed to renounce mint authority - supply guarantee violated")]
+    MintAuthorityNotRenounced,
 }

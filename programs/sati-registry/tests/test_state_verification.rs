@@ -6,7 +6,9 @@
 mod helpers;
 
 use helpers::{
-    accounts::{program_account, system_account, system_program_account, token2022_program_account},
+    accounts::{
+        program_account, system_account, system_program_account, token2022_program_account,
+    },
     instructions::{
         build_register_agent, build_update_registry_authority, derive_ata_token2022,
         derive_registry_config, PROGRAM_ID,
@@ -147,7 +149,10 @@ fn test_register_agent_counter_increments_from_zero() {
         .get_account(&registry_config)
         .expect("Registry config not found");
     let (_, _, total_agents, _) = deserialize_registry_config(&registry_account.data);
-    assert_eq!(total_agents, 1, "Counter should be 1 after first registration");
+    assert_eq!(
+        total_agents, 1,
+        "Counter should be 1 after first registration"
+    );
 }
 
 #[test]
@@ -327,9 +332,15 @@ fn test_update_authority_transfer_updates_state() {
     let (stored_group_mint, stored_authority, stored_total_agents, stored_bump) =
         deserialize_registry_config(&registry_account.data);
 
-    assert_eq!(stored_authority, new_authority, "Authority should be updated");
+    assert_eq!(
+        stored_authority, new_authority,
+        "Authority should be updated"
+    );
     // Verify other fields unchanged
-    assert_eq!(stored_group_mint, group_mint, "group_mint should be unchanged");
+    assert_eq!(
+        stored_group_mint, group_mint,
+        "group_mint should be unchanged"
+    );
     assert_eq!(stored_total_agents, 5, "total_agents should be unchanged");
     assert_eq!(stored_bump, bump, "bump should be unchanged");
 }
@@ -376,7 +387,10 @@ fn test_update_authority_renounce_updates_state() {
         "Authority should be default (immutable)"
     );
     // Verify other fields unchanged
-    assert_eq!(stored_group_mint, group_mint, "group_mint should be unchanged");
+    assert_eq!(
+        stored_group_mint, group_mint,
+        "group_mint should be unchanged"
+    );
     assert_eq!(stored_total_agents, 10, "total_agents should be unchanged");
     assert_eq!(stored_bump, bump, "bump should be unchanged");
 }
@@ -393,8 +407,7 @@ fn test_update_authority_transfer_to_self_succeeds() {
     let registry_lamports = Rent::default().minimum_balance(REGISTRY_CONFIG_SIZE);
 
     // Transfer to self (no-op)
-    let instruction =
-        build_update_registry_authority(authority, registry_config, Some(authority));
+    let instruction = build_update_registry_authority(authority, registry_config, Some(authority));
 
     let accounts = vec![
         (authority, system_account(10_000_000_000)),

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::spl_token_2022::{
-    extension::ExtensionType,
+    extension::{ExtensionType, StateWithExtensions},
     instruction::{initialize_mint2, mint_to, set_authority, AuthorityType},
     state::Mint as Token2022Mint,
 };
@@ -117,21 +117,47 @@ pub fn handler(
 
     // Add space for TokenMetadata (variable length)
     // TokenMetadata base: 64 bytes + name + symbol + uri + additional_metadata
-    let metadata_space = 64
-        + name.len()
-        + symbol.len()
-        + uri.len()
-        + additional_metadata
-            .as_ref()
-            .map(|m| m.iter().map(|e| 4 + e.key.len() + 4 + e.value.len()).sum())
-            .unwrap_or(0);
+    // Using checked arithmetic for defense-in-depth
+    let mut metadata_space: usize = 64;
+    metadata_space = metadata_space
+        .checked_add(name.len())
+        .ok_or(SatiError::Overflow)?;
+    metadata_space = metadata_space
+        .checked_add(symbol.len())
+        .ok_or(SatiError::Overflow)?;
+    metadata_space = metadata_space
+        .checked_add(uri.len())
+        .ok_or(SatiError::Overflow)?;
+
+    if let Some(ref metadata) = additional_metadata {
+        for entry in metadata {
+            // Each entry: 4 bytes (key len) + key + 4 bytes (value len) + value
+            let entry_size = 4_usize
+                .checked_add(entry.key.len())
+                .ok_or(SatiError::Overflow)?
+                .checked_add(4)
+                .ok_or(SatiError::Overflow)?
+                .checked_add(entry.value.len())
+                .ok_or(SatiError::Overflow)?;
+            metadata_space = metadata_space
+                .checked_add(entry_size)
+                .ok_or(SatiError::Overflow)?;
+        }
+    }
 
     // Add space for TokenGroupMember: 72 bytes
-    let group_member_space = 72;
+    let group_member_space: usize = 72;
 
     // Total size needed after all extensions are initialized
     // TokenMetadata and GroupMember will reallocate the account when initialized
-    let total_len = mint_len + metadata_space + group_member_space + TLV_OVERHEAD_PADDING;
+    // Using checked arithmetic for defense-in-depth
+    let total_len = mint_len
+        .checked_add(metadata_space)
+        .ok_or(SatiError::Overflow)?
+        .checked_add(group_member_space)
+        .ok_or(SatiError::Overflow)?
+        .checked_add(TLV_OVERHEAD_PADDING)
+        .ok_or(SatiError::Overflow)?;
 
     // Create account with exact mint_len space (required by Token-2022's InitializeMint2)
     // but fund with enough lamports for the eventual total_len after reallocations
@@ -338,6 +364,18 @@ pub fn handler(
             ctx.accounts.payer.to_account_info(),
         ],
     )?;
+
+    // 2l. Verify mint authority was successfully renounced (defense-in-depth)
+    // This ensures the supply=1 guarantee is enforced
+    {
+        let mint_data = ctx.accounts.agent_mint.try_borrow_data()?;
+        let mint_state = StateWithExtensions::<Token2022Mint>::unpack(&mint_data)
+            .map_err(|_| SatiError::MintAuthorityNotRenounced)?;
+        require!(
+            mint_state.base.mint_authority.is_none(),
+            SatiError::MintAuthorityNotRenounced
+        );
+    }
 
     // === PHASE 3: Write state after CPIs succeed ===
     let registry = &mut ctx.accounts.registry_config;
