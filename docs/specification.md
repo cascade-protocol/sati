@@ -694,13 +694,23 @@ SATI maintains a canonical credential and 6 schemas on SAS. The SDK auto-loads t
 | SATIValidationResponse | `EsKybaVzREeUDtVNmqkxP5bYnWzesAmjU24J7yUN5P2m` |
 | SATICertification | `FS9btVi37tSUzvZnfbSKJGfkxshQ5kJs821CUeN6spsb` |
 
-**Mainnet Deployment:** TBD (pre-launch)
+**Mainnet Deployment:**
+
+| Component | Address |
+|-----------|---------|
+| **SATI Credential** | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` |
+| SATIFeedbackAuth | `5xSf1fTKoC9hxdVWviv7hXu1CUqBuJC6u91ATkAFNVQF` |
+| SATIFeedback | `6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB` |
+| SATIFeedbackResponse | `6YNVUMLe7oxVLKeEzqAzXhd3GpzxVJwcnXPy79q3VzZr` |
+| SATIValidationRequest | `GwPFMxXzieodxgPsu1c6tJUwEu57VjrUUwYjhe9C6g5w` |
+| SATIValidationResponse | `6YwoDaKEhhktZJY3thQMLpAuJYZtxySRGQuBjXk6VwrK` |
+| SATICertification | `6V8aJX32J9uEwvpRwerRQ6nJK5y7r69NipBTkMTYMhsZ` |
 
 **SDK Auto-Loading:**
 
 ```typescript
 // Schemas are automatically loaded based on network
-const sati = new SATI({ network: "devnet" });
+const sati = new SATI({ network: "mainnet" }); // or "devnet"
 
 // Or manually set custom config (e.g., for localnet testing)
 sati.setSASConfig({
