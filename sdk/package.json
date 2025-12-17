@@ -1,6 +1,6 @@
 {
-  "name": "@sati/sdk",
-  "version": "0.1.0",
+  "name": "@cascade-fyi/sati-sdk",
+  "version": "0.2.0",
   "description": "TypeScript SDK for SATI - Solana Agent Trust Infrastructure",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -67,6 +67,7 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@noble/hashes": "^1.7.2",
+    "@solana-program/compute-budget": "^0.11.0",
     "@solana-program/token-2022": "^0.6.1",
     "@solana/kit": "^5.0.0",
     "bs58": "^6.0.0",

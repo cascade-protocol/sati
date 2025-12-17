@@ -1559,10 +1559,10 @@ pnpm vitest run tests/
 
 | Network | Program ID | Registry Config | Group Mint | Status |
 |---------|------------|-----------------|------------|--------|
-| Devnet | `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF` | TBD | TBD | Not deployed |
-| Mainnet | `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF` | TBD | TBD | Not deployed |
+| Devnet | `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF` | `5tMXnDjqVsvQoem8tZ74nAMU1KYntUSTNEnMDoGFjnij` | `4W3mJSqV6xkQXz1W1BW6ue3RBcMrY54tKnkpZ63ePMJ3` | **Deployed** |
+| Mainnet | `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF` | `5tMXnDjqVsvQoem8tZ74nAMU1KYntUSTNEnMDoGFjnij` | `A1jEZyAasuU7D8NrcaQn7PD9To8eG2i9gxyFjy6Mii9q` | **Deployed** |
 
-*Registry Config and Group Mint PDAs will be derived after deployment.*
+*Both networks are verified via solana-verify on-chain.*
 
 ### Off-Chain Storage
 
@@ -1581,16 +1581,16 @@ ipfs://QmYourRegistrationFileHash
 ### Implementation Order
 
 1. ~~**Grind vanity keypair**~~ ✅ `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`
-2. **Implement sati-registry program** (~500 lines)
-3. **Write comprehensive tests**
-4. **Security audit**
-5. **Deploy to devnet**
-6. **Initialize registry** (create TokenGroup)
-7. **Create SAS schemas** (6 schemas)
-8. **Implement SDK**
-9. **Test on devnet**
-10. **Deploy to mainnet**
-11. **Transfer authority to multisig**
+2. ~~**Implement sati-registry program**~~ ✅ (~500 lines)
+3. ~~**Write comprehensive tests**~~ ✅
+4. **Security audit** (planned)
+5. ~~**Deploy to devnet**~~ ✅
+6. ~~**Initialize registry**~~ ✅ (TokenGroup created)
+7. ~~**Create SAS schemas**~~ ✅ (6 schemas deployed)
+8. ~~**Implement SDK**~~ ✅ `@cascade-fyi/sati-sdk@0.2.0`
+9. ~~**Test on devnet**~~ ✅
+10. ~~**Deploy to mainnet**~~ ✅ (verified build)
+11. **Transfer authority to multisig** (planned)
 12. **After stable: renounce authority** (immutable)
 
 ### One-Time Setup

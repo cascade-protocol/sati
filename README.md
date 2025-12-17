@@ -74,7 +74,7 @@ pnpm install
 anchor build
 
 # Build SDK
-pnpm --filter @sati/sdk build
+pnpm --filter @cascade-fyi/sati-sdk build
 
 # Run tests
 anchor test
@@ -92,10 +92,10 @@ anchor test
 ## SDK Usage
 
 ```typescript
-import { SATI } from "@sati/sdk";
+import { SATI } from "@cascade-fyi/sati-sdk";
 
 // Initialize client (auto-loads deployed schema addresses)
-const sati = new SATI({ network: "devnet" });
+const sati = new SATI({ network: "mainnet" }); // or "devnet"
 
 // Register an agent
 const { mint, memberNumber } = await sati.registerAgent({
@@ -194,7 +194,8 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
-**Program Audits:** Planned for Q1 2026 pre-mainnet.
+**Deployment Status:** Mainnet and Devnet
+**On-chain Verification:** [Verified via solana-verify](https://explorer.solana.com/address/satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF)
 
 ---
 

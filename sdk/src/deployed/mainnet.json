@@ -1,0 +1,16 @@
+{
+  "network": "mainnet",
+  "authority": "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z",
+  "deployedAt": "2025-12-17T17:44:18.254Z",
+  "config": {
+    "credential": "DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1",
+    "schemas": {
+      "feedbackAuth": "5xSf1fTKoC9hxdVWviv7hXu1CUqBuJC6u91ATkAFNVQF",
+      "feedback": "6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB",
+      "feedbackResponse": "6YNVUMLe7oxVLKeEzqAzXhd3GpzxVJwcnXPy79q3VzZr",
+      "validationRequest": "GwPFMxXzieodxgPsu1c6tJUwEu57VjrUUwYjhe9C6g5w",
+      "validationResponse": "6YwoDaKEhhktZJY3thQMLpAuJYZtxySRGQuBjXk6VwrK",
+      "certification": "6V8aJX32J9uEwvpRwerRQ6nJK5y7r69NipBTkMTYMhsZ"
+    }
+  }
+}
