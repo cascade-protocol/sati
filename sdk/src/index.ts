@@ -31,6 +31,13 @@ export * from "./helpers";
 // Type definitions
 export * from "./types";
 
+// Deployed config loaders
+export {
+  loadDeployedConfig,
+  hasDeployedConfig,
+  getDeployedNetworks,
+} from "./deployed";
+
 // High-level client
 export { SATI } from "./client";
 

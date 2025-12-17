@@ -3,16 +3,46 @@
  *
  * Schema definitions for Solana Attestation Service (SAS) attestations.
  * These schemas define the data structures for SATI reputation and validation.
- *
- * SAS Layout Type Reference (from solana-attestation-service):
- * - 0: U8     (unsigned 8-bit integer, 0-255)
- * - 1: U16    (unsigned 16-bit integer, 0-65535)
- * - 2: U32    (unsigned 32-bit integer)
- * - 3: U64    (unsigned 64-bit integer)
- * - 8: I64    (signed 64-bit integer, for timestamps)
- * - 12: String (UTF-8 with 4-byte length prefix)
- * - 13: VecU8  (byte array with 4-byte length prefix)
  */
+
+/**
+ * SAS Layout Types
+ *
+ * Type-safe enum for schema field layout definitions.
+ * These map to the SAS program's internal type codes.
+ *
+ * @see https://github.com/solana-foundation/solana-attestation-service
+ */
+export enum SASLayoutType {
+  /** Unsigned 8-bit integer (0-255) */
+  U8 = 0,
+  /** Unsigned 16-bit integer (0-65535) */
+  U16 = 1,
+  /** Unsigned 32-bit integer */
+  U32 = 2,
+  /** Unsigned 64-bit integer */
+  U64 = 3,
+  /** Unsigned 128-bit integer */
+  U128 = 4,
+  /** Signed 8-bit integer */
+  I8 = 5,
+  /** Signed 16-bit integer */
+  I16 = 6,
+  /** Signed 32-bit integer */
+  I32 = 7,
+  /** Signed 64-bit integer (for timestamps) */
+  I64 = 8,
+  /** Signed 128-bit integer */
+  I128 = 9,
+  /** Boolean */
+  Bool = 10,
+  /** Single character */
+  Char = 11,
+  /** UTF-8 string with 4-byte length prefix */
+  String = 12,
+  /** Byte array with 4-byte length prefix */
+  VecU8 = 13,
+}
 
 /**
  * SAS Schema definition structure
@@ -21,7 +51,7 @@ export interface SASSchema {
   name: string;
   version: number;
   description: string;
-  layout: number[];
+  layout: SASLayoutType[];
   fieldNames: string[];
 }
 
@@ -42,7 +72,7 @@ export const FEEDBACK_AUTH_SCHEMA: SASSchema = {
   name: "SATIFeedbackAuth",
   version: 1,
   description: "Authorization for client to submit feedback",
-  layout: [12, 1, 8], // String, U16, I64
+  layout: [SASLayoutType.String, SASLayoutType.U16, SASLayoutType.I64],
   fieldNames: [
     "agent_mint", // Agent NFT mint address (base58 string)
     "index_limit", // Maximum feedback index allowed (ERC-8004: indexLimit)
@@ -64,7 +94,15 @@ export const FEEDBACK_SCHEMA: SASSchema = {
   name: "SATIFeedback",
   version: 1,
   description: "Client feedback for agent (ERC-8004 compatible)",
-  layout: [12, 0, 12, 12, 12, 13, 12], // String, U8, String, String, String, VecU8, String
+  layout: [
+    SASLayoutType.String, // agent_mint
+    SASLayoutType.U8, // score
+    SASLayoutType.String, // tag1
+    SASLayoutType.String, // tag2
+    SASLayoutType.String, // fileuri
+    SASLayoutType.VecU8, // filehash
+    SASLayoutType.String, // payment_proof
+  ],
   fieldNames: [
     "agent_mint", // Agent NFT mint receiving feedback (base58 string)
     "score", // 0-100 as U8 (matches ERC-8004 uint8)
@@ -90,7 +128,11 @@ export const FEEDBACK_RESPONSE_SCHEMA: SASSchema = {
   name: "SATIFeedbackResponse",
   version: 1,
   description: "Response to feedback (ERC-8004 appendResponse)",
-  layout: [12, 12, 13], // String, String, VecU8
+  layout: [
+    SASLayoutType.String, // feedback_id
+    SASLayoutType.String, // response_uri
+    SASLayoutType.VecU8, // response_hash
+  ],
   fieldNames: [
     "feedback_id", // Reference to feedback attestation pubkey (base58 string)
     "response_uri", // Off-chain response details (string)
@@ -113,7 +155,12 @@ export const VALIDATION_REQUEST_SCHEMA: SASSchema = {
   name: "SATIValidationRequest",
   version: 1,
   description: "Agent requests work validation",
-  layout: [12, 12, 12, 13], // String, String, String, VecU8
+  layout: [
+    SASLayoutType.String, // agent_mint
+    SASLayoutType.String, // method_id
+    SASLayoutType.String, // request_uri
+    SASLayoutType.VecU8, // request_hash
+  ],
   fieldNames: [
     "agent_mint", // Agent NFT mint requesting validation (base58 string)
     "method_id", // Validation method ("tee", "zkml", "restake") - SATI extension
@@ -136,7 +183,13 @@ export const VALIDATION_RESPONSE_SCHEMA: SASSchema = {
   name: "SATIValidationResponse",
   version: 1,
   description: "Validator responds to request",
-  layout: [12, 0, 12, 13, 12], // String, U8, String, VecU8, String
+  layout: [
+    SASLayoutType.String, // request_id
+    SASLayoutType.U8, // response
+    SASLayoutType.String, // response_uri
+    SASLayoutType.VecU8, // response_hash
+    SASLayoutType.String, // tag
+  ],
   fieldNames: [
     "request_id", // Reference to request attestation pubkey (base58 string)
     "response", // 0-100 as U8 (0=fail, 100=pass)
@@ -164,7 +217,12 @@ export const CERTIFICATION_SCHEMA: SASSchema = {
   name: "SATICertification",
   version: 1,
   description: "Immutable certification for agent",
-  layout: [12, 12, 12, 8], // String, String, String, I64
+  layout: [
+    SASLayoutType.String, // certifier
+    SASLayoutType.String, // cert_type
+    SASLayoutType.String, // cert_uri
+    SASLayoutType.I64, // issued_at
+  ],
   fieldNames: [
     "certifier", // Certifying entity (e.g., "OtterSec")
     "cert_type", // Certification type (e.g., "security-audit")

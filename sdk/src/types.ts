@@ -150,3 +150,73 @@ export interface SATIClientOptions {
   /** Custom WebSocket URL for subscriptions (overrides network default) */
   wsUrl?: string;
 }
+
+// ============ SAS DEPLOYMENT TYPES ============
+
+/**
+ * SAS configuration with credential and schema addresses
+ */
+export interface SATISASConfig {
+  /** SATI credential PDA */
+  credential: Address;
+  /** Schema PDAs by name */
+  schemas: {
+    feedbackAuth: Address;
+    feedback: Address;
+    feedbackResponse: Address;
+    validationRequest: Address;
+    validationResponse: Address;
+    certification: Address;
+  };
+}
+
+/**
+ * Status of a single schema deployment
+ */
+export interface SchemaDeploymentStatus {
+  /** Schema name (e.g., "SATIFeedback") */
+  name: string;
+  /** Schema PDA address */
+  address: Address;
+  /** Whether schema existed before this deployment */
+  existed: boolean;
+  /** Whether schema was deployed in this run */
+  deployed: boolean;
+}
+
+/**
+ * Result of SAS schema deployment operation
+ */
+export interface SASDeploymentResult {
+  /** Whether deployment was successful */
+  success: boolean;
+  /** Credential deployment status */
+  credential: {
+    /** Credential PDA address */
+    address: Address;
+    /** Whether credential existed before this deployment */
+    existed: boolean;
+    /** Whether credential was deployed in this run */
+    deployed: boolean;
+  };
+  /** Schema deployment statuses */
+  schemas: SchemaDeploymentStatus[];
+  /** Transaction signatures for any deployments */
+  signatures: string[];
+  /** Full SAS config (usable immediately) */
+  config: SATISASConfig;
+}
+
+/**
+ * Persisted deployment configuration (for JSON files)
+ */
+export interface DeployedSASConfig {
+  /** Network identifier */
+  network: "devnet" | "mainnet" | "localnet";
+  /** Authority that deployed the schemas */
+  authority: Address;
+  /** Deployment timestamp (ISO string) */
+  deployedAt: string;
+  /** The SAS configuration */
+  config: SATISASConfig;
+}

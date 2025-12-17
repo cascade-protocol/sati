@@ -27,6 +27,7 @@ import {
   address,
   getSignatureFromTransaction,
   type Address,
+  type Instruction,
   type KeyPairSigner,
 } from "@solana/kit";
 
@@ -50,16 +51,18 @@ import {
 } from "./helpers";
 
 import {
-  deriveSatiCredentialPda,
-  deriveSatiSchemaPda,
   deriveSatiAttestationPda,
   deriveEventAuthorityAddress,
-  getCreateSatiCredentialInstruction,
-  getCreateSatiSchemaInstruction,
+  deriveCredentialPda,
+  deriveSchemaPda,
+  getCreateCredentialInstruction,
+  getCreateSchemaInstruction,
   getCreateAttestationInstruction,
   getCloseAttestationInstruction,
   fetchSchema,
   fetchAttestation,
+  fetchMaybeCredential,
+  fetchAllMaybeSchema,
   deserializeAttestationData,
   serializeFeedbackAuthData,
   serializeFeedbackData,
@@ -71,6 +74,7 @@ import {
   computeFeedbackResponseNonce,
   computeValidationRequestNonce,
   computeValidationResponseNonce,
+  SATI_CREDENTIAL_NAME,
   SATI_SCHEMA_NAMES,
   SATI_SAS_SCHEMAS,
   SAS_PROGRAM_ID,
@@ -84,7 +88,11 @@ import type {
   RegisterAgentResult,
   AttestationResult,
   SATIClientOptions,
+  SASDeploymentResult,
+  SchemaDeploymentStatus,
 } from "./types";
+
+import { loadDeployedConfig } from "./deployed";
 
 // Default RPC URLs
 const RPC_URLS = {
@@ -161,6 +169,12 @@ export class SATI {
       rpc: this.rpc,
       rpcSubscriptions: this.rpcSubscriptions,
     });
+
+    // Auto-load deployed SAS config if available for this network
+    const deployedConfig = loadDeployedConfig(this.network);
+    if (deployedConfig) {
+      this.sasConfig = deployedConfig;
+    }
   }
 
   /**
@@ -1365,13 +1379,15 @@ export class SATI {
   // ============================================================
 
   /**
-   * Setup SATI SAS schemas
+   * Setup SATI SAS schemas with idempotent deployment.
    *
-   * One-time setup to create SATI credential and all 5 schemas.
-   * Call this once per network, then use setSASConfig() with the returned addresses.
+   * This method is safe to call multiple times. It will:
+   * 1. Check which components already exist on-chain
+   * 2. Deploy only missing credential and schemas
+   * 3. Verify all components exist after deployment
    *
    * @param params - Setup parameters
-   * @returns Credential and schema addresses
+   * @returns Deployment result with status and config
    */
   async setupSASSchemas(params: {
     /** Payer for account creation */
@@ -1380,150 +1396,273 @@ export class SATI {
     authority: KeyPairSigner;
     /** Authorized signers for attestations */
     authorizedSigners?: Address[];
-  }): Promise<SATISASConfig> {
+    /** Deploy test schemas (v0) instead of production schemas */
+    testMode?: boolean;
+  }): Promise<SASDeploymentResult> {
     const {
       payer,
       authority,
       authorizedSigners = [authority.address],
+      testMode = false,
     } = params;
 
+    // Define credential and schema names based on mode
+    const credentialName = testMode ? "SATI_TEST_v0" : SATI_CREDENTIAL_NAME;
+
+    // Test mode schema names with v0 suffix to avoid polluting production namespace
+    const testSchemaNames = {
+      FEEDBACK_AUTH: "TestFeedbackAuth_v0",
+      FEEDBACK: "TestFeedback_v0",
+      FEEDBACK_RESPONSE: "TestFeedbackResponse_v0",
+      VALIDATION_REQUEST: "TestValidationRequest_v0",
+      VALIDATION_RESPONSE: "TestValidationResponse_v0",
+      CERTIFICATION: "TestCertification_v0",
+    } as const;
+
+    const schemaNames = testMode ? testSchemaNames : SATI_SCHEMA_NAMES;
+
     // Derive credential PDA
-    const [credentialPda] = await deriveSatiCredentialPda(authority.address);
+    const [credentialPda] = await deriveCredentialPda({
+      authority: authority.address,
+      name: credentialName,
+    });
 
     // Derive all schema PDAs
-    const [feedbackAuthPda] = await deriveSatiSchemaPda(
+    const schemaKeys = [
+      "FEEDBACK_AUTH",
+      "FEEDBACK",
+      "FEEDBACK_RESPONSE",
+      "VALIDATION_REQUEST",
+      "VALIDATION_RESPONSE",
+      "CERTIFICATION",
+    ] as const;
+
+    const schemaPdas: Address[] = [];
+    for (const key of schemaKeys) {
+      const [pda] = await deriveSchemaPda({
+        credential: credentialPda,
+        name: schemaNames[key],
+        version: 1,
+      });
+      schemaPdas.push(pda);
+    }
+
+    // Phase 1: Check existing state
+    const credentialAccount = await fetchMaybeCredential(
+      this.rpc,
       credentialPda,
-      SATI_SCHEMA_NAMES.FEEDBACK_AUTH,
-      1,
     );
-    const [feedbackPda] = await deriveSatiSchemaPda(
-      credentialPda,
-      SATI_SCHEMA_NAMES.FEEDBACK,
-      1,
-    );
-    const [feedbackResponsePda] = await deriveSatiSchemaPda(
-      credentialPda,
-      SATI_SCHEMA_NAMES.FEEDBACK_RESPONSE,
-      1,
-    );
-    const [validationRequestPda] = await deriveSatiSchemaPda(
-      credentialPda,
-      SATI_SCHEMA_NAMES.VALIDATION_REQUEST,
-      1,
-    );
-    const [validationResponsePda] = await deriveSatiSchemaPda(
-      credentialPda,
-      SATI_SCHEMA_NAMES.VALIDATION_RESPONSE,
-      1,
-    );
-    const [certificationPda] = await deriveSatiSchemaPda(
-      credentialPda,
-      SATI_SCHEMA_NAMES.CERTIFICATION,
-      1,
-    );
+    const schemaAccounts = await fetchAllMaybeSchema(this.rpc, schemaPdas);
 
-    // Create credential instruction
-    const createCredentialIx = getCreateSatiCredentialInstruction({
-      payer,
-      authority,
-      credentialPda,
-      authorizedSigners,
-    });
+    const credentialExists = credentialAccount.exists;
+    const schemaExistsFlags = schemaAccounts.map((acc) => acc.exists);
 
-    // Create schema instructions
-    const createFeedbackAuthSchemaIx = getCreateSatiSchemaInstruction({
-      payer,
-      authority,
-      credentialPda,
-      schemaPda: feedbackAuthPda,
-      schema: SATI_SAS_SCHEMAS.FEEDBACK_AUTH,
-    });
+    // Phase 2: Build instructions for missing components only
+    const instructions: Instruction[] = [];
 
-    const createFeedbackSchemaIx = getCreateSatiSchemaInstruction({
-      payer,
-      authority,
-      credentialPda,
-      schemaPda: feedbackPda,
-      schema: SATI_SAS_SCHEMAS.FEEDBACK,
-    });
+    if (!credentialExists) {
+      instructions.push(
+        getCreateCredentialInstruction({
+          payer,
+          credential: credentialPda,
+          authority,
+          name: credentialName,
+          signers: authorizedSigners,
+        }),
+      );
+    }
 
-    const createFeedbackResponseSchemaIx = getCreateSatiSchemaInstruction({
-      payer,
-      authority,
-      credentialPda,
-      schemaPda: feedbackResponsePda,
-      schema: SATI_SAS_SCHEMAS.FEEDBACK_RESPONSE,
-    });
+    // Build schema definitions with potentially overridden names
+    const schemaDefinitions = [
+      {
+        key: "FEEDBACK_AUTH" as const,
+        pda: schemaPdas[0],
+        baseSchema: SATI_SAS_SCHEMAS.FEEDBACK_AUTH,
+      },
+      {
+        key: "FEEDBACK" as const,
+        pda: schemaPdas[1],
+        baseSchema: SATI_SAS_SCHEMAS.FEEDBACK,
+      },
+      {
+        key: "FEEDBACK_RESPONSE" as const,
+        pda: schemaPdas[2],
+        baseSchema: SATI_SAS_SCHEMAS.FEEDBACK_RESPONSE,
+      },
+      {
+        key: "VALIDATION_REQUEST" as const,
+        pda: schemaPdas[3],
+        baseSchema: SATI_SAS_SCHEMAS.VALIDATION_REQUEST,
+      },
+      {
+        key: "VALIDATION_RESPONSE" as const,
+        pda: schemaPdas[4],
+        baseSchema: SATI_SAS_SCHEMAS.VALIDATION_RESPONSE,
+      },
+      {
+        key: "CERTIFICATION" as const,
+        pda: schemaPdas[5],
+        baseSchema: SATI_SAS_SCHEMAS.CERTIFICATION,
+      },
+    ];
 
-    const createValidationRequestSchemaIx = getCreateSatiSchemaInstruction({
-      payer,
-      authority,
-      credentialPda,
-      schemaPda: validationRequestPda,
-      schema: SATI_SAS_SCHEMAS.VALIDATION_REQUEST,
-    });
+    for (let i = 0; i < schemaDefinitions.length; i++) {
+      if (!schemaExistsFlags[i]) {
+        const { key, pda, baseSchema } = schemaDefinitions[i];
+        // Use test mode name but keep the original schema layout/description
+        const schemaWithName = {
+          ...baseSchema,
+          name: schemaNames[key],
+        };
+        instructions.push(
+          getCreateSchemaInstruction({
+            payer,
+            authority,
+            credential: credentialPda,
+            schema: pda,
+            name: schemaWithName.name,
+            description: schemaWithName.description,
+            layout: new Uint8Array(schemaWithName.layout),
+            fieldNames: schemaWithName.fieldNames,
+          }),
+        );
+      }
+    }
 
-    const createValidationResponseSchemaIx = getCreateSatiSchemaInstruction({
-      payer,
-      authority,
-      credentialPda,
-      schemaPda: validationResponsePda,
-      schema: SATI_SAS_SCHEMAS.VALIDATION_RESPONSE,
-    });
+    // Phase 3: Deploy in batches (to avoid tx size limits)
+    // Each schema creation is ~200-300 bytes, so batch 2-3 at a time
+    const signatures: string[] = [];
+    const BATCH_SIZE = 2; // Conservative batch size for safety
 
-    const createCertificationSchemaIx = getCreateSatiSchemaInstruction({
-      payer,
-      authority,
-      credentialPda,
-      schemaPda: certificationPda,
-      schema: SATI_SAS_SCHEMAS.CERTIFICATION,
-    });
+    // Separate credential instruction from schema instructions
+    const credentialIx = !credentialExists ? instructions.shift() : null;
+    const schemaIxs = instructions; // Remaining are schema instructions
 
-    // Build and send transaction with all instructions
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    // Deploy credential first if needed (must exist before schemas)
+    if (credentialIx) {
+      const { value: latestBlockhash } = await this.rpc
+        .getLatestBlockhash()
+        .send();
 
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) =>
-        appendTransactionMessageInstructions(
-          [
-            createCredentialIx,
-            createFeedbackAuthSchemaIx,
-            createFeedbackSchemaIx,
-            createFeedbackResponseSchemaIx,
-            createValidationRequestSchemaIx,
-            createValidationResponseSchemaIx,
-            createCertificationSchemaIx,
-          ],
-          msg,
-        ),
-    );
+      const tx = pipe(
+        createTransactionMessage({ version: 0 }),
+        (msg) => setTransactionMessageFeePayer(payer.address, msg),
+        (msg) =>
+          setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+        (msg) => appendTransactionMessageInstruction(credentialIx, msg),
+      );
 
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
+      const signedTx = await signTransactionMessageWithSigners(tx);
+      await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+        commitment: "confirmed",
+      });
 
+      const signature = getSignatureFromTransaction(signedTx);
+      signatures.push(signature);
+    }
+
+    // Deploy schemas in batches
+    for (let i = 0; i < schemaIxs.length; i += BATCH_SIZE) {
+      const batch = schemaIxs.slice(i, i + BATCH_SIZE);
+
+      const { value: latestBlockhash } = await this.rpc
+        .getLatestBlockhash()
+        .send();
+
+      const tx = pipe(
+        createTransactionMessage({ version: 0 }),
+        (msg) => setTransactionMessageFeePayer(payer.address, msg),
+        (msg) =>
+          setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+        (msg) => appendTransactionMessageInstructions(batch, msg),
+      );
+
+      const signedTx = await signTransactionMessageWithSigners(tx);
+      await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+        commitment: "confirmed",
+      });
+
+      const signature = getSignatureFromTransaction(signedTx);
+      signatures.push(signature);
+    }
+
+    // Phase 4: Build config and result
     const config: SATISASConfig = {
       credential: credentialPda,
       schemas: {
-        feedbackAuth: feedbackAuthPda,
-        feedback: feedbackPda,
-        feedbackResponse: feedbackResponsePda,
-        validationRequest: validationRequestPda,
-        validationResponse: validationResponsePda,
-        certification: certificationPda,
+        feedbackAuth: schemaPdas[0],
+        feedback: schemaPdas[1],
+        feedbackResponse: schemaPdas[2],
+        validationRequest: schemaPdas[3],
+        validationResponse: schemaPdas[4],
+        certification: schemaPdas[5],
       },
     };
 
     // Auto-set the config
     this.sasConfig = config;
 
-    return config;
+    // Build schema statuses
+    const schemaStatuses: SchemaDeploymentStatus[] = schemaDefinitions.map(
+      (item, idx) => ({
+        name: schemaNames[item.key],
+        address: schemaPdas[idx],
+        existed: schemaExistsFlags[idx],
+        deployed: !schemaExistsFlags[idx],
+      }),
+    );
+
+    // Phase 5: Verify deployment
+    const verification = await this.verifySASDeployment(config);
+
+    return {
+      success: verification.verified,
+      credential: {
+        address: credentialPda,
+        existed: credentialExists,
+        deployed: !credentialExists,
+      },
+      schemas: schemaStatuses,
+      signatures,
+      config,
+    };
+  }
+
+  /**
+   * Verify that all SAS components exist on-chain.
+   *
+   * @param config - SAS configuration to verify
+   * @returns Verification result with list of missing components
+   */
+  private async verifySASDeployment(config: SATISASConfig): Promise<{
+    verified: boolean;
+    missing: string[];
+  }> {
+    const missing: string[] = [];
+
+    // Check credential
+    const credentialAccount = await fetchMaybeCredential(
+      this.rpc,
+      config.credential,
+    );
+    if (!credentialAccount.exists) {
+      missing.push("credential");
+    }
+
+    // Check all schemas
+    const schemaAddresses = Object.values(config.schemas);
+    const schemaNames = Object.keys(config.schemas);
+    const schemaAccounts = await fetchAllMaybeSchema(this.rpc, schemaAddresses);
+
+    schemaAccounts.forEach((acc, idx) => {
+      if (!acc.exists) {
+        missing.push(schemaNames[idx]);
+      }
+    });
+
+    return {
+      verified: missing.length === 0,
+      missing,
+    };
   }
 }

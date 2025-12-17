@@ -24,6 +24,9 @@ import {
   deserializeAttestationData,
   fetchSchema,
   fetchAttestation,
+  fetchMaybeCredential,
+  fetchMaybeSchema,
+  fetchAllMaybeSchema,
   SOLANA_ATTESTATION_SERVICE_PROGRAM_ADDRESS,
 } from "sas-lib";
 
@@ -36,6 +39,10 @@ import {
   CERTIFICATION_SCHEMA,
   type SASSchema,
 } from "./schemas";
+import type { SATISASConfig } from "./types";
+
+// Re-export SATISASConfig for consumers
+export type { SATISASConfig };
 
 // Re-export SAS program address
 export { SOLANA_ATTESTATION_SERVICE_PROGRAM_ADDRESS as SAS_PROGRAM_ID };
@@ -54,6 +61,10 @@ export {
   deserializeAttestationData,
   fetchSchema,
   fetchAttestation,
+  // Idempotency helpers (return null instead of throwing)
+  fetchMaybeCredential,
+  fetchMaybeSchema,
+  fetchAllMaybeSchema,
 };
 
 /**
@@ -141,23 +152,6 @@ export async function deriveSatiAttestationPda(
     schema: schemaPda,
     nonce,
   });
-}
-
-/**
- * Configuration for SATI SAS setup
- */
-export interface SATISASConfig {
-  /** SATI credential PDA */
-  credential: Address;
-  /** Schema PDAs by name */
-  schemas: {
-    feedbackAuth: Address;
-    feedback: Address;
-    feedbackResponse: Address;
-    validationRequest: Address;
-    validationResponse: Address;
-    certification: Address;
-  };
 }
 
 /**
