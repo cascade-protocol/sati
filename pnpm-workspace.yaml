@@ -1,9 +1,15 @@
 packages:
   - sdk
+  - apps/*
 
 onlyBuiltDependencies:
   - '@swc/core'
   - bigint-buffer
   - bufferutil
   - esbuild
+  - keccak
+  - msw
+  - secp256k1
+  - sharp
   - utf-8-validate
+  - workerd

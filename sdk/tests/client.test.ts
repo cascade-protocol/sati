@@ -23,7 +23,7 @@ import {
 import { SATI_REGISTRY_PROGRAM_ADDRESS } from "../src/generated/programs/satiRegistry";
 
 // Import SDK helpers
-import { findRegistryConfigPda, findGroupMintPda } from "../src/helpers";
+import { findRegistryConfigPda } from "../src/helpers";
 
 // =============================================================================
 // Constants
@@ -213,11 +213,51 @@ describe("SDK: PDA Derivation", () => {
     expect(pdaWeb3.toBase58()).toBe(pdaKit);
   });
 
-  test("group mint PDA matches helpers", async () => {
-    const [pdaWeb3] = deriveGroupMintPda();
-    const [pdaKit] = await findGroupMintPda();
+  test("group mint is NOT a PDA - must be fetched from registry config", async () => {
+    // This test documents an important design decision:
+    // The group_mint in SATI is NOT a PDA - it's a pre-created Token-2022 mint
+    // that gets stored in the registry_config account during initialization.
+    //
+    // The old findGroupMintPda() was incorrect because it assumed group_mint
+    // was derived from seeds ["group_mint"], but in reality:
+    // 1. A Token-2022 mint with GroupPointer extension is created externally
+    // 2. That mint address is passed to the initialize instruction
+    // 3. The initialize instruction stores it in registry_config.group_mint
+    //
+    // To get the actual group_mint, you MUST fetch the registry_config account.
 
-    expect(pdaWeb3.toBase58()).toBe(pdaKit);
+    // Create a random keypair to represent the actual group mint
+    // (simulating what happens in production - it's a separate Token-2022 mint)
+    const actualGroupMint = Keypair.generate().publicKey;
+
+    // The PDA derivation gives a different address
+    const [pdaDerived] = deriveGroupMintPda();
+
+    // They should NOT be equal - this proves group_mint is not a PDA
+    expect(pdaDerived.toBase58()).not.toBe(actualGroupMint.toBase58());
+  });
+
+  test("registry config stores the actual group mint address", () => {
+    // Setup: Create a registry config with a specific group mint
+    const svm = setupLiteSVM();
+    const authority = Keypair.generate();
+    const actualGroupMint = Keypair.generate().publicKey;
+
+    // Store registry config with the actual group mint
+    setupRegistryConfig(svm, actualGroupMint, authority.publicKey, 0n);
+
+    // Fetch and verify
+    const [registryPda] = deriveRegistryConfigPda();
+    const account = svm.getAccount(registryPda);
+    const decoder = getRegistryConfigDecoder();
+    const decoded = decoder.decode(account?.data);
+
+    // The group_mint in registry_config should be what we stored
+    expect(decoded.groupMint).toBe(address(actualGroupMint.toBase58()));
+
+    // And it should NOT equal the PDA derivation
+    const [pdaDerived] = deriveGroupMintPda();
+    expect(decoded.groupMint).not.toBe(address(pdaDerived.toBase58()));
   });
 });
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sati-dashboard",
+  "account_id": "3db7dd8ff22ae68593205855d8bc0b25",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true,
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [{ "pattern": "sati.cascade.fyi", "custom_domain": true }]
+}

@@ -50,7 +50,6 @@ import {
   getInitializeMint2Instruction,
   getSetAuthorityInstruction,
   AuthorityType,
-  findAssociatedTokenPda,
   getInitializeTokenGroupInstruction,
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
@@ -96,7 +95,7 @@ async function loadKeypair(keypairPath: string): Promise<KeyPairSigner> {
 }
 
 // Derive registry config PDA
-async function getRegistryConfigPda(): Promise<Address> {
+async function _getRegistryConfigPda(): Promise<Address> {
   const [pda] = await getProgramDerivedAddress({
     programAddress: PROGRAM_ID,
     seeds: [getAddressEncoder().encode(address("registry")).slice(0, 8)],
@@ -151,9 +150,13 @@ async function main() {
     ExtensionType.GroupPointer,
     ExtensionType.TokenGroup,
   ]);
-  const lamports = await rpc.getMinimumBalanceForRentExemption(BigInt(totalSizeForRent)).send();
+  const lamports = await rpc
+    .getMinimumBalanceForRentExemption(BigInt(totalSizeForRent))
+    .send();
   console.log(`Mint account space: ${mintLen} bytes (GroupPointer only)`);
-  console.log(`Rent covers: ${totalSizeForRent} bytes (includes TokenGroup + TLV)`);
+  console.log(
+    `Rent covers: ${totalSizeForRent} bytes (includes TokenGroup + TLV)`,
+  );
   console.log(`Rent: ${Number(lamports) / 1e9} SOL`);
 
   // Build instructions
@@ -244,10 +247,13 @@ async function main() {
   const signedTx = await signTransactionMessageWithSigners(txMessage);
   const signature = getSignatureFromTransaction(signedTx);
 
-  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+  const sendAndConfirm = sendAndConfirmTransactionFactory({
+    rpc,
+    rpcSubscriptions,
+  });
   await sendAndConfirm(signedTx, { commitment: "confirmed" });
 
-  console.log("\n" + "=".repeat(60));
+  console.log(`\n${"=".repeat(60)}`);
   console.log("✅ Registry initialized successfully!");
   console.log("=".repeat(60));
   console.log(`Signature:  ${signature}`);

@@ -44,7 +44,6 @@ import {
 } from "./generated";
 
 import {
-  findGroupMintPda,
   findAssociatedTokenAddress,
   findRegistryConfigPda,
   TOKEN_2022_PROGRAM_ADDRESS,
@@ -255,8 +254,14 @@ export class SATI {
     // Generate new mint keypair
     const agentMint = await generateKeyPairSigner();
 
-    // Derive PDAs
-    const [groupMint] = await findGroupMintPda();
+    // Fetch registry config to get the actual group mint
+    // NOTE: The group mint is NOT a PDA - it's stored in the registry config
+    const [registryConfigAddress] = await findRegistryConfigPda();
+    const registryConfig = await fetchRegistryConfig(
+      this.rpc,
+      registryConfigAddress,
+    );
+    const groupMint = registryConfig.data.groupMint;
     const ownerAddress = owner ?? payer.address;
     const [agentTokenAccount] = await findAssociatedTokenAddress(
       agentMint.address,
@@ -295,13 +300,12 @@ export class SATI {
       commitment: "confirmed",
     });
 
-    // Get member number from registry
-    const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(
+    // Re-fetch registry config to get the updated member number
+    const updatedRegistryConfig = await fetchRegistryConfig(
       this.rpc,
       registryConfigAddress,
     );
-    const memberNumber = registryConfig.data.totalAgents;
+    const memberNumber = updatedRegistryConfig.data.totalAgents;
 
     // Extract signature from signed transaction
     const signature = getSignatureFromTransaction(signedTx);
@@ -548,8 +552,14 @@ export class SATI {
   }): Promise<AgentIdentity[]> {
     const { offset = 0, limit = 100 } = params ?? {};
 
-    // Get the group mint to filter by collection
-    const [groupMint] = await findGroupMintPda();
+    // Fetch registry config to get the actual group mint for filtering
+    // NOTE: The group mint is NOT a PDA - it's stored in the registry config
+    const [registryConfigAddress] = await findRegistryConfigPda();
+    const registryConfig = await fetchRegistryConfig(
+      this.rpc,
+      registryConfigAddress,
+    );
+    const groupMint = registryConfig.data.groupMint;
 
     // Use getProgramAccounts to find all mints that are members of the SATI group
     // Filter by GroupMemberPointer extension pointing to our group

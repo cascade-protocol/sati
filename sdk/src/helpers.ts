@@ -40,18 +40,17 @@ export async function findRegistryConfigPda(): Promise<
   });
 }
 
-/**
- * Derive the Group Mint PDA (SATI collection)
- *
- * Seeds: ["group_mint"]
- */
-export async function findGroupMintPda(): Promise<readonly [Address, number]> {
-  const encoder = new TextEncoder();
-  return getProgramDerivedAddress({
-    programAddress: SATI_REGISTRY_PROGRAM_ADDRESS,
-    seeds: [encoder.encode("group_mint")],
-  });
-}
+// NOTE: There is intentionally NO findGroupMintPda() function.
+//
+// The group_mint in SATI is NOT a PDA - it's a pre-created Token-2022 mint
+// with GroupPointer extension that gets stored in the registry_config account
+// during initialization.
+//
+// To get the actual group_mint address, you MUST fetch the registry_config:
+//
+//   const [registryConfigAddress] = await findRegistryConfigPda();
+//   const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
+//   const groupMint = registryConfig.data.groupMint;
 
 /**
  * Derive Associated Token Account address for Token-2022
