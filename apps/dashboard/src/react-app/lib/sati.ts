@@ -228,7 +228,7 @@ export function formatMemberNumber(num: bigint): string {
  */
 export function getSolscanUrl(
   address: string,
-  type: "account" | "tx" = "account",
+  type: "account" | "token" | "tx" = "account",
 ): string {
   const network = import.meta.env.VITE_SOLANA_NETWORK ?? "mainnet";
   const cluster = network === "mainnet" ? "" : `?cluster=${network}`;

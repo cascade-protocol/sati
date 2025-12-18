@@ -107,9 +107,9 @@ export function AgentDetails() {
             <CardTitle>Identity</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <DetailRow label="Mint Address" value={agent.mint} copyable />
+            <DetailRow label="Mint Address" value={agent.mint} copyable solscanType="token" />
             <Separator />
-            <DetailRow label="Owner" value={agent.owner} copyable />
+            <DetailRow label="Owner" value={agent.owner} copyable solscanType="account" />
             {agent.uri && (
               <>
                 <Separator />
@@ -171,7 +171,7 @@ export function AgentDetails() {
             </EditMetadataDialog>
             <Button
               variant="outline"
-              onClick={() => window.open(getSolscanUrl(agent.mint), "_blank")}
+              onClick={() => window.open(getSolscanUrl(agent.mint, "token"), "_blank")}
             >
               <ExternalLink className="h-4 w-4 mr-2" />
               View on Solscan
@@ -197,9 +197,10 @@ interface DetailRowProps {
   value: string;
   copyable?: boolean;
   isLink?: boolean;
+  solscanType?: "account" | "token" | "tx";
 }
 
-function DetailRow({ label, value, copyable, isLink }: DetailRowProps) {
+function DetailRow({ label, value, copyable, isLink, solscanType = "account" }: DetailRowProps) {
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
   return (
@@ -248,7 +249,7 @@ function DetailRow({ label, value, copyable, isLink }: DetailRowProps) {
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
-                    onClick={() => window.open(getSolscanUrl(value), "_blank")}
+                    onClick={() => window.open(getSolscanUrl(value, solscanType), "_blank")}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>

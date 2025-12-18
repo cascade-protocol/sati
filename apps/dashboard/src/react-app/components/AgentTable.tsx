@@ -125,7 +125,7 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
                   className="h-6 w-6"
                   onClick={(e) => {
                     e.stopPropagation();
-                    window.open(getSolscanUrl(agent.mint), "_blank");
+                    window.open(getSolscanUrl(agent.mint, "token"), "_blank");
                   }}
                 >
                   <ExternalLink className="h-3 w-3" />
