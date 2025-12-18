@@ -169,20 +169,26 @@ export function AgentDetails() {
                 Edit Metadata
               </Button>
             </EditMetadataDialog>
-            <Button
-              variant="outline"
-              onClick={() => window.open(getSolscanUrl(agent.mint, "token"), "_blank")}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              View on Solscan
+            <Button variant="outline" asChild>
+              <a
+                href={getSolscanUrl(agent.mint, "token")}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                View on Solscan
+              </a>
             </Button>
             {agent.uri && (
-              <Button
-                variant="outline"
-                onClick={() => window.open(agent.uri, "_blank")}
-              >
-                <LinkIcon className="h-4 w-4 mr-2" />
-                View Metadata
+              <Button variant="outline" asChild>
+                <a
+                  href={agent.uri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                  View Metadata
+                </a>
               </Button>
             )}
           </CardContent>
@@ -245,14 +251,14 @@ function DetailRow({ label, value, copyable, isLink, solscanType = "account" }: 
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => window.open(getSolscanUrl(value, solscanType), "_blank")}
+                  <a
+                    href={getSolscanUrl(value, solscanType)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center h-8 w-8 rounded-md hover:bg-accent hover:text-accent-foreground"
                   >
                     <ExternalLink className="h-4 w-4" />
-                  </Button>
+                  </a>
                 </TooltipTrigger>
                 <TooltipContent>View on Solscan</TooltipContent>
               </Tooltip>

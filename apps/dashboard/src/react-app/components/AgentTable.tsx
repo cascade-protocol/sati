@@ -116,24 +116,15 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(getSolscanUrl(agent.mint, "token"), "_blank");
-                  }}
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>View on Solscan</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <a
+            href={getSolscanUrl(agent.mint, "token")}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent hover:text-accent-foreground"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
         </div>
       </td>
       <td className="py-4 pr-4">
