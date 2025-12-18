@@ -86,7 +86,7 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
     >
       <td className="py-4 pr-4">
         <div className="flex items-center gap-3">
-          <AgentAvatar uri={agent.uri} name={agent.name} size="sm" />
+          <AgentAvatar name={agent.name} size="sm" />
           <div>
             <div className="font-medium">{agent.name}</div>
             <div className="text-sm text-muted-foreground">{agent.symbol}</div>

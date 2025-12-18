@@ -78,7 +78,7 @@ export function AgentDetails() {
 
         {/* Header */}
         <div className="flex items-start gap-4">
-          <AgentAvatar uri={agent.uri} name={agent.name} size="lg" />
+          <AgentAvatar name={agent.name} size="lg" />
           <div className="flex-1">
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
               {agent.name}
