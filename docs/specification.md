@@ -31,11 +31,12 @@ This architecture is **compression-ready** — when SAS ships ZK-compressed atte
 6. [ERC-8004 Compatibility](#erc-8004-compatibility)
 7. [SDK Interface](#sdk-interface)
 8. [Security Considerations](#security-considerations)
-9. [Development Environment](#development-environment)
-10. [Testing](#testing)
-11. [Deployment](#deployment)
-12. [Governance](#governance)
-13. [Scalability: ZK Compression](#scalability-zk-compression)
+9. [Deployment](#deployment)
+10. [Governance](#governance)
+11. [What's NOT Included (Yet)](#whats-not-included-yet)
+12. [Scalability: ZK Compression](#scalability-zk-compression)
+13. [Summary](#summary)
+14. [References](#references)
 
 ---
 
@@ -122,7 +123,7 @@ On Solana, **Token-2022 achieves the same benefits**:
 
 ### Overview
 
-The SATI Registry is a minimal Anchor program (~500 lines) that:
+The SATI Registry is a minimal program that:
 - Provides a **canonical program address** (`satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`)
 - Holds TokenGroup `update_authority` as a PDA
 - Enables **permissionless, atomic registration**
@@ -130,414 +131,126 @@ The SATI Registry is a minimal Anchor program (~500 lines) that:
 
 ### Program ID
 
-```rust
-declare_id!("satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF");
-```
+`satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`
 
 ### Constants
 
-```rust
-/// Maximum length for agent name (bytes)
-pub const MAX_NAME_LENGTH: usize = 32;
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `MAX_NAME_LENGTH` | 32 | Maximum agent name (bytes) |
+| `MAX_SYMBOL_LENGTH` | 10 | Maximum agent symbol (bytes) |
+| `MAX_URI_LENGTH` | 200 | Maximum URI (bytes) |
+| `MAX_METADATA_ENTRIES` | 10 | Maximum additional metadata pairs |
+| `MAX_METADATA_KEY_LENGTH` | 32 | Maximum metadata key (bytes) |
+| `MAX_METADATA_VALUE_LENGTH` | 200 | Maximum metadata value (bytes) |
 
-/// Maximum length for agent symbol (bytes)
-pub const MAX_SYMBOL_LENGTH: usize = 10;
+### Accounts
 
-/// Maximum length for URI (bytes)
-pub const MAX_URI_LENGTH: usize = 200;
+#### RegistryConfig
 
-/// Maximum number of additional metadata entries
-pub const MAX_METADATA_ENTRIES: usize = 10;
+PDA seeds: `["registry"]`
 
-/// Maximum length for metadata key (bytes)
-pub const MAX_METADATA_KEY_LENGTH: usize = 32;
+| Field | Type | Description |
+|-------|------|-------------|
+| `group_mint` | Pubkey | SATI TokenGroup mint address |
+| `authority` | Pubkey | Registry authority (Pubkey::default() = immutable) |
+| `total_agents` | u64 | Total agents registered (counter) |
+| `bump` | u8 | PDA bump seed |
 
-/// Maximum length for metadata value (bytes)
-pub const MAX_METADATA_VALUE_LENGTH: usize = 200;
-```
-
-### PDA Seeds
-
-| Account | Seeds | Description |
-|---------|-------|-------------|
-| `RegistryConfig` | `[b"registry"]` | Singleton registry configuration |
-
-**Non-PDA Accounts:**
-- `group_mint` - TokenGroup collection mint, created by client before `initialize()`
-- Agent NFT mints - randomly generated keypairs for uniqueness
-
-### Account Structures
-
-```rust
-use anchor_lang::prelude::*;
-
-/// Registry configuration account
-/// PDA seeds: [b"registry"]
-#[account]
-pub struct RegistryConfig {
-    /// SATI TokenGroup mint address
-    pub group_mint: Pubkey,
-
-    /// Authority that can update registry settings
-    /// Set to Pubkey::default() to make immutable
-    pub authority: Pubkey,
-
-    /// Total agents registered (counter)
-    pub total_agents: u64,
-
-    /// PDA bump seed (stored for efficient CPI signing)
-    pub bump: u8,
-}
-
-impl RegistryConfig {
-    /// Account discriminator (8) + group_mint (32) + authority (32) + total_agents (8) + bump (1)
-    pub const SIZE: usize = 8 + 32 + 32 + 8 + 1;  // 81 bytes
-
-    /// Check if registry is immutable (authority renounced)
-    pub fn is_immutable(&self) -> bool {
-        self.authority == Pubkey::default()
-    }
-}
-```
+**Size**: 81 bytes (8 discriminator + 32 + 32 + 8 + 1)
 
 ### Instructions
 
-#### 1. initialize
+#### initialize
 
 One-time setup to create the registry and TokenGroup.
 
-```rust
-use anchor_lang::prelude::*;
-use anchor_spl::token_2022::Token2022;
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| — | — | No parameters |
 
-#[derive(Accounts)]
-pub struct Initialize<'info> {
-    /// Initial registry authority (will be multisig in production)
-    #[account(mut)]
-    pub authority: Signer<'info>,
+**Behavior**:
+- Creates RegistryConfig PDA
+- Initializes TokenGroup with registry PDA as `update_authority`
+- Sets `max_size = 0` (unlimited)
 
-    /// Registry configuration PDA
-    #[account(
-        init,
-        payer = authority,
-        space = RegistryConfig::SIZE,
-        seeds = [b"registry"],
-        bump
-    )]
-    pub registry_config: Account<'info, RegistryConfig>,
-
-    /// TokenGroup mint - created by client before initialize()
-    /// CHECK: Validated as Token-2022 mint with TokenGroup extension
-    #[account(mut)]
-    pub group_mint: UncheckedAccount<'info>,
-
-    pub token_2022_program: Program<'info, Token2022>,
-    pub system_program: Program<'info, System>,
-}
-
-pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-    let registry = &mut ctx.accounts.registry_config;
-    registry.authority = ctx.accounts.authority.key();
-    registry.group_mint = ctx.accounts.group_mint.key();
-    registry.total_agents = 0;
-    registry.bump = ctx.bumps.registry_config;
-
-    // CPI: Create Token-2022 mint with TokenGroup extension
-    // CPI: Initialize TokenGroup with registry PDA as update_authority
-    // max_size = 0 (unlimited)
-
-    Ok(())
-}
-```
-
-#### 2. register_agent
+#### register_agent
 
 Canonical entry point for agent registration.
 
-```rust
-#[derive(Accounts)]
-#[instruction(
-    name: String,
-    symbol: String,
-    uri: String,
-)]
-pub struct RegisterAgent<'info> {
-    /// Pays for account creation
-    #[account(mut)]
-    pub payer: Signer<'info>,
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | String | Agent name (≤32 bytes) |
+| `symbol` | String | Agent symbol (≤10 bytes) |
+| `uri` | String | Registration file URI (≤200 bytes) |
+| `additional_metadata` | Option<Vec<(String, String)>> | Key-value pairs (≤10 entries) |
+| `non_transferable` | bool | Soulbound agent flag |
 
-    /// Agent NFT owner (default: payer)
-    /// CHECK: Can be any valid pubkey
-    pub owner: UncheckedAccount<'info>,
+**Behavior**:
+- Creates Token-2022 mint with extensions (MetadataPointer, TokenMetadata, GroupMemberPointer, TokenGroupMember, optionally NonTransferable)
+- Mints exactly 1 token to owner
+- Renounces mint authority (supply=1 forever)
+- Adds to TokenGroup (auto-incrementing `member_number`)
+- Increments `total_agents`
 
-    /// Registry configuration
-    #[account(
-        mut,
-        seeds = [b"registry"],
-        bump = registry_config.bump
-    )]
-    pub registry_config: Account<'info, RegistryConfig>,
-
-    /// TokenGroup mint (for membership)
-    /// CHECK: Validated against registry_config.group_mint
-    #[account(
-        address = registry_config.group_mint
-    )]
-    pub group_mint: UncheckedAccount<'info>,
-
-    /// New agent NFT mint (randomly generated keypair)
-    #[account(mut)]
-    pub agent_mint: Signer<'info>,
-
-    /// Owner's ATA for agent NFT
-    /// CHECK: Initialized via CPI
-    #[account(mut)]
-    pub agent_token_account: UncheckedAccount<'info>,
-
-    pub token_2022_program: Program<'info, Token2022>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
-}
-
-pub fn register_agent(
-    ctx: Context<RegisterAgent>,
-    name: String,
-    symbol: String,
-    uri: String,
-    additional_metadata: Option<Vec<(String, String)>>,
-    non_transferable: bool,
-) -> Result<()> {
-    // === Input Validation ===
-    require!(name.len() <= MAX_NAME_LENGTH, SatiError::NameTooLong);
-    require!(symbol.len() <= MAX_SYMBOL_LENGTH, SatiError::SymbolTooLong);
-    require!(uri.len() <= MAX_URI_LENGTH, SatiError::UriTooLong);
-
-    if let Some(ref metadata) = additional_metadata {
-        require!(
-            metadata.len() <= MAX_METADATA_ENTRIES,
-            SatiError::TooManyMetadataEntries
-        );
-        for (key, value) in metadata {
-            require!(key.len() <= MAX_METADATA_KEY_LENGTH, SatiError::MetadataKeyTooLong);
-            require!(value.len() <= MAX_METADATA_VALUE_LENGTH, SatiError::MetadataValueTooLong);
-        }
-    }
-
-    // ============================================================
-    // THREE-PHASE CPI PATTERN (from cascade-splits best practices)
-    // ============================================================
-    //
-    // Phase 1: Read state, capture values, DROP BORROW before CPIs
-    // Phase 2: Execute all CPIs (no AccountLoader borrow held)
-    // Phase 3: Write state back after CPIs succeed
-    //
-    // This prevents borrow checker issues when mixing account reads
-    // with CPI calls that may touch the same accounts.
-    // ============================================================
-
-    // === PHASE 1: Read state and prepare CPI parameters ===
-    let (group_mint, registry_bump, current_count) = {
-        let registry = &ctx.accounts.registry_config;
-        (registry.group_mint, registry.bump, registry.total_agents)
-    };
-    // Borrow is now dropped - safe to make CPIs
-
-    // === PHASE 2: Execute all CPIs ===
-
-    // 2a. Create Token-2022 mint with extensions
-    // - Calculate space for: MetadataPointer, TokenMetadata,
-    //   GroupMemberPointer, TokenGroupMember, NonTransferable (optional)
-    // - Create account via System Program
-    // - Initialize extensions via Token-2022 CPIs
-
-    // 2b. Initialize TokenMetadata
-    // - Set name, symbol, uri
-    // - Set update_authority to owner
-    // - Set additional_metadata key-value pairs
-
-    // 2c. Initialize GroupMember (registry PDA signs)
-    let registry_seeds = &[b"registry".as_ref(), &[registry_bump]];
-    // invoke_signed for TokenGroupMember initialization
-    // member_number auto-assigned by TokenGroup
-
-    // 2d. Create owner's ATA and mint NFT
-    // - Create ATA via Associated Token Program
-    // - Mint exactly 1 token via Token-2022
-    // - Renounce mint_authority to None (supply=1 forever)
-
-    // === PHASE 3: Write state after CPIs succeed ===
-    let registry = &mut ctx.accounts.registry_config;
-    registry.total_agents = current_count
-        .checked_add(1)
-        .ok_or(SatiError::Overflow)?;
-
-    // === Emit Event ===
-    emit!(AgentRegistered {
-        mint: ctx.accounts.agent_mint.key(),
-        owner: ctx.accounts.owner.key(),
-        member_number: registry.total_agents,
-        name: name.clone(),
-        uri: uri.clone(),
-        non_transferable,
-    });
-
-    Ok(())
-}
-```
-
-#### 3. update_registry_authority
+#### update_registry_authority
 
 Transfer or renounce registry authority.
 
-```rust
-#[derive(Accounts)]
-pub struct UpdateRegistryAuthority<'info> {
-    /// Current authority (must sign)
-    pub authority: Signer<'info>,
-
-    /// Registry configuration
-    #[account(
-        mut,
-        seeds = [b"registry"],
-        bump = registry_config.bump,
-        has_one = authority @ SatiError::InvalidAuthority,
-        constraint = !registry_config.is_immutable() @ SatiError::ImmutableAuthority
-    )]
-    pub registry_config: Account<'info, RegistryConfig>,
-}
-
-pub fn update_registry_authority(
-    ctx: Context<UpdateRegistryAuthority>,
-    new_authority: Option<Pubkey>,
-) -> Result<()> {
-    let registry = &mut ctx.accounts.registry_config;
-    let old_authority = registry.authority;
-
-    // None = renounce (set to default pubkey = immutable)
-    registry.authority = new_authority.unwrap_or(Pubkey::default());
-
-    emit!(RegistryAuthorityUpdated {
-        old_authority,
-        new_authority,
-    });
-
-    Ok(())
-}
-```
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `new_authority` | Option<Pubkey> | New authority (None = renounce to immutable) |
 
 ### Events
 
-```rust
-#[event]
-pub struct AgentRegistered {
-    pub mint: Pubkey,
-    pub owner: Pubkey,
-    pub member_number: u64,
-    pub name: String,
-    pub uri: String,
-    pub non_transferable: bool,
-}
+#### AgentRegistered
 
-#[event]
-pub struct RegistryAuthorityUpdated {
-    pub old_authority: Pubkey,
-    pub new_authority: Option<Pubkey>,  // None = renounced
-}
-```
+| Field | Type |
+|-------|------|
+| `mint` | Pubkey |
+| `owner` | Pubkey |
+| `member_number` | u64 |
+| `name` | String |
+| `uri` | String |
+| `non_transferable` | bool |
+
+#### RegistryAuthorityUpdated
+
+| Field | Type |
+|-------|------|
+| `old_authority` | Pubkey |
+| `new_authority` | Option<Pubkey> |
 
 ### Error Codes
 
-```rust
-#[error_code]
-pub enum SatiError {
-    // Note: AlreadyInitialized not needed - Anchor's `init` constraint
-    // automatically prevents double initialization
-
-    #[msg("Invalid authority")]
-    InvalidAuthority,
-
-    #[msg("Authority is immutable (renounced)")]
-    ImmutableAuthority,
-
-    #[msg("Name too long (max 32 bytes)")]
-    NameTooLong,
-
-    #[msg("Symbol too long (max 10 bytes)")]
-    SymbolTooLong,
-
-    #[msg("URI too long (max 200 bytes)")]
-    UriTooLong,
-
-    #[msg("Too many metadata entries (max 10)")]
-    TooManyMetadataEntries,
-
-    #[msg("Metadata key too long (max 32 bytes)")]
-    MetadataKeyTooLong,
-
-    #[msg("Metadata value too long (max 200 bytes)")]
-    MetadataValueTooLong,
-
-    #[msg("Arithmetic overflow")]
-    Overflow,
-
-    #[msg("Failed to renounce mint authority - supply guarantee violated")]
-    MintAuthorityNotRenounced,
-}
-```
+| Code | Message |
+|------|---------|
+| `InvalidAuthority` | Invalid authority |
+| `ImmutableAuthority` | Authority is immutable (renounced) |
+| `NameTooLong` | Name too long (max 32 bytes) |
+| `SymbolTooLong` | Symbol too long (max 10 bytes) |
+| `UriTooLong` | URI too long (max 200 bytes) |
+| `TooManyMetadataEntries` | Too many metadata entries (max 10) |
+| `MetadataKeyTooLong` | Metadata key too long (max 32 bytes) |
+| `MetadataValueTooLong` | Metadata value too long (max 200 bytes) |
+| `Overflow` | Arithmetic overflow |
 
 ### Agent Removal
 
-There is no `remove_agent` instruction. To "remove" an agent:
-
-1. **Burn the NFT** - Owner closes the token account and burns the mint
-2. **TokenGroupMember remains** - Historical record preserved, `member_number` never reused
-3. **SAS attestations remain** - Feedback/validation history preserved
-
-This ensures audit trail integrity while allowing owners to exit.
-
-### Cross-Program Invocation (CPI)
-
-Other programs **can call `register_agent()`** via CPI:
-
-```rust
-// Example: Another program registering an agent via CPI
-use sati_registry::cpi::accounts::RegisterAgent;
-use sati_registry::cpi::register_agent;
-
-let cpi_accounts = RegisterAgent {
-    payer: ctx.accounts.payer.to_account_info(),
-    owner: ctx.accounts.owner.to_account_info(),
-    registry_config: ctx.accounts.registry_config.to_account_info(),
-    group_mint: ctx.accounts.group_mint.to_account_info(),
-    agent_mint: ctx.accounts.agent_mint.to_account_info(),
-    agent_token_account: ctx.accounts.agent_token_account.to_account_info(),
-    token_2022_program: ctx.accounts.token_2022_program.to_account_info(),
-    associated_token_program: ctx.accounts.associated_token_program.to_account_info(),
-    system_program: ctx.accounts.system_program.to_account_info(),
-};
-
-let cpi_ctx = CpiContext::new(
-    ctx.accounts.sati_program.to_account_info(),
-    cpi_accounts,
-);
-
-register_agent(cpi_ctx, name, symbol, uri, additional_metadata, non_transferable)?;
-```
+No `remove_agent` instruction exists. To "remove" an agent:
+1. Owner burns the NFT (closes token account)
+2. TokenGroupMember remains (historical record preserved)
+3. SAS attestations remain (feedback/validation history preserved)
 
 ### Fees
 
-**SATI has no registration fees.** This is a public standard - charging fees would:
-- Create barriers to adoption
-- Conflict with the goal of universal agent identity
-- Require fee management complexity
-
-The only costs are Solana rent (~0.003 SOL per agent) which goes to the user's account, not SATI.
+**No registration fees.** Only Solana rent (~0.003 SOL per agent) which goes to the user's account.
 
 ---
 
 ## Identity: Token-2022 NFT
 
-### Why Not SAS for Identity?
+### Why Token-2022?
 
 | Aspect | SAS Attestation | Token-2022 NFT |
 |--------|-----------------|----------------|
@@ -547,121 +260,66 @@ The only costs are Solana rent (~0.003 SOL per agent) which goes to the user's a
 | Collections | None | TokenGroup |
 | Browsability | Custom tooling | Explorers show NFTs |
 
-### Token-2022 Extensions Used
+### Extensions Used
 
-```typescript
-const EXTENSIONS = [
-  ExtensionType.MetadataPointer,    // Points to metadata location
-  ExtensionType.TokenMetadata,      // Stores name, symbol, uri, additionalMetadata
-  ExtensionType.GroupMemberPointer, // Points to group membership
-  ExtensionType.TokenGroupMember,   // Membership in SATI Registry
-  // Optional:
-  ExtensionType.NonTransferable,    // For soulbound agent identities
-];
-```
+| Extension | Purpose |
+|-----------|---------|
+| MetadataPointer | Points to metadata location |
+| TokenMetadata | Stores name, symbol, uri, additionalMetadata |
+| GroupMemberPointer | Points to group membership |
+| TokenGroupMember | Membership in SATI Registry |
+| NonTransferable | Optional: for soulbound agents |
 
 ### Agent NFT Configuration
 
 | Property | Value | Reason |
 |----------|-------|--------|
-| `decimals` | `0` | NFT (indivisible) |
-| `supply` | `1` | Unique identity |
-| `mint_authority` | `None` | Renounced atomically after minting |
-| `freeze_authority` | `None` | No one can freeze agent NFTs |
-
-**Critical**: The `register_agent` instruction atomically mints exactly 1 token and renounces mint authority to `None` within the same transaction. This guarantees supply=1 forever - verifiable on-chain.
+| `decimals` | 0 | NFT (indivisible) |
+| `supply` | 1 | Unique identity |
+| `mint_authority` | None | Renounced atomically after minting |
+| `freeze_authority` | None | No one can freeze agent NFTs |
 
 ### TokenMetadata Structure
 
-```typescript
-interface TokenMetadata {
-  updateAuthority?: PublicKey;  // Agent owner (can update)
-  mint: PublicKey;              // Agent NFT mint = agentId
-  name: string;                 // Agent name
-  symbol: string;               // "SATI" or agent type
-  uri: string;                  // → ERC-8004 registration file
-  additionalMetadata: [string, string][];  // Key-value pairs
-}
+| Field | Type | Description |
+|-------|------|-------------|
+| `updateAuthority` | Option<Pubkey> | Agent owner (can update metadata) |
+| `mint` | Pubkey | Agent NFT mint = agentId |
+| `name` | String | Agent name |
+| `symbol` | String | "SATI" or agent type |
+| `uri` | String | ERC-8004 registration file |
+| `additionalMetadata` | Vec<(String, String)> | Key-value pairs |
 
-// Example additionalMetadata (CAIP-10 format for wallets):
-// ["agentWallet", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv"]
-//                         ^^ chain (mainnet genesis hash)   ^^ account pubkey
-// ["did", "did:web:agent.example.com"]
-// ["a2a", "https://agent.example/.well-known/agent-card.json"]
-// ["mcp", "https://mcp.agent.example/"]
-```
+**Common additionalMetadata keys:**
+- `agentWallet` — CAIP-10 format wallet address
+- `did` — DID document reference
+- `a2a` — A2A agent card URL
+- `mcp` — MCP endpoint URL
 
 ### TokenGroup Structure
 
-```typescript
-// SATI Registry TokenGroup
-interface TokenGroup {
-  updateAuthority: Pubkey;  // Registry PDA
-  mint: Pubkey;             // SATI collection mint
-  size: u64;                // Current number of agents
-  maxSize: u64;             // Max agents (0 = unlimited)
-}
+| Field | Type | Description |
+|-------|------|-------------|
+| `updateAuthority` | Pubkey | Registry PDA |
+| `mint` | Pubkey | SATI collection mint |
+| `size` | u64 | Current number of agents |
+| `maxSize` | u64 | Max agents (0 = unlimited) |
 
-// Per-agent membership
-interface TokenGroupMember {
-  mint: Pubkey;         // Agent NFT mint (= agentId)
-  group: Pubkey;        // → SATI Registry group mint
-  memberNumber: u64;    // Auto-incrementing (like ERC-721 tokenId)
-}
-```
+### TokenGroupMember Structure
 
-### Metadata and Transfer Operations
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | Pubkey | Agent NFT mint (= agentId) |
+| `group` | Pubkey | SATI Registry group mint |
+| `memberNumber` | u64 | Auto-incrementing (like ERC-721 tokenId) |
+
+### Operations
 
 Metadata updates and transfers use **direct Token-2022 calls** (not wrapped by registry):
+- **Update metadata**: `updateTokenMetadataField` from spl-token-metadata
+- **Transfer agent**: Standard Token-2022 transfer instruction
 
-```typescript
-import { updateTokenMetadataField } from '@solana/spl-token-metadata';
-import { transfer } from '@solana/spl-token';
-
-// Update metadata - direct Token-2022 call
-await updateTokenMetadataField(
-  connection,
-  payer,
-  agentMint,
-  updateAuthority,
-  'uri',
-  'ipfs://NewRegistrationFile'
-);
-
-// Transfer agent - direct Token-2022 transfer
-await transfer(
-  connection,
-  payer,
-  fromTokenAccount,
-  toTokenAccount,
-  owner,
-  1,  // amount = 1 NFT
-  [],
-  undefined,
-  TOKEN_2022_PROGRAM_ID
-);
-```
-
-### Smart Account Compatibility
-
-Token-2022 works natively with Squads smart accounts:
-
-```typescript
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-
-// ATA for smart account owning agent NFT
-const smartAccountAta = getAssociatedTokenAddressSync(
-  agentNftMint,           // Token-2022 NFT mint
-  smartAccountPda,        // Squads smart account as owner
-  true,                   // allowOwnerOffCurve = true (required for PDAs)
-  TOKEN_2022_PROGRAM_ID
-);
-```
-
-No special work needed - smart accounts can:
-- Own agent NFTs
-- Transfer via Squads proposals
-- Update metadata (with proposal approval)
+Smart accounts (Squads) can own and manage agent NFTs natively via ATAs with `allowOwnerOffCurve = true`.
 
 ---
 
@@ -675,336 +333,158 @@ Solana Attestation Service (SAS) by Solana Foundation:
 |---------|------------|
 | Mainnet/Devnet | `22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG` |
 
-- **Repository**: https://github.com/solana-foundation/solana-attestation-service
-- **NPM**: https://www.npmjs.com/package/sas-lib
+### SATI Schema Addresses
 
-### SATI-Maintained Schemas
+> **Note:** Schema addresses below need to be redeployed to use optimized layouts. Credential address remains unchanged.
 
-SATI maintains a canonical credential and 6 schemas on SAS. The SDK auto-loads these addresses per network — users don't need to deploy their own schemas.
+**Devnet:**
 
-**Devnet Deployment:**
+| Schema | Address | Status |
+|--------|---------|--------|
+| Credential | `7HCCiuYUHptR1SXXHBRqkKUPb5G3hPvnKfy5v8n2cFmY` | ✅ Current |
+| FeedbackAuth | TBD | 🔄 Redeploy needed |
+| Feedback | TBD | 🔄 Redeploy needed |
+| FeedbackResponse | TBD | 🔄 Redeploy needed |
+| ValidationRequest | TBD | 🔄 Redeploy needed |
+| ValidationResponse | TBD | 🔄 Redeploy needed |
+| Certification | TBD | 🔄 Redeploy needed |
 
-| Component | Address |
-|-----------|---------|
-| **SATI Credential** | `7HCCiuYUHptR1SXXHBRqkKUPb5G3hPvnKfy5v8n2cFmY` |
-| SATIFeedbackAuth | `DNFKm4xxbc4kRkSSMNH3jVapja4FpZ3ZTrpPjyCvKsS2` |
-| SATIFeedback | `ThaSG2CDHu2zoFwwr7ymv4EuJ196GEG7b96hUZUaYau` |
-| SATIFeedbackResponse | `6QumCz2bLZ4knxQ4cBdAQwb7UNhVq6Kt5CJEV2Wv1D2E` |
-| SATIValidationRequest | `EfpXKG3UxAGy1S96b5nTmyxbZ2UPWVUa4LkwzxFYYxHt` |
-| SATIValidationResponse | `EsKybaVzREeUDtVNmqkxP5bYnWzesAmjU24J7yUN5P2m` |
-| SATICertification | `FS9btVi37tSUzvZnfbSKJGfkxshQ5kJs821CUeN6spsb` |
+**Mainnet:**
 
-**Mainnet Deployment:**
+| Schema | Address | Status |
+|--------|---------|--------|
+| Credential | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` | ✅ Current |
+| FeedbackAuth | TBD | 🔄 Redeploy needed |
+| Feedback | TBD | 🔄 Redeploy needed |
+| FeedbackResponse | TBD | 🔄 Redeploy needed |
+| ValidationRequest | TBD | 🔄 Redeploy needed |
+| ValidationResponse | TBD | 🔄 Redeploy needed |
+| Certification | TBD | 🔄 Redeploy needed |
 
-| Component | Address |
-|-----------|---------|
-| **SATI Credential** | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` |
-| SATIFeedbackAuth | `5xSf1fTKoC9hxdVWviv7hXu1CUqBuJC6u91ATkAFNVQF` |
-| SATIFeedback | `6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB` |
-| SATIFeedbackResponse | `6YNVUMLe7oxVLKeEzqAzXhd3GpzxVJwcnXPy79q3VzZr` |
-| SATIValidationRequest | `GwPFMxXzieodxgPsu1c6tJUwEu57VjrUUwYjhe9C6g5w` |
-| SATIValidationResponse | `6YwoDaKEhhktZJY3thQMLpAuJYZtxySRGQuBjXk6VwrK` |
-| SATICertification | `6V8aJX32J9uEwvpRwerRQ6nJK5y7r69NipBTkMTYMhsZ` |
+### SAS Layout Types
 
-**SDK Auto-Loading:**
-
-```typescript
-// Schemas are automatically loaded based on network
-const sati = new SATI({ network: "mainnet" }); // or "devnet"
-
-// Or manually set custom config (e.g., for localnet testing)
-sati.setSASConfig({
-  credential: "...",
-  schemas: { feedbackAuth: "...", feedback: "...", ... }
-});
-```
-
-### SAS Schema Layout Types
-
-The `layout` array uses numeric type identifiers from the Solana Attestation Service:
-
-| Type ID | Type | Description |
-|---------|------|-------------|
-| 0 | U8 | Unsigned 8-bit integer (0-255) |
-| 1 | U16 | Unsigned 16-bit integer (0-65535) |
-| 2 | U32 | Unsigned 32-bit integer |
-| 3 | U64 | Unsigned 64-bit integer |
-| 8 | I64 | Signed 64-bit integer (for timestamps) |
-| 12 | String | UTF-8 string with 4-byte length prefix |
-| 13 | VecU8 | Byte array with 4-byte length prefix |
-
-**Example**: `layout: [12, 0, 12, 13]` means:
-- Field 1: String
-- Field 2: U8
-- Field 3: String
-- Field 4: VecU8
+| Type ID | Type | Size |
+|---------|------|------|
+| 0 | U8 | 1 byte |
+| 1 | U16 | 2 bytes |
+| 13 | VecU8 | 4 + N bytes |
 
 ### Attestation Nonce Computation
 
-SAS attestation PDAs are derived using `["attestation", credential, schema, nonce]`.
-The nonce must be unique per attestation to avoid PDA collisions.
+SAS attestation PDAs: `["attestation", credential, schema, nonce]`
 
-**SATI Nonce Formulas** (using keccak256 hash → base58 encoded):
-
-| Attestation Type | Nonce Formula |
-|------------------|---------------|
+| Schema | Nonce Formula |
+|--------|---------------|
 | FeedbackAuth | `keccak256("feedbackAuth:" + agentMint + ":" + clientPubkey)` |
-| Feedback | `keccak256("feedback:" + agentMint + ":" + clientPubkey + ":" + timestamp)` |
+| Feedback | `keccak256("feedback:" + agentMint + ":" + tag1 + ":" + tag2 + ":" + clientPubkey + ":" + nonce)` |
 | FeedbackResponse | `keccak256("response:" + feedbackId + ":" + responderPubkey + ":" + index)` |
 | ValidationRequest | `keccak256("validationReq:" + agentMint + ":" + validatorPubkey + ":" + userNonce)` |
-| ValidationResponse | `keccak256("validationResp:" + requestId + ":" + responseIndex)` |
-
-This ensures:
-- **FeedbackAuth**: One per client per agent
-- **Feedback**: Multiple allowed via timestamp
-- **FeedbackResponse**: Multiple responders via index
-- **ValidationRequest**: Multiple requests via userNonce
-- **ValidationResponse**: Multiple responses via responseIndex
+| ValidationResponse | `keccak256("validationResp:" + requestId + ":" + tag + ":" + responseIndex)` |
+| Certification | `keccak256("cert:" + agentMint + ":" + certType + ":" + certifierPubkey)` |
 
 ### Schema Definitions
 
-#### 1. FeedbackAuth Schema
+#### FeedbackAuth
 
-Replaces ERC-8004's off-chain signature with on-chain attestation.
+Authorization for client to submit feedback (replaces ERC-8004 off-chain signature).
 
-```typescript
-const FEEDBACK_AUTH_SCHEMA = {
-  name: "SATIFeedbackAuth",
-  version: 1,
-  description: "Authorization for client to submit feedback",
-  layout: [12, 1, 8],  // String, U16, I64
-  fieldNames: [
-    "agent_mint",        // Agent NFT mint address (base58 string)
-    "index_limit",       // Maximum feedback index allowed (ERC-8004 indexLimit)
-    "expiry",            // Unix timestamp (0 = use SAS expiry)
-  ]
-};
+| Field | Type | Description |
+|-------|------|-------------|
+| `index_limit` | U16 | Maximum feedback count allowed |
 
-// Attestation configuration:
-// - credential = agent NFT mint
-// - subject = client pubkey (authorized reviewer)
-// - issuer = agent owner
-// - nonce = keccak256("feedbackAuth:" + agentMint + ":" + clientPubkey)
-```
+**Attestation config**: issuer = agent owner, subject = client pubkey, expiry = SAS expirationTime
 
-#### 2. Feedback Schema
+#### Feedback
 
-```typescript
-const FEEDBACK_SCHEMA = {
-  name: "SATIFeedback",
-  version: 1,
-  description: "Client feedback for agent (ERC-8004 compatible)",
-  layout: [12, 0, 12, 12, 12, 13, 12],  // String, U8, String, String, String, VecU8, String
-  fieldNames: [
-    "agent_mint",      // Agent NFT mint receiving feedback (base58 string)
-    "score",           // 0-100 as U8 (matches ERC-8004 uint8)
-    "tag1",            // Optional categorization (string)
-    "tag2",            // Optional categorization (string)
-    "fileuri",         // Off-chain feedback details (IPFS)
-    "filehash",        // SHA-256 hash (32 bytes)
-    "payment_proof",   // x402 transaction reference (optional)
-  ]
-};
+Client feedback for agent (ERC-8004 compatible).
 
-// Attestation configuration:
-// - credential = agent NFT mint
-// - issuer = client (feedback giver)
-// - nonce = keccak256("feedback:" + agentMint + ":" + clientPubkey + ":" + timestamp)
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `score` | U8 | 0-100 score |
+| `content_ref` | VecU8 | 36 bytes: [type][data] |
 
-> **Score Type Rationale**: Score uses U8 (type 0) for type safety and efficient
-> serialization. This matches ERC-8004's uint8 (0-255) range exactly.
+**Attestation config**: issuer = client (feedback giver), nonce includes 8 random bytes for uniqueness
 
-#### 3. FeedbackResponse Schema
+#### FeedbackResponse
 
-```typescript
-const FEEDBACK_RESPONSE_SCHEMA = {
-  name: "SATIFeedbackResponse",
-  version: 1,
-  description: "Response to feedback (ERC-8004 appendResponse)",
-  layout: [12, 12, 13],  // String, String, VecU8
-  fieldNames: [
-    "feedback_id",      // Reference to feedback attestation pubkey (base58 string)
-    "response_uri",     // Off-chain response details
-    "response_hash",    // Content hash (32 bytes)
-  ]
-};
+Response to feedback (ERC-8004 appendResponse).
 
-// Attestation configuration:
-// - credential = agent NFT mint
-// - issuer = responder (agent owner, auditor, etc.)
-// - nonce = keccak256("response:" + feedbackId + ":" + responderPubkey + ":" + index)
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `content_ref` | VecU8 | 36 bytes: [type][data] |
 
-#### 4. ValidationRequest Schema
+**Attestation config**: issuer = responder (agent owner, auditor, etc.)
 
-```typescript
-const VALIDATION_REQUEST_SCHEMA = {
-  name: "SATIValidationRequest",
-  version: 1,
-  description: "Agent requests work validation",
-  layout: [12, 12, 12, 13],  // String, String, String, VecU8
-  fieldNames: [
-    "agent_mint",      // Agent NFT mint requesting validation (base58 string)
-    "method_id",       // Validation method (SATI extension, see note below)
-    "request_uri",     // Off-chain validation data
-    "request_hash",    // Content hash (32 bytes)
-  ]
-};
+#### ValidationRequest
 
-// Attestation configuration:
-// - credential = agent NFT mint
-// - subject = validator pubkey
-// - issuer = agent owner
-// - nonce = keccak256("validationReq:" + agentMint + ":" + validatorPubkey + ":" + userNonce)
-```
+Agent requests work validation.
 
-> **method_id Extension**: The `method_id` field is a SATI-specific extension not present
-> in ERC-8004. It explicitly identifies the validation approach ("tee", "zkml", "restake")
-> since SATI validators may support multiple methods. ERC-8004 relies on the validator
-> contract address to implicitly determine the method.
+| Field | Type | Description |
+|-------|------|-------------|
+| `method_id` | U8 | 0=tee, 1=zkml, 2=restake, 3=manual |
+| `content_ref` | VecU8 | 36 bytes: [type][data] |
 
-#### 5. ValidationResponse Schema
+**Attestation config**: issuer = agent owner, subject = validator pubkey
 
-```typescript
-const VALIDATION_RESPONSE_SCHEMA = {
-  name: "SATIValidationResponse",
-  version: 1,
-  description: "Validator responds to request",
-  layout: [12, 0, 12, 13, 12],  // String, U8, String, VecU8, String
-  fieldNames: [
-    "request_id",       // Reference to request attestation pubkey (base58 string)
-    "response",         // 0-100 as U8 (0=fail, 100=pass)
-    "response_uri",     // Off-chain evidence
-    "response_hash",    // Content hash
-    "tag",              // Optional categorization
-  ]
-};
+#### ValidationResponse
 
-// Attestation configuration:
-// - credential = agent NFT mint (from request)
-// - issuer = validator
-// - nonce = keccak256("validationResp:" + requestId + ":" + responseIndex)
-```
+Validator responds to request.
 
-### Off-Chain Feedback File Structure
+| Field | Type | Description |
+|-------|------|-------------|
+| `response` | U8 | 0-100 (0=fail, 100=pass) |
+| `content_ref` | VecU8 | 36 bytes: [type][data] |
 
-When using `fileuri` in feedback attestations, the referenced file should follow this structure:
+**Attestation config**: issuer = validator
 
-```json
-{
-  "agentId": "sati:devnet:ABC123mintPubkey",
-  "agentRegistry": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF",
-  "clientAddress": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv",
-  "createdAt": "2025-01-15T12:00:00Z",
-  "score": 85,
-  "tag1": "quality",
-  "tag2": "speed",
-  "skill": "code-review",
-  "context": "Pull request review for authentication module",
-  "paymentProof": {
-    "protocol": "x402",
-    "txSignature": "5K8Hg7...",
-    "amount": "0.001",
-    "token": "USDC"
-  },
-  "details": {
-    "taskDescription": "Review PR #123 for security issues",
-    "completionTime": 3600,
-    "additionalNotes": "Found 2 critical issues, both resolved"
-  }
-}
-```
+#### Certification
+
+Immutable certification for agent.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content_ref` | VecU8 | 36 bytes: [type][data] |
+
+**Attestation config**: issuer = certifier (e.g., auditor)
+
+### Content Reference Encoding
+
+36-byte encoding for off-chain content references:
+
+| Byte | Content |
+|------|---------|
+| 0 | Storage type code |
+| 1-35 | Content data |
+
+**Storage Types** (multicodec-compatible):
+
+| Code | Storage | Data |
+|------|---------|------|
+| `0xe3` | IPFS | CIDv1 bytes |
+| `0xce` | Arweave | Transaction ID |
+| `0x00` | Raw | SHA-256 hash |
+
+### Off-Chain Feedback File
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `agentId` | Yes | SATI canonical identifier of the agent |
-| `agentRegistry` | Yes | CAIP-2 address of the registry program |
-| `clientAddress` | Yes | CAIP-10 address of the feedback giver |
+| `agentId` | Yes | SATI canonical identifier |
+| `agentRegistry` | Yes | CAIP-2 registry address |
+| `clientAddress` | Yes | CAIP-10 feedback giver |
 | `createdAt` | Yes | ISO 8601 timestamp |
-| `score` | Yes | Numeric score (0-100) |
-| `tag1`, `tag2` | No | Categorization tags (should match on-chain) |
-| `skill` | No | Specific skill being evaluated |
-| `context` | No | Brief description of the interaction |
-| `paymentProof` | No | x402 payment details if applicable |
-| `details` | No | Extended feedback information |
-
-The `filehash` on-chain field should contain the SHA-256 hash of this JSON file for integrity verification.
-
-### Schema Versioning
-
-If schemas need updates:
-
-1. **Version in name** - `SATIFeedbackV1`, `SATIFeedbackV2`, etc.
-2. **Old schemas remain valid** - Never delete, only add new versions
-3. **SDK handles both** - Query multiple schema versions, present unified interface
-
-### Immutable Claims & Certifications
-
-For permanent, unmodifiable records (security audits, compliance certifications, credential attestations), **use SAS attestations rather than agent metadata**.
-
-**Why not add immutable metadata to the registry?**
-
-1. **Token-2022 TokenMetadata doesn't support per-field immutability** - would require additional PDA layer
-2. **SAS attestations are already immutable by design** - attestation content cannot be modified after creation
-3. **Simpler architecture** - no additional program complexity or audit surface
-
-**Example: Security Certification**
-
-```typescript
-// Create immutable certification via SAS attestation
-const CERTIFICATION_SCHEMA = {
-  name: "SATICertification",
-  version: 1,
-  description: "Immutable certification for agent",
-  layout: [12, 12, 12, 8],  // String, String, String, I64
-  fieldNames: [
-    "certifier",      // Certifying entity (e.g., "OtterSec")
-    "cert_type",      // Certification type (e.g., "security-audit")
-    "cert_uri",       // Link to full certificate/report
-    "issued_at",      // Unix timestamp
-  ]
-};
-
-// Attestation is permanent - cannot be modified or deleted by issuer
-await sas.createAttestation({
-  schema: certificationSchema,
-  credential: agentMint,
-  issuer: certifierPubkey,
-  data: {
-    certifier: "OtterSec",
-    cert_type: "security-audit",
-    cert_uri: "ipfs://QmAuditReport...",
-    issued_at: Date.now() / 1000,
-  }
-});
-```
-
-**Use cases for SAS-based immutable claims:**
-- Security audit completions
-- Compliance certifications (SOC2, GDPR)
-- Professional credentials
-- Third-party verifications
-- Historical performance records
-
-**Use `additionalMetadata` for mutable agent properties:**
-- Agent wallet address
-- Endpoint URLs
-- DID references
-- Current capabilities
+| `score` | Yes | 0-100 (must match on-chain) |
+| `tag1`, `tag2` | Yes | Must match on-chain PDA seeds |
+| `skill` | No | Skill being evaluated |
+| `context` | No | Interaction description |
+| `paymentProof` | No | x402 payment details |
+| `details` | No | Extended information |
 
 ### Authority Separation
 
-| Authority | Controls | Can Be Renounced? |
-|-----------|----------|-------------------|
-| **Registry authority** | `update_registry_authority()` only | Yes (immutable registry) |
-| **SAS credential authority** | Create new schemas, update credential settings | No (keep for schema evolution) |
-
-**Rationale:**
-- Registry can become immutable while schemas continue to evolve
-- Different security concerns: registration vs attestations
-- Schema versioning requires ability to create new schemas
-- Both should be multisig (Squads smart account)
+| Authority | Controls | Renounceable? |
+|-----------|----------|---------------|
+| Registry authority | `update_registry_authority()` | Yes |
+| SAS credential authority | Schema creation | No (needed for versioning) |
 
 ---
 
@@ -1046,7 +526,7 @@ SATI v2 uses the **exact same registration file format** as ERC-8004:
 | On-chain metadata | ✅ | TokenMetadata.additionalMetadata |
 | `feedbackAuth` | ✅ | SAS attestation (better than off-chain sig) |
 | `giveFeedback()` | ✅ | SAS Feedback attestation |
-| `revokeFeedback()` | ✅ | Close attestation |
+| `revokeFeedback()` | ❌ | Intentionally unsupported (immutable reputation) |
 | `appendResponse()` | ✅ | SAS FeedbackResponse attestation |
 | `getSummary()` | ✅ | Indexer (standard Solana pattern) |
 | `readFeedback()` | ✅ | Fetch attestation |
@@ -1056,7 +536,7 @@ SATI v2 uses the **exact same registration file format** as ERC-8004:
 | Cross-chain DID | ✅ | additionalMetadata["did"] |
 | CAIP-2/CAIP-10 | ✅ | Chain-agnostic identifiers |
 
-**Summary**: 100% functionally compatible. All ERC-8004 operations supported.
+**Summary**: 100% functionally compatible. ERC-8004 deliberately prevents feedback revocation for reputation integrity — SATI follows the same design.
 
 ### CAIP and DID Support
 
@@ -1131,98 +611,50 @@ This format is used in:
 
 ## SDK Interface
 
-```typescript
-import { Connection, PublicKey, Keypair } from '@solana/web3.js';
+The TypeScript SDK (`@cascade-fyi/sati-sdk`) provides a unified interface for all SATI operations.
 
-export class SATI {
-  constructor(connection: Connection, options: { network: 'mainnet' | 'devnet' });
+### Registry Methods
 
-  // ============ REGISTRY ============
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `registerAgent(params)` | Create Token-2022 NFT with metadata + group membership | `{ mint, memberNumber }` |
 
-  /**
-   * Register a new agent identity via registry program
-   * Creates Token-2022 NFT with metadata + group membership atomically
-   */
-  async registerAgent(params: {
-    name: string;
-    symbol?: string;
-    uri: string;
-    additionalMetadata?: [string, string][];
-    nonTransferable?: boolean;
-    owner?: PublicKey;
-  }): Promise<{ mint: PublicKey; memberNumber: number }>;
+### Identity Methods (Direct Token-2022)
 
-  // ============ IDENTITY (Direct Token-2022) ============
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `loadAgent(mint)` | Load agent identity by mint | `AgentIdentity \| null` |
+| `updateAgentMetadata(mint, updates)` | Update name, uri, or additionalMetadata | `void` |
+| `transferAgent(mint, newOwner)` | Transfer agent to new owner | `void` |
+| `getAgentOwner(mint)` | Get current owner | `PublicKey` |
+| `listAgents(params?)` | List agents with pagination | `AgentIdentity[]` |
 
-  async loadAgent(mint: PublicKey): Promise<AgentIdentity | null>;
+### Reputation Methods (SAS)
 
-  async updateAgentMetadata(
-    mint: PublicKey,
-    updates: {
-      name?: string;
-      uri?: string;
-      additionalMetadata?: { key: string; value: string }[];
-    }
-  ): Promise<void>;
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `authorizeFeedback(params)` | Authorize client to submit feedback | `{ attestation }` |
+| `revokeAuthorization(attestation)` | Revoke feedback authorization | `void` |
+| `giveFeedback(params)` | Submit feedback (0-100 score, tags, contentRef) | `{ attestation }` |
+| `appendResponse(params)` | Respond to feedback | `{ attestation }` |
+| `readFeedback(attestation)` | Read feedback data | `Feedback \| null` |
 
-  async transferAgent(mint: PublicKey, newOwner: PublicKey): Promise<void>;
+**Note**: `revokeFeedback()` intentionally not supported — feedback is immutable for reputation integrity.
 
-  async getAgentOwner(mint: PublicKey): Promise<PublicKey>;
+### Validation Methods (SAS)
 
-  async listAgents(params?: { offset?: number; limit?: number }): Promise<AgentIdentity[]>;
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `requestValidation(params)` | Request validation (methodId: tee/zkml/restake/manual) | `{ attestation }` |
+| `respondToValidation(params)` | Respond to validation request (0-100) | `{ attestation }` |
+| `getValidationStatus(attestation)` | Get validation status | `ValidationStatus \| null` |
 
-  // ============ REPUTATION (SAS) ============
+### Certification Methods (SAS)
 
-  async authorizeFeedback(params: {
-    agentMint: PublicKey;
-    client: PublicKey;
-    maxSubmissions: number;
-    expiresAt?: number;
-  }): Promise<{ attestation: PublicKey }>;
-
-  async revokeAuthorization(attestation: PublicKey): Promise<void>;
-
-  async giveFeedback(params: {
-    agentMint: PublicKey;
-    score: number;
-    tag1?: string;
-    tag2?: string;
-    fileUri?: string;
-    fileHash?: Uint8Array;
-    paymentProof?: string;
-  }): Promise<{ attestation: PublicKey }>;
-
-  async revokeFeedback(attestation: PublicKey): Promise<void>;
-
-  async appendResponse(params: {
-    feedbackAttestation: PublicKey;
-    responseUri: string;
-    responseHash?: Uint8Array;
-  }): Promise<{ attestation: PublicKey }>;
-
-  async readFeedback(attestation: PublicKey): Promise<Feedback | null>;
-
-  // ============ VALIDATION (SAS) ============
-
-  async requestValidation(params: {
-    agentMint: PublicKey;
-    validator: PublicKey;
-    methodId: string;
-    requestUri: string;
-    requestHash?: Uint8Array;
-  }): Promise<{ attestation: PublicKey }>;
-
-  async respondToValidation(params: {
-    requestAttestation: PublicKey;
-    response: number;
-    responseUri?: string;
-    responseHash?: Uint8Array;
-    tag?: string;
-  }): Promise<{ attestation: PublicKey }>;
-
-  async getValidationStatus(attestation: PublicKey): Promise<ValidationStatus | null>;
-}
-```
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `createCertification(params)` | Create certification (security-audit, kyc, etc.) | `{ attestation }` |
+| `getCertification(attestation)` | Get certification data | `Certification \| null` |
 
 ---
 
@@ -1230,336 +662,37 @@ export class SATI {
 
 ### Program Security
 
-#### 1. Account Validation
-
-All accounts are validated using Anchor constraints:
-
-```rust
-#[account(
-    mut,
-    seeds = [b"registry"],
-    bump = registry_config.bump,
-    has_one = authority @ SatiError::InvalidAuthority,
-    constraint = !registry_config.is_immutable() @ SatiError::ImmutableAuthority
-)]
-pub registry_config: Account<'info, RegistryConfig>,
-```
-
-#### 2. Checked Arithmetic
-
-All arithmetic operations use checked methods:
-
-```rust
-registry.total_agents = registry.total_agents
-    .checked_add(1)
-    .ok_or(SatiError::Overflow)?;
-```
-
-#### 3. PDA Security
-
-- Registry PDA bump stored for efficient CPI signing
-- Group mint is client-created, validated for TokenGroup extension
-- Agent mints are random keypairs (not PDAs) for uniqueness
-
-#### 4. CPI Security
-
-All CPIs validate target program IDs:
-
-```rust
-pub token_2022_program: Program<'info, Token2022>,
-pub associated_token_program: Program<'info, AssociatedToken>,
-```
-
-#### 5. Input Validation
-
-All string inputs validated against maximum lengths:
-
-```rust
-require!(name.len() <= MAX_NAME_LENGTH, SatiError::NameTooLong);
-require!(uri.len() <= MAX_URI_LENGTH, SatiError::UriTooLong);
-```
+| Aspect | Approach |
+|--------|----------|
+| Account validation | Anchor constraints validate seeds, bumps, authority, mutability |
+| Checked arithmetic | All operations use `checked_*` methods to prevent overflow |
+| PDA security | Bumps stored for efficient CPI signing; agent mints are random keypairs |
+| CPI security | Target program IDs validated via `Program<'info, T>` |
+| Input validation | All strings validated against maximum lengths |
 
 ### Token-2022 Security
 
-- **Supply guarantee**: Mint authority renounced atomically after minting 1 token
-- **No freeze authority**: Set to `None` at creation
-- **Standard ownership**: Uses Token-2022's proven ownership model
+| Aspect | Guarantee |
+|--------|-----------|
+| Supply | Mint authority renounced atomically after minting 1 token |
+| Freeze | No freeze authority (set to `None` at creation) |
+| Ownership | Uses Token-2022's proven ownership model |
 
 ### SAS Security
 
-- **On-chain feedbackAuth**: Better than ERC-8004's off-chain signatures (can't be forged)
-- **Expiry management**: Built into SAS primitive
-- **Schema validation**: SAS validates data against schema
+| Aspect | Guarantee |
+|--------|-----------|
+| FeedbackAuth | On-chain attestation (stronger than ERC-8004's off-chain signatures) |
+| Expiry | Built into SAS primitive |
+| Schema validation | SAS validates data against schema |
 
 ### Governance Security
 
-- **Multisig authority**: Registry and SAS credential use Squads smart accounts
-- **Immutability option**: Can renounce authority after stable
-- **Separate authorities**: Registry vs SAS credential can be managed independently
-
-### Pre-Deployment Checklist
-
-- [ ] All accounts validated (signer, owner, writable, relationships)
-- [ ] All arithmetic uses `checked_*` methods
-- [ ] All PDAs use stored canonical bumps
-- [ ] All CPIs validate target programs via `Program<'info, T>`
-- [ ] All string inputs validated against max lengths
-- [ ] No `unwrap()` or `expect()` in production code
-- [ ] Unit tests cover all instructions
-- [ ] Integration tests cover instruction interactions
-- [ ] Edge cases tested (max values, overflow, empty strings)
-- [ ] External security audit completed
-- [ ] Upgrade authority secured with multisig
-
----
-
-## Development Environment
-
-### Rust Toolchain
-
-Create `rust-toolchain.toml` in project root:
-
-```toml
-[toolchain]
-channel = "1.89.0"
-components = ["rustfmt", "clippy"]
-profile = "minimal"
-```
-
-### Anchor.toml
-
-```toml
-[toolchain]
-package_manager = "pnpm"
-
-[features]
-resolution = true
-skip-lint = false
-
-[programs.localnet]
-sati_registry = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
-
-[programs.devnet]
-sati_registry = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
-
-[programs.mainnet]
-sati_registry = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
-
-[registry]
-url = "https://api.apr.dev"
-
-[provider]
-cluster = "localnet"
-wallet = "~/.config/solana/id.json"
-
-[test]
-upgradeable = true
-
-[scripts]
-test = "pnpm vitest run tests/"
-```
-
-### Workspace Cargo.toml
-
-```toml
-[workspace]
-members = ["programs/*"]
-resolver = "2"
-
-[profile.release]
-overflow-checks = true
-lto = "fat"
-codegen-units = 1
-
-[profile.release.build-override]
-opt-level = 3
-incremental = false
-codegen-units = 1
-```
-
-### Program Cargo.toml
-
-`programs/sati-registry/Cargo.toml`:
-
-```toml
-[package]
-name = "sati-registry"
-version = "0.1.0"
-description = "Minimal agent identity registry for Solana - ERC-8004 compatible"
-edition = "2021"
-license = "Apache-2.0"
-
-[lib]
-crate-type = ["cdylib", "lib"]
-name = "sati_registry"
-
-[features]
-default = []
-cpi = ["no-entrypoint"]
-no-entrypoint = []
-no-idl = []
-no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
-
-[dependencies]
-anchor-lang = "0.32.1"
-anchor-spl = "0.32.1"
-solana-security-txt = "1.1.1"
-
-[dev-dependencies]
-mollusk-svm = "0.5.1"
-mollusk-svm-programs-token = "0.5.1"
-solana-sdk = "2.2"
-```
-
-### Security.txt
-
-Add to `lib.rs` for security contact information:
-
-```rust
-use solana_security_txt::security_txt;
-
-security_txt! {
-    name: "SATI Registry",
-    project_url: "https://github.com/cascade-protocol/sati",
-    contacts: "email:security@cascade.fyi",
-    policy: "https://github.com/cascade-protocol/sati/blob/main/SECURITY.md",
-    preferred_languages: "en",
-    source_code: "https://github.com/cascade-protocol/sati"
-}
-```
-
-### Key Versions Summary
-
-| Component | Version |
-|-----------|---------|
-| Rust | 1.89.0 |
-| Anchor | 0.32.1 |
-| anchor-lang | 0.32.1 |
-| anchor-spl | 0.32.1 |
-| solana-sdk | 2.2 |
-| spl-token-2022 | 8.0 |
-| mollusk-svm | 0.5.1 |
-
----
-
-## Testing
-
-### Rust Unit Tests (mollusk-svm)
-
-SATI uses **mollusk-svm** for fast, deterministic unit tests. Mollusk provides
-lightweight SVM testing with built-in program support:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use mollusk_svm::{Mollusk, result::Check};
-    use solana_sdk::{
-        pubkey::Pubkey,
-        signature::{Keypair, Signer},
-        program_error::ProgramError,
-    };
-
-    fn setup_mollusk() -> Mollusk {
-        let mut mollusk = Mollusk::new(&PROGRAM_ID, "sati_registry");
-
-        // Add Token-2022 program (bundled with mollusk-svm-programs-token)
-        mollusk_svm_programs_token::token2022::add_program(&mut mollusk);
-
-        mollusk
-    }
-
-    #[test]
-    fn test_register_agent_name_too_long_fails() {
-        let mollusk = setup_mollusk();
-
-        // Setup accounts
-        let payer = Pubkey::new_unique();
-        let agent_mint = Keypair::new();
-
-        // Build instruction with name > 32 bytes
-        let long_name = "x".repeat(33);
-        let instruction = build_register_agent(
-            payer, payer, agent_mint.pubkey(),
-            &long_name, "AGENT", "https://example.com/agent.json",
-            None, false,
-        );
-
-        // Should fail with NameTooLong error
-        let checks = vec![Check::err(ProgramError::Custom(
-            error_code(SatiError::NameTooLong)
-        ))];
-
-        mollusk.process_and_validate_instruction(&instruction, &accounts, &checks);
-    }
-
-    #[test]
-    fn test_register_agent_metadata_key_too_long_fails() {
-        let mollusk = setup_mollusk();
-        // Test metadata key > 32 bytes
-        // Expect SatiError::MetadataKeyTooLong
-    }
-
-    #[test]
-    fn test_register_agent_metadata_value_too_long_fails() {
-        let mollusk = setup_mollusk();
-        // Test metadata value > 200 bytes
-        // Expect SatiError::MetadataValueTooLong
-    }
-}
-```
-
-### TypeScript E2E Tests (vitest)
-
-Integration tests using the Anchor SDK:
-
-```typescript
-// tests/smoke.test.ts
-import { describe, it, expect, beforeAll } from 'vitest';
-import * as anchor from '@coral-xyz/anchor';
-import { Program } from '@coral-xyz/anchor';
-import { SatiRegistry } from '../target/types/sati_registry';
-
-describe('SATI Registry', () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-
-  const program = anchor.workspace.SatiRegistry as Program<SatiRegistry>;
-
-  it('initializes registry', async () => {
-    // Test initialization...
-  });
-
-  it('registers an agent', async () => {
-    // Test agent registration...
-  });
-
-  it('registers soulbound agent', async () => {
-    // Test non-transferable agent...
-  });
-});
-```
-
-Run tests:
-```bash
-# Rust unit tests
-cargo test
-
-# TypeScript E2E tests
-pnpm vitest run tests/
-```
-
-### Test Coverage Requirements
-
-- [ ] `initialize` - Success case, already initialized error
-- [ ] `register_agent` - Success, all validation errors (name/symbol/uri/metadata limits)
-- [ ] `register_agent` - Non-transferable flag
-- [ ] `register_agent` - Custom owner (different from payer)
-- [ ] `update_registry_authority` - Transfer authority
-- [ ] `update_registry_authority` - Renounce authority (immutable)
-- [ ] `update_registry_authority` - Fails when already immutable
-- [ ] Token-2022 integration - Metadata updates
-- [ ] Token-2022 integration - NFT transfers
+| Aspect | Approach |
+|--------|----------|
+| Multisig authority | Registry and SAS credential use Squads smart accounts |
+| Immutability option | Can renounce authority after stable |
+| Separation of concerns | Registry vs SAS credential managed independently |
 
 ---
 
@@ -1587,53 +720,6 @@ ipfs://QmYourRegistrationFileHash
 - Decentralized (no single point of failure)
 - ERC-8004 standard uses IPFS
 - Free to pin via Pinata, web3.storage, etc.
-
-### Implementation Order
-
-1. ~~**Grind vanity keypair**~~ ✅ `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`
-2. ~~**Implement sati-registry program**~~ ✅ (~500 lines)
-3. ~~**Write comprehensive tests**~~ ✅
-4. **Security audit** (planned)
-5. ~~**Deploy to devnet**~~ ✅
-6. ~~**Initialize registry**~~ ✅ (TokenGroup created)
-7. ~~**Create SAS schemas**~~ ✅ (6 schemas deployed)
-8. ~~**Implement SDK**~~ ✅ `@cascade-fyi/sati-sdk@0.2.0`
-9. ~~**Test on devnet**~~ ✅
-10. ~~**Deploy to mainnet**~~ ✅ (verified build)
-11. **Transfer authority to multisig** (planned)
-12. **After stable: renounce authority** (immutable)
-
-### One-Time Setup
-
-```typescript
-// 1. Initialize SATI Registry (creates TokenGroup)
-const { registryConfig, groupMint } = await sati.initialize({
-  authority: satiMultisig,  // Squads smart account
-});
-
-// 2. Create SAS credential for attestations
-const sasCredential = await sas.createCredential({
-  authority: satiMultisig,
-  name: "SATI",
-  signers: [satiMultisig],
-});
-
-// 3. Create SAS schemas (6 transactions)
-const schemas = {
-  feedbackAuth: await sas.createSchema({ ... }),
-  feedback: await sas.createSchema({ ... }),
-  feedbackResponse: await sas.createSchema({ ... }),
-  validationRequest: await sas.createSchema({ ... }),
-  validationResponse: await sas.createSchema({ ... }),
-  certification: await sas.createSchema({ ... }),
-};
-
-// 4. Publish addresses
-console.log("SATI Program:", SATI_PROGRAM_ID);
-console.log("Registry Config:", registryConfig);
-console.log("Group Mint:", groupMint);
-console.log("SAS Schemas:", schemas);
-```
 
 ### Costs
 
@@ -1663,7 +749,6 @@ console.log("SAS Schemas:", schemas);
 | Transfer agent | ~0.00001 SOL | Transaction fee only |
 | Authorize feedback | ~0.002 SOL | SAS attestation |
 | Give feedback | ~0.002 SOL | SAS attestation |
-| Close attestation | Rent refund | Get SOL back |
 
 ---
 
@@ -1700,68 +785,7 @@ Both start as multisig, both can be renounced independently.
 
 ### Renounce Authority
 
-```typescript
-// After registry is stable and community trusts it
-await sati.updateRegistryAuthority(null);  // Sets authority to Pubkey::default()
-// Registry is now immutable forever
-```
-
----
-
-## Project Structure
-
-```
-sati/
-├── Anchor.toml                  # Anchor configuration
-├── Cargo.toml                   # Workspace configuration
-├── rust-toolchain.toml          # Rust 1.89.0
-│
-├── programs/
-│   └── sati-registry/           # Minimal Anchor program (~500 lines)
-│       ├── Cargo.toml           # Program dependencies
-│       └── src/
-│           ├── lib.rs           # Entry point, #[program] macro, security_txt!
-│           ├── state.rs         # RegistryConfig account
-│           ├── errors.rs        # SatiError enum
-│           ├── events.rs        # AgentRegistered, RegistryAuthorityUpdated
-│           ├── constants.rs     # MAX_NAME_LENGTH, MAX_URI_LENGTH, etc.
-│           └── instructions/
-│               ├── mod.rs
-│               ├── initialize.rs
-│               ├── register_agent.rs
-│               └── update_authority.rs
-│
-├── tests/                       # TypeScript E2E tests (vitest)
-│   └── smoke.test.ts
-│
-├── sdk/                         # @sati/sdk
-│   ├── package.json
-│   ├── scripts/
-│   │   └── deploy-sas-schemas.ts  # Schema deployment CLI
-│   ├── src/
-│   │   ├── index.ts
-│   │   ├── client.ts            # Main SATI client class
-│   │   ├── schemas.ts           # SAS schema definitions
-│   │   ├── types.ts             # TypeScript type definitions
-│   │   ├── sas.ts               # SAS helper functions
-│   │   └── deployed/            # Auto-loaded network configs
-│   │       ├── index.ts         # Config loader
-│   │       ├── devnet.json      # Devnet schema addresses
-│   │       └── mainnet.json     # Mainnet schema addresses
-│   └── tests/
-│
-├── examples/
-│   ├── register-agent.ts
-│   ├── give-feedback.ts
-│   ├── request-validation.ts
-│   └── smart-account-agent.ts   # Squads integration
-│
-├── docs/
-│   └── SPECIFICATION.md         # This file
-│
-├── README.md
-└── LICENSE
-```
+To make the registry immutable, call `updateRegistryAuthority(null)`. This sets authority to `Pubkey::default()`, making the registry permanently trustless.
 
 ---
 
