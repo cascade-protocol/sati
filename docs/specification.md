@@ -21,11 +21,9 @@ SATI is open trust infrastructure for AI agents on Solana. It solves the fundame
 Built on:
 - **SATI Registry Program** — Canonical agent registration + permissionless attestation proxy
 - **Token-2022** — Agent identity as NFTs with native metadata
-- **Solana Attestation Service (SAS)** — Attestation storage with coming ZK compression
+- **Solana Attestation Service (SAS)** — Attestation storage
 
 Third parties can register credentials to gain permissionless attestation creation, unified indexing, and SDK support without building infrastructure.
-
-This architecture is **compression-ready** — when SAS ships ZK-compressed attestations, costs drop ~100x with no changes to SATI.
 
 ---
 
@@ -72,11 +70,10 @@ From agent's perspective: **reputation cost is bundled into service pricing** �
 
 | Approach | Cost per Feedback | 10K Feedbacks | Who Pays |
 |----------|-------------------|---------------|----------|
-| Client pays (naive) | ~$0.40 | Dead system | Nobody shows up |
-| Agent subsidizes | ~$0.40 | $4,000 | Agent (cost of business) |
-| With ZK compression | ~$0.004 | $40 | Agent (negligible) |
+| Client pays (naive) | ~$0.002 | Dead system | Nobody shows up |
+| Agent subsidizes (merkle batch) | ~$0.00002 | $0.20 | Agent (negligible) |
 
-At scale with compression, feedback becomes nearly free infrastructure.
+With merkle root batching, 10K feedbacks cost the same as 1 — just one on-chain attestation storing the root.
 
 ---
 
@@ -94,9 +91,8 @@ At scale with compression, feedback becomes nearly free infrastructure.
 10. [Governance](#governance)
 11. [Cross-Chain Interoperability](#cross-chain-interoperability)
 12. [What's NOT Included (Yet)](#whats-not-included-yet)
-13. [Scalability: ZK Compression](#scalability-zk-compression)
-14. [Summary](#summary)
-15. [References](#references)
+13. [Summary](#summary)
+14. [References](#references)
 
 ---
 
@@ -118,18 +114,16 @@ SATI stands for Solana **Agentic Trust Infrastructure** — emphasis on *infrast
 - **Multi-credential support** — Third parties register their SAS credentials with SATI
 - **Unified indexing** — All registered credentials indexed together
 - **SDK tooling** — Works for any registered credential
-- **ZK compression** — Automatic cost reduction when SAS ships compression
 
 **Core schemas** (FeedbackRoot, ValidationRoot, ReputationScore, Certification) implement the economics-first trust model: dual-signature for agent-subsidized feedback, merkle root batching for infinite scale, and multi-provider reputation to prevent monopolies. Third parties can register their own credentials for custom trust applications.
 
 ### Why v2?
 
-SATI v1 proposed custom programs with built-in ZK compression. Analysis revealed a better path:
+SATI v1 proposed custom programs. Analysis revealed a better path:
 
-1. **Delegate compression to SAS**: SAS is adding ZK-compressed attestations ([PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101)). SATI benefits automatically.
-2. **Minimal custom code**: Token-2022 + SAS already provide needed primitives
-3. **Ship now, scale later**: Launch with PDAs today, gain 100x cost reduction when SAS compression ships
-4. **Avoid audit burden**: Custom compression code = more attack surface
+1. **Minimal custom code**: Token-2022 + SAS already provide needed primitives
+2. **Merkle root batching**: Store millions of feedbacks in one attestation — scalability solved at design level
+3. **Avoid audit burden**: Less custom code = smaller attack surface
 
 ### Why a Registry Program?
 
@@ -978,7 +972,6 @@ SATI provides trust attestation infrastructure that third parties can build on:
 | **Permissionless attestations** | Anyone can create attestations without pre-authorization |
 | **Unified indexing** | All registered credentials indexed by SATI indexer |
 | **SDK support** | Use SATI SDK for attestation operations |
-| **ZK compression** | Automatic ~100x cost reduction when SAS ships compression |
 
 ### Registering Your Credential
 
@@ -1050,7 +1043,6 @@ With SATI registration:
 - Registry PDA signs on behalf of any caller (permissionless)
 - Unified indexing across all registered credentials
 - SDK works out of the box
-- Automatic ZK compression when available
 
 ---
 
@@ -1406,7 +1398,7 @@ This overhead is the cost of permissionless infrastructure — negligible relati
 | Compute costs | **+10-15K CU** per attestation (~1% budget) |
 | New one-time costs | **~0.001 SOL** per registered credential |
 
-When SAS ships ZK compression, cost reductions apply equally to CPI-proxied calls. The CPI overhead becomes even more negligible relative to the ~100x rent savings.
+The CPI overhead is negligible (~10-15K CU) compared to the value of unified indexing and SDK support.
 
 ---
 
@@ -1462,73 +1454,12 @@ To make the registry immutable, call `updateRegistryAuthority(null)`. This sets 
 
 | Feature | Status |
 |---------|--------|
-| ZK Compression | Automatic when SAS ships [PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101) — no SATI changes needed |
 | Mandates / AP2 lifecycle | Can add via SAS schemas when demand emerges |
 | User→Agent delegation | Can add via SAS schemas if needed |
-| On-chain aggregation | Indexer is standard Solana pattern; compression enables richer on-chain analysis |
+| On-chain aggregation | Merkle roots are on-chain; individual feedbacks indexed off-chain |
 | Wrapped metadata/transfer | Direct Token-2022 calls are simpler |
 
 The SAS-based architecture means new capabilities can be added as schemas without breaking changes or program upgrades.
-
----
-
-## Scalability: ZK Compression
-
-### Why Compression Matters
-
-Systems constrained by storage costs store only aggregates (averages, counts). With compressed attestations, SATI can store **complete feedback histories** on-chain, enabling:
-
-| Capability | Without Compression | With Compression |
-|------------|---------------------|------------------|
-| Feedback storage | Aggregates only (gas prohibitive) | Complete history |
-| Spam detection | Off-chain heuristics | On-chain pattern analysis |
-| Reviewer reputation | Trust all equally | Weight by reviewer quality |
-| Time-decay scoring | Not practical | Recent feedback weighted higher |
-| Scale | ~10K feedbacks practical | 1M+ feedbacks practical |
-
-### SAS Compressed Attestations
-
-SAS [PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101) adds three instructions via Light Protocol integration:
-
-| Instruction | Purpose |
-|-------------|---------|
-| `CreateCompressedAttestation` | Create attestation as compressed account (~100x cheaper) |
-| `CloseCompressedAttestation` | Close compressed attestation |
-| `CompressAttestations` | Batch-migrate existing PDAs to compressed (reclaims rent) |
-
-**Cost comparison:**
-
-| Operation | PDA Attestation | Compressed Attestation |
-|-----------|-----------------|------------------------|
-| Feedback | ~0.0015 SOL | ~0.000015 SOL |
-| 1,000 feedbacks | ~1.5 SOL | ~0.015 SOL |
-| 100,000 feedbacks | ~150 SOL | ~1.5 SOL |
-| 1,000,000 feedbacks | ~1,500 SOL | ~15 SOL |
-
-### SATI Integration Path
-
-**No SATI code changes required.** When SAS ships compressed attestations:
-
-1. **SDK update only** — Use `CreateCompressedAttestation` instead of `CreateAttestation` where applicable
-2. **Migration optional** — Existing PDA attestations continue working; can batch-compress to reclaim rent
-3. **Already optimized** — Merkle root batching means individual feedbacks are already off-chain
-
-**Recommended pattern post-compression:**
-
-| Schema | Storage | Reason |
-|--------|---------|--------|
-| FeedbackRoot | PDA | Single per agent, needs on-chain merkle root |
-| ValidationRoot | PDA | Single per agent, needs on-chain merkle root |
-| ReputationScore | PDA or Compressed | Depends on query patterns |
-| Certification | PDA | Low volume, needs direct queries |
-
-Note: With merkle root batching, individual feedbacks are already off-chain. ZK compression primarily benefits ReputationScore if high provider count per agent.
-
-### Timeline
-
-- **PR Status**: Open, marked "NOT AUDITED"
-- **Dependencies**: Light Protocol infrastructure (Photon indexer, merkle trees)
-- **SATI Action**: Monitor PR, update SDK when merged
 
 ---
 
