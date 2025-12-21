@@ -14,14 +14,17 @@
 SATI is open trust infrastructure for AI agents on Solana. It solves the fundamental economics of on-chain feedback:
 
 - **Agent-subsidized feedback** — Dual-signature makes feedback free for clients
-- **Infinite scale at fixed cost** — Merkle root batching stores millions of feedbacks in 112 bytes
+- **Censorship-resistant** — Payment-verified mode ensures clients can always submit feedback
+- **Infinite scale at fixed cost** — Merkle root batching stores millions of feedbacks in 80 bytes
 - **No reputation monopoly** — Multiple providers compete with different scoring algorithms
-- **Composable authorization** — Schema-defined auth modes for any trust use case
+- **Extensible by design** — Unified base types (AttestationRoot, AttestationLeaf) enable new trust primitives without program changes
 
 Built on:
 - **SATI Registry Program** — Canonical agent registration + permissionless attestation proxy
 - **Token-2022** — Agent identity as NFTs with native metadata
-- **Solana Attestation Service (SAS)** — Attestation storage
+- **Solana Attestation Service (SAS)** — Attestation storage with unified schema model
+
+The architecture decouples signature verification from data parsing — the program verifies signatures on opaque bytes, while indexers and escrows parse semantics. This enables FeedbackRoot, ValidationRoot, and future schemas (DelegationRoot, MandateRoot) to share infrastructure without code changes.
 
 Third parties can register credentials to gain permissionless attestation creation, unified indexing, and SDK support without building infrastructure.
 
@@ -93,6 +96,8 @@ With merkle root batching, 10K feedbacks cost the same as 1 — just one on-chai
 12. [What's NOT Included (Yet)](#whats-not-included-yet)
 13. [Summary](#summary)
 14. [References](#references)
+15. [Appendix A: CAIP and DID Reference](#appendix-a-caip-and-did-reference)
+16. [Appendix B: Merkle Tree Implementation](#appendix-b-merkle-tree-implementation)
 
 ---
 
@@ -271,11 +276,40 @@ PDA seeds: `["schema_config", sas_schema_pubkey]`
 
 #### AuthMode Enum
 
-| Variant | Value | Description | Signer Positions |
-|---------|-------|-------------|------------------|
-| `DualSignature` | 0 | Requires two off-chain signatures, anyone can submit | data[0..32], data[32..64] |
-| `SingleSigner` | 1 | Requires one off-chain signature from signer in data | data[0..32] |
-| `CredentialAuthority` | 2 | Uses SAS credential's authorized_signers (traditional) | N/A |
+| Variant | Value | Description | Signature Count |
+|---------|-------|-------------|-----------------|
+| `DualSignature` | 0 | Requires two off-chain signatures, anyone can submit | 2 |
+| `SingleSigner` | 1 | Requires one off-chain signature, anyone can submit | 1 |
+| `PaymentVerified` | 2 | Requires one signature + payment proof, anyone can submit | 1 + payment |
+| `CredentialAuthority` | 3 | Uses SAS credential's authorized_signers (traditional) | 0 |
+
+**Signature Verification Model (Option B):**
+
+The program treats leaf data as **opaque bytes** and never parses it. Signatures are passed separately from data:
+
+```rust
+create_attestation(
+    data: Vec<u8>,                    // Opaque leaf bytes
+    signatures: Vec<SignerEntry>,     // [{pubkey, sig}, ...]
+    payment_proof: Option<PaymentProof>,  // For PaymentVerified mode
+)
+```
+
+The program verifies:
+1. Correct number of signatures per AuthMode
+2. Each signature is valid on `keccak256(data)`
+3. Payment proof is valid (if PaymentVerified)
+
+**What the program does NOT verify:**
+- Whether signature pubkeys match fields inside `data`
+- Semantic meaning of who signed (agent vs client)
+
+**Where semantic verification happens:**
+- **Indexer**: Parses leaf, verifies pubkeys in data match signature pubkeys
+- **Escrow**: Parses leaf at consumption time, verifies before releasing funds
+- **SDK**: Constructs valid leaves with correct pubkey positions
+
+This decoupling enables adding new leaf types (Delegation, Mandate, etc.) without program changes.
 
 ### Instructions
 
@@ -360,25 +394,29 @@ Create attestation with authorization proof.
 |-----------|------|-------------|
 | `credential` | Pubkey | Target SAS credential |
 | `schema` | Pubkey | Target SAS schema |
-| `data` | Vec<u8> | Attestation data (schema-specific) |
+| `data` | Vec<u8> | Attestation data (opaque, schema-specific) |
 | `nonce` | [u8; 32] | Attestation nonce |
-| `signatures` | Vec<Signature> | Authorization signatures per schema's auth_mode |
+| `signatures` | Vec<SignerEntry> | Authorization signatures per schema's auth_mode |
+| `payment_proof` | Option<PaymentProof> | Payment proof for PaymentVerified mode |
 | `token_account` | Option<Pubkey> | SAS token_account field (typically agent_mint) |
 | `expiry` | Option<i64> | SAS expiry field |
 
-**Signature struct**: `{ pubkey: Pubkey, sig: [u8; 64] }`
+**SignerEntry struct**: `{ pubkey: Pubkey, sig: [u8; 64] }`
+
+**PaymentProof struct**: `{ tx_signature: [u8; 64], amount: u64, token_mint: Pubkey }`
 
 **Preconditions**:
 - Credential must be registered and active
 - Schema must belong to credential
 - SchemaConfig must exist for schema
 - Signatures must be valid per auth_mode:
-  - `DualSignature`: 2 signatures, sig[0].pubkey == data[0..32], sig[1].pubkey == data[32..64]
-  - `SingleSigner`: 1 signature, sig[0].pubkey == data[0..32]
+  - `DualSignature`: 2 signatures, both valid on `keccak256(data)`
+  - `SingleSigner`: 1 signature, valid on `keccak256(data)`
+  - `PaymentVerified`: 1 signature valid on `keccak256(data)` + valid payment_proof
   - `CredentialAuthority`: 0 signatures (uses traditional SAS auth)
 
 **Behavior**:
-- Verifies ed25519 signatures against pubkeys in data (if applicable)
+- Verifies ed25519 signatures against `keccak256(data)` (program does not parse data)
 - CPIs to SAS `create_attestation` with Registry PDA as authorized signer
 - Emits `AttestationCreated` event
 
@@ -654,14 +692,42 @@ All registered credentials share:
 
 ### Core Schemas
 
-SATI provides four core schemas for agent trust:
+SATI provides a unified schema system built on base types:
 
-| Schema | What It Stores | Auth Model | Why It Matters |
-|--------|---------------|------------|----------------|
-| **FeedbackRoot** | Merkle root of client feedbacks | Dual-signature | Free for clients, scales infinitely |
-| **ValidationRoot** | Merkle root of validations | Dual-signature | Enables automatic escrow release |
-| **ReputationScore** | Provider's computed score | Single-signer | No monopoly — providers compete |
-| **Certification** | Third-party attestations | Credential authority | Immutable proof of audit/compliance |
+**Base Types** (shared structure):
+
+| Base Type | Purpose |
+|-----------|---------|
+| **AttestationRoot** | Base structure for all merkle-based roots |
+| **AttestationLeaf** | Base structure for all merkle tree leaves |
+
+**Merkle-based schemas** (derived from AttestationRoot):
+
+| Schema | Derives From | Auth Mode | Why It Matters |
+|--------|--------------|-----------|----------------|
+| **FeedbackRoot** | AttestationRoot | DualSignature or PaymentVerified | Free for clients, scales infinitely |
+| **ValidationRoot** | AttestationRoot | DualSignature | Enables automatic escrow release |
+| *(Future)* **DelegationRoot** | AttestationRoot | DualSignature | Agent-to-agent delegation |
+| *(Future)* **MandateRoot** | AttestationRoot | DualSignature | Client authorization to agents |
+
+**Direct schemas** (non-merkle, individual attestations):
+
+| Schema | What It Stores | Auth Mode | Why It Matters |
+|--------|---------------|-----------|----------------|
+| **ReputationScore** | Provider's computed score | SingleSigner | No monopoly — providers compete |
+| **Certification** | Third-party attestations | CredentialAuthority | Immutable proof of audit/compliance |
+
+**Leaf types** (derived from AttestationLeaf):
+
+| leaf_type | Name | Auth Mode | Used By |
+|-----------|------|-----------|---------|
+| 0 | FeedbackLeaf | DualSignature or PaymentVerified | FeedbackRoot |
+| 1 | ValidationLeaf | DualSignature | ValidationRoot |
+| 2+ | *(Future)* | Configurable | DelegationRoot, MandateRoot, etc. |
+
+For merkle-based schemas: the root update is signed by the agent, but each leaf contains signatures verified at submission time. The program verifies signature count per auth_mode without parsing leaf content.
+
+**Extensibility:** New *Root schemas are created by defining a new leaf_type and registering a SchemaConfig. The base AttestationRoot and AttestationLeaf structures remain unchanged.
 
 ### SAS Native Field Usage
 
@@ -725,78 +791,124 @@ SAS attestation PDAs: `["attestation", credential, schema, nonce]`
 
 ### Schema Definitions
 
-#### FeedbackRoot
+#### Base Types
 
-Merkle root of all client feedbacks for an agent. Uses dual-signature: agent signs service receipt, client signs rating.
+##### AttestationRoot (Base)
 
-**Data Layout** (signers at fixed positions for verification):
-
-| Bytes | Field | Type | Description |
-|-------|-------|------|-------------|
-| 0-31 | `agent` | Pubkey | Agent who received service (signer A) |
-| 32-63 | `client` | Pubkey | Client who gave feedback (signer B) |
-| 64-95 | `merkle_root` | [u8; 32] | Root of feedback merkle tree |
-| 96-103 | `count` | u64 | Total feedbacks in tree |
-| 104-111 | `last_updated` | i64 | Timestamp of last update |
-
-**Total data size**: 112 bytes
-
-**Attestation config**:
-- `token_account` = agent_mint
-- `nonce` = agent_mint (deterministic: one FeedbackRoot per agent)
-
-**Off-chain Feedback Leaf** (stored in merkle tree):
-```
-FeedbackLeaf {
-    task_id: [u8; 32],        // Unique task identifier
-    agent: Pubkey,            // Agent pubkey
-    client: Pubkey,           // Client pubkey
-    score: u8,                // 0-100 rating
-    tag1: u8,                 // Primary category
-    tag2: u8,                 // Secondary category
-    timestamp: i64,           // When feedback given
-    service_hash: [u8; 32],   // Hash of service details
-    agent_sig: [u8; 64],      // Agent signs: hash(task_id, client, service_hash)
-    client_sig: [u8; 64],     // Client signs: hash(task_id, agent, score, timestamp)
-    content_ref: [u8; 36],    // Off-chain content reference
-}
-```
-
-#### ValidationRoot
-
-Merkle root of all validations for an agent. Uses dual-signature: agent signs work, validator signs verification.
+Base structure for all merkle-based root schemas. FeedbackRoot, ValidationRoot, and future *Root schemas derive from this.
 
 **Data Layout**:
 
 | Bytes | Field | Type | Description |
 |-------|-------|------|-------------|
-| 0-31 | `agent` | Pubkey | Agent whose work was validated (signer A) |
-| 32-63 | `validator` | Pubkey | Validator who verified (signer B) |
-| 64-95 | `merkle_root` | [u8; 32] | Root of validation merkle tree |
-| 96-103 | `count` | u64 | Total validations in tree |
-| 104-111 | `last_updated` | i64 | Timestamp of last update |
+| 0-31 | `agent` | Pubkey | Agent who owns this attestation root |
+| 32-63 | `merkle_root` | [u8; 32] | Root of merkle tree |
+| 64-71 | `count` | u64 | Total leaves in tree |
+| 72-79 | `last_updated` | i64 | Timestamp of last update |
 
-**Total data size**: 112 bytes
+**Total data size**: 80 bytes
+
+##### AttestationLeaf (Base)
+
+Base structure for all merkle tree leaves. FeedbackLeaf, ValidationLeaf, and future *Leaf types derive from this.
+
+**Common Fields** (all leaf types):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `leaf_type` | u8 | Discriminator: 0=Feedback, 1=Validation, 2+=Future |
+| `task_id` | [u8; 32] | Unique task/interaction identifier |
+| `agent` | Pubkey | Agent pubkey |
+| `counterparty` | Pubkey | Client, validator, delegatee, etc. |
+| `timestamp` | i64 | When attestation was created |
+| `content_hash` | [u8; 32] | Hash of work/service being attested |
+| `response_hash` | [u8; 32] | Agent's response (zeros if none yet) |
+| `content_ref` | [u8; 36] | Off-chain content reference |
+| `type_data` | Vec<u8> | Type-specific fields (parsed by SDK based on leaf_type) |
+
+**Signatures**: Passed separately to instruction per AuthMode (not embedded in leaf).
+
+---
+
+#### FeedbackRoot
+
+Derives from **AttestationRoot**. Merkle root of all client feedbacks for an agent.
+
+**Data Layout**: Same as AttestationRoot (80 bytes)
+
+**Attestation config**:
+- `token_account` = agent_mint
+- `nonce` = agent_mint (deterministic: one FeedbackRoot per agent)
+
+**Auth modes supported**: DualSignature, PaymentVerified, or both combined
+
+**Creation**: Agent creates FeedbackRoot explicitly before receiving first feedback. This keeps registration cost minimal — agents only pay for reputation infrastructure when they need it.
+
+##### FeedbackLeaf
+
+Derives from **AttestationLeaf** with `leaf_type = 0`.
+
+**Common fields** (from AttestationLeaf):
+- `leaf_type` = 0
+- `task_id`, `agent`, `counterparty` (= client), `timestamp`
+- `content_hash` (= service_hash), `response_hash`, `content_ref`
+
+**Type-specific fields** (in `type_data`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `score` | u8 | 0-100 rating |
+| `tag1` | u8 | Primary category |
+| `tag2` | u8 | Secondary category |
+
+**Payment verification fields** (optional, for PaymentVerified mode):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `payment_tx_sig` | Option<[u8; 64]> | Payment transaction signature (for deduplication) |
+| `payment_amount` | Option<u64> | Payment amount |
+| `payment_mint` | Option<Pubkey> | Payment token mint |
+
+**Signatures required** (passed separately):
+- **DualSignature**: agent signs `hash(task_id, client, content_hash)`, client signs `hash(task_id, agent, score, timestamp)`
+- **PaymentVerified**: client signs `hash(task_id, agent, score, timestamp)` + payment_proof
+- **Both**: All of the above (highest trust tier)
+
+---
+
+#### ValidationRoot
+
+Derives from **AttestationRoot**. Merkle root of all validations for an agent.
+
+**Data Layout**: Same as AttestationRoot (80 bytes)
 
 **Attestation config**:
 - `token_account` = agent_mint
 - `nonce` = agent_mint (deterministic: one ValidationRoot per agent)
 
-**Off-chain Validation Leaf**:
-```
-ValidationLeaf {
-    task_id: [u8; 32],        // Unique task identifier
-    agent: Pubkey,            // Agent pubkey
-    validator: Pubkey,        // Validator pubkey
-    validation_type: u8,      // 0=tee, 1=zkml, 2=reexecution, 3=consensus
-    status: u8,               // 0=fail, 100=pass
-    timestamp: i64,           // When validated
-    work_hash: [u8; 32],      // Hash of work being validated
-    agent_sig: [u8; 64],      // Agent signs: hash(task_id, validator, work_hash)
-    validator_sig: [u8; 64],  // Validator signs: hash(task_id, agent, status)
-    response_hash: [u8; 32],  // Hash of detailed response
-}
-```
+**Auth mode**: DualSignature
+
+**Creation**: Agent creates ValidationRoot explicitly when they need validation tracking.
+
+##### ValidationLeaf
+
+Derives from **AttestationLeaf** with `leaf_type = 1`.
+
+**Common fields** (from AttestationLeaf):
+- `leaf_type` = 1
+- `task_id`, `agent`, `counterparty` (= validator), `timestamp`
+- `content_hash` (= work_hash), `response_hash`, `content_ref`
+
+**Type-specific fields** (in `type_data`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `validation_type` | u8 | 0=tee, 1=zkml, 2=reexecution, 3=consensus |
+| `status` | u8 | 0=fail, 100=pass |
+
+**Signatures required** (passed separately):
+- Agent signs: `hash(task_id, validator, content_hash)`
+- Validator signs: `hash(task_id, agent, status)`
 
 #### ReputationScore
 
@@ -835,7 +947,19 @@ Third-party certification (uses CredentialAuthority mode - traditional SAS auth)
 - `token_account` = agent_mint
 - `nonce` = `keccak256(agent_mint, cert_type, certifier, version)`
 
-### Dual-Signature Model
+### Verification Models
+
+SATI supports multiple verification modes for different trust scenarios.
+
+#### Trust Tiers
+
+| Tier | Mode | Proof of Interaction | Who Can Submit | Trust Level |
+|------|------|---------------------|----------------|-------------|
+| **Tier 1** | DualSignature + PaymentVerified | Agent sig + Client sig + Payment proof | Anyone | Highest |
+| **Tier 2** | DualSignature | Agent sig + Client sig | Anyone | High |
+| **Tier 3** | PaymentVerified | Client sig + Payment proof | Anyone | High |
+
+#### DualSignature Mode
 
 The breakthrough that makes on-chain feedback economically viable.
 
@@ -852,25 +976,61 @@ Anyone with both signatures can submit to chain. The agent (who benefits) pays. 
 │                                                                     │
 │  1. Agent provides service to Client                                │
 │  2. Agent signs service receipt:                                    │
-│     agent_sig = sign(hash(task_id, client, service_hash))          │
+│     agent_sig = sign(hash(task_id, client, content_hash))          │
 │  3. Client signs feedback (FREE — just a signature):                │
 │     client_sig = sign(hash(task_id, agent, score, timestamp))      │
-│  4. Agent (or facilitator) submits to chain and pays:              │
-│     update_attestation(FeedbackRoot, new_data, [sigs], merkle_proof)│
+│  4. Agent (or anyone with both sigs) submits to chain:             │
+│     submit_leaf(leaf_data, [agent_sig, client_sig], merkle_proof)  │
 │  5. On-chain verification:                                          │
-│     - Verify agent_sig against data[0..32]                         │
-│     - Verify client_sig against data[32..64]                       │
-│     - Verify merkle proof                                           │
+│     - Verify both signatures valid on keccak256(leaf_data)         │
+│     - Verify leaf hash + proof produces valid new root             │
 │     - Update FeedbackRoot attestation                               │
+│     - Emit LeafAdded event                                          │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+#### PaymentVerified Mode
+
+Alternative verification when agent signature is unavailable (agent unresponsive, or client preference).
+
+**The insight:** On-chain payment receipt proves interaction occurred — no agent signature needed.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   Payment-Verified Flow                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. Client pays Agent via x402 or direct transfer                   │
+│  2. Payment creates on-chain record (tx signature)                  │
+│  3. Client signs feedback:                                          │
+│     client_sig = sign(hash(task_id, agent, score, timestamp))      │
+│  4. Client (or anyone) submits to chain:                           │
+│     submit_leaf(leaf_data, [client_sig], payment_proof)            │
+│  5. On-chain/off-chain verification:                                │
+│     - Verify client signature valid on keccak256(leaf_data)        │
+│     - Payment proof stored in leaf for indexer verification        │
+│     - Indexer validates payment_tx_sig is unique (deduplication)   │
+│     - Indexer validates payment actually occurred                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Payment deduplication**: The `payment_tx_sig` in the leaf enables indexers to detect and ignore duplicate submissions for the same payment. No on-chain PDA needed — deduplication is handled at the indexing layer, preserving merkle batching economics.
+
+#### Combined Mode (Tier 1)
+
+For highest trust, both DualSignature AND PaymentVerified can be used together:
+
+- Agent signature proves agent acknowledges the interaction
+- Client signature proves client's feedback
+- Payment proof provides immutable on-chain evidence of transaction
+
 **Why this works:**
 - Client gives feedback for free (no wallet transaction, just signature)
 - Agent pays because reputation = more business
-- Permissionless submission (anyone with both sigs can submit)
-- Embedded proof of service (agent signature proves interaction occurred)
+- Permissionless submission (anyone with required proofs can submit)
+- Payment-verified path ensures censorship resistance (agent can't block feedback)
 
 ### Merkle Root Batching
 
@@ -884,31 +1044,104 @@ Instead of individual attestations per feedback, SATI stores merkle roots:
 **Merkle Tree Properties:**
 - Append-only (feedback history immutable)
 - Verifiable via merkle proofs
-- Off-chain storage (IPFS, Arweave) with on-chain root
+- Data stored in events (blockchain is the storage)
+- Indexers reconstruct full tree from event history
+
+**Tree Depth Recommendation:**
+
+| Depth | Max Leaves | Proof Size | On-chain Cost |
+|-------|------------|------------|---------------|
+| 16 | 65K | 512 bytes | 32 bytes (root only) |
+| 24 | 16M | 768 bytes | 32 bytes (root only) |
+| 32 | 4B | 1KB | 32 bytes (root only) |
+
+**Recommended: Depth 32** (4 billion leaves per agent). Since only the root is stored on-chain (32 bytes), there's no cost difference between depths. Proof size (1KB for depth 32) is negligible.
+
+**Batched Submission:**
+
+Multiple feedbacks can be submitted in a single transaction:
+
+```
+N feedbacks → N FeedbackAdded events → 1 root update
+```
+
+| Constraint | Value |
+|------------|-------|
+| CU budget | ~1.4M |
+| emit_cpi! per event | ~5K CU |
+| Ed25519 verify (2 sigs/feedback) | ~2.8K CU |
+| **Max feedbacks per tx** | ~150-180 (conservative) |
+
+In practice, batch based on time/volume rather than maximizing per transaction.
+
+**Note:** Batched submission (multiple feedbacks per transaction) is deferred for this version of the specification and will be considered in future updates.
+
+### Merkle Tree Algorithm
+
+SATI uses the Solana ecosystem standard for merkle trees:
+
+- **Hash function:** Keccak-256 (`solana_program::keccak`)
+- **Tree structure:** Binary, append-only, leaves indexed left-to-right
+- **Compatibility:** Matches [SPL Account Compression](https://github.com/solana-labs/solana-program-library/tree/master/account-compression) and [Metaplex Bubblegum](https://github.com/metaplex-foundation/mpl-bubblegum)
+
+See [Appendix B](#appendix-b-merkle-tree-implementation) for implementation code.
 
 ### Events for Indexing
 
-Since individual feedbacks aren't on-chain, SATI emits events via `emit_cpi!` for indexer consumption. These events are stored in transaction `meta.innerInstructions`, not program logs — ensuring they're never truncated.
+Since individual leaves aren't stored on-chain (only the merkle root), SATI emits events via `emit_cpi!` for indexer consumption. These events are stored in transaction `meta.innerInstructions`, not program logs — ensuring they're never truncated.
+
+#### LeafAdded (Generic)
+
+All leaf types emit the same base event structure:
 
 ```
-FeedbackAdded {
+LeafAdded {
+    // Common fields
+    leaf_type: u8,            // 0=Feedback, 1=Validation, 2+=Future
     agent: Pubkey,
-    client: Pubkey,
+    counterparty: Pubkey,     // Client, validator, etc.
     task_id: [u8; 32],
-    score: u8,
-    tag1: u8,
-    tag2: u8,
     timestamp: i64,
+    content_hash: [u8; 32],
+    response_hash: [u8; 32],
     content_ref: [u8; 36],
+
+    // Type-specific data (opaque, parsed by SDK based on leaf_type)
+    type_data: Vec<u8>,
+
+    // Signatures (for self-contained verification)
+    signatures: Vec<SignerEntry>,  // [{pubkey, sig}, ...]
+
+    // Payment proof (optional, for PaymentVerified mode)
+    payment_proof: Option<PaymentProof>,
+}
+```
+
+**Type-specific parsing by SDK:**
+
+| leaf_type | type_data contains |
+|-----------|-------------------|
+| 0 (Feedback) | score, tag1, tag2 |
+| 1 (Validation) | validation_type, status |
+
+Events include signatures for self-contained verification — anyone can verify leaf authenticity directly from the event without trusting the indexer.
+
+#### Convenience Type Aliases
+
+For SDK ergonomics, the SDK provides typed wrappers:
+
+```typescript
+// SDK provides typed access
+const event = parser.parseLeafAdded(rawEvent);
+
+if (event.leafType === LeafType.Feedback) {
+    const feedback: FeedbackLeaf = event.asFeedback();
+    console.log(feedback.score, feedback.client);
 }
 
-ValidationAdded {
-    agent: Pubkey,
-    validator: Pubkey,
-    task_id: [u8; 32],
-    validation_type: u8,
-    status: u8,
-    timestamp: i64,
+if (event.leafType === LeafType.Validation) {
+    const validation: ValidationLeaf = event.asValidation();
+    console.log(validation.status, validation.validator);
 }
 ```
 
@@ -936,22 +1169,115 @@ transaction.meta.innerInstructions[].instructions[]
 
 Since Anchor Issue #2609 remains open (no built-in CPI event subscription), the SATI SDK provides parsing utilities (see [SDK Interface](#sdk-interface)).
 
+### Data Reconstruction
+
+**The blockchain is the storage.** Individual leaf data is not stored separately on IPFS/Arweave — it's emitted in events and reconstructed by indexers.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Data Flow                                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. Leaf submitted → emit_cpi!(LeafAdded { ... })                   │
+│                              ↓                                      │
+│  2. Stored permanently in transaction.meta.innerInstructions        │
+│                              ↓                                      │
+│  3. Indexer parses events from blockchain history                   │
+│                              ↓                                      │
+│  4. Indexer reconstructs full merkle tree in database               │
+│                              ↓                                      │
+│  5. Indexer serves queries and merkle proofs                        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Why no separate storage?**
+- Events in `innerInstructions` are permanent and immutable
+- No data availability risk (blockchain is the source of truth)
+- No pinning costs or availability dependencies
+- Same pattern used by [Metaplex Bubblegum](https://github.com/metaplex-foundation/mpl-bubblegum) for cNFTs
+
+**Indexer responsibilities:**
+- Parse `LeafAdded` events from transaction history
+- Maintain full merkle tree state per agent per leaf_type
+- Verify event signatures match pubkeys in leaf data
+- Verify payment proofs for PaymentVerified leaves (deduplication)
+- Serve queries and merkle proofs
+
+### Merkle Proof Serving
+
+To verify a specific leaf exists in an agent's attestation root, clients need merkle proofs. The indexer generates and serves these proofs.
+
+**Proof request flow:**
+
+```
+Client                          Indexer                         On-chain
+   │                               │                               │
+   │  "Prove leaf X in agent Y"    │                               │
+   │──────────────────────────────▶│                               │
+   │                               │                               │
+   │                               │  (has full tree from events)  │
+   │                               │                               │
+   │  { proof: [...], leaf: {...} }│                               │
+   │◀──────────────────────────────│                               │
+   │                               │                               │
+   │  Fetch AttestationRoot.merkle_root                            │
+   │──────────────────────────────────────────────────────────────▶│
+   │                               │                               │
+   │  Verify: hash(leaf + proof) == root                           │
+   │                               │                               │
+```
+
+**SDK interface:**
+
+```typescript
+// Get proof from indexer (works for any leaf type)
+const { proof, leaf } = await sati.indexer.getLeafProof(agentMint, leafType, taskId);
+
+// Verify against on-chain root
+const root = await sati.getAttestationRoot(agentMint, leafType);
+const valid = sati.verifyLeaf(root, proof, leaf);
+
+// Convenience methods for specific leaf types
+const { proof, leaf } = await sati.indexer.getFeedbackProof(agentMint, taskId);
+const { proof, leaf } = await sati.indexer.getValidationProof(agentMint, taskId);
+```
+
+**On-chain verification (for escrow):**
+
+Escrow contracts can verify proofs directly without trusting the indexer:
+
+```rust
+// Escrow receives proof + leaf, verifies against on-chain root
+let root = get_attestation_root(agent_mint, leaf_type)?;
+verify_merkle_proof(root.merkle_root, &proof, &leaf)?;
+
+// Escrow parses leaf to verify semantic content
+let feedback: FeedbackLeaf = parse_leaf(&leaf)?;
+require!(feedback.counterparty == expected_client, InvalidClient);
+```
+
+This is analogous to Helius DAS API's `getAssetProof` for compressed NFTs.
+
 ### Escrow Integration
 
-ValidationRoot enables automatic escrow release via merkle proofs:
+AttestationRoot (via ValidationRoot) enables automatic escrow release via merkle proofs:
 
 ```rust
 // Escrow contract verifies validation before releasing funds
 fn release_escrow(
-    validation_root: &ValidationRoot,
+    attestation_root: &AttestationRoot,  // ValidationRoot
     merkle_proof: Vec<[u8; 32]>,
-    validation_leaf: ValidationLeaf,
+    leaf_bytes: Vec<u8>,
 ) -> Result<()> {
-    // Verify leaf is in ValidationRoot
-    verify_merkle_proof(validation_root.merkle_root, &merkle_proof, &validation_leaf)?;
+    // Verify leaf is in merkle tree
+    let leaf_hash = keccak256(&leaf_bytes);
+    verify_merkle_proof(attestation_root.merkle_root, &merkle_proof, leaf_hash)?;
 
-    // Check validation passed
-    require!(validation_leaf.status >= PASS_THRESHOLD, ValidationFailed);
+    // Parse and verify leaf content (escrow knows ValidationLeaf structure)
+    let validation: ValidationLeaf = parse_leaf(&leaf_bytes)?;
+    require!(validation.leaf_type == 1, InvalidLeafType);  // Must be validation
+    require!(validation.status >= PASS_THRESHOLD, ValidationFailed);
 
     // Release escrow
     transfer_funds(escrow, recipient)?;
@@ -961,6 +1287,8 @@ fn release_escrow(
 ```
 
 ### Content Reference Encoding
+
+The `content_ref` field in FeedbackLeaf/ValidationLeaf is for **optional extended content** (e.g., written review text, detailed validation reports) that's too large for events. Core feedback data (score, tags, signatures) is always in events.
 
 36-byte encoding for off-chain content references:
 
@@ -975,16 +1303,20 @@ fn release_escrow(
 |------|---------|------|
 | `0xe3` | IPFS | CIDv1 bytes |
 | `0xce` | Arweave | Transaction ID |
-| `0x00` | Raw | SHA-256 hash |
+| `0x00` | Raw | SHA-256 hash (no extended content) |
+
+**Note:** Core feedback data lives in events (see [Data Reconstruction](#data-reconstruction)). `content_ref` is only for optional extended content that exceeds event size limits.
 
 ### Schema Data Sizes
 
 | Schema | Data Size | Total (173 base + data) | Auth Mode |
 |--------|-----------|-------------------------|-----------|
-| FeedbackRoot | 112 bytes | 285 bytes | DualSignature |
-| ValidationRoot | 112 bytes | 285 bytes | DualSignature |
+| FeedbackRoot | 80 bytes | 253 bytes | SingleSigner |
+| ValidationRoot | 80 bytes | 253 bytes | SingleSigner |
 | ReputationScore | 75 bytes | 248 bytes | SingleSigner |
 | Certification | 42 bytes | 215 bytes | CredentialAuthority |
+
+Note: FeedbackRoot and ValidationRoot use SingleSigner (agent only) at the root level. Dual-signature verification happens in leaves, validated via merkle proofs.
 
 ### Authority Separation
 
@@ -1079,6 +1411,72 @@ With SATI registration:
 - Unified indexing across all registered credentials
 - SDK works out of the box
 
+### Adding New Leaf Types
+
+The unified AttestationRoot/AttestationLeaf base types enable adding new trust primitives without program changes.
+
+**Current leaf types:**
+
+| leaf_type | Schema | Purpose |
+|-----------|--------|---------|
+| 0 | FeedbackLeaf | Client feedback on agent services |
+| 1 | ValidationLeaf | Objective validation results |
+| 2+ | Reserved | Future leaf types |
+
+**To add a new leaf type (e.g., DelegationLeaf):**
+
+**Step 1: Define type_data structure**
+
+```typescript
+// DelegationLeaf type_data (leaf_type = 2)
+interface DelegationTypeData {
+  scope: u8;         // 0=full, 1=payment, 2=communication
+  expires_at: i64;   // Delegation expiry
+  max_amount: u64;   // Maximum delegated amount
+}
+```
+
+**Step 2: Create schema via SAS**
+
+Create a DelegationRoot schema with the same layout as AttestationRoot (80 bytes). The schema name differentiates it from FeedbackRoot/ValidationRoot.
+
+**Step 3: Register SchemaConfig**
+
+```typescript
+await sati.registerSchemaConfig({
+  schema: delegationRootSchema,
+  authMode: AuthMode.DualSignature,  // Agent + delegatee
+  isMerkleBased: true,
+});
+```
+
+**Step 4: Add SDK helpers (optional)**
+
+```typescript
+// SDK convenience method
+await sati.submitDelegation({
+  agentMint,
+  delegatee: delegateePubkey,
+  scope: DelegationScope.Payment,
+  expiresAt: timestamp,
+  signatures: [agentSig, delegateeSig],
+});
+```
+
+**What stays the same:**
+- Program code (no changes needed)
+- Generic `LeafAdded` event structure
+- Merkle tree algorithm
+- Signature verification logic
+- Indexer infrastructure
+
+**What's new:**
+- New `leaf_type` value (2)
+- New `type_data` parser in SDK
+- Optional convenience methods in SDK
+
+This extensibility model means SATI governance only controls the core schema definitions (FeedbackRoot, ValidationRoot). Third parties can propose new leaf types via governance, or use third-party credentials for custom trust primitives.
+
 ---
 
 ## Cross-Chain Interoperability
@@ -1087,70 +1485,26 @@ SATI agents can operate across chains using standard identity formats.
 
 ### Registration File Format
 
-Agents use a standard JSON registration file for cross-chain discovery:
+Agents use ERC-8004 compatible JSON registration files stored at their `TokenMetadata.uri`:
 
 ```json
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "myAgentName",
   "description": "Agent description",
-  "image": "https://example.com/agent.png",
   "endpoints": [
-    { "name": "A2A", "endpoint": "https://agent.example/agent-card.json", "version": "0.3.0" },
-    { "name": "MCP", "endpoint": "https://mcp.agent.example/", "version": "2025-06-18" },
-    { "name": "agentWallet", "endpoint": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv" }
+    { "name": "A2A", "endpoint": "https://agent.example/agent-card.json" },
+    { "name": "agentWallet", "endpoint": "solana:5eykt4...:7S3P4..." }
   ],
   "registrations": [
-    { "agentId": "sati:devnet:ABC123mint", "agentRegistry": "solana:devnet:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF" },
-    { "agentId": 22, "agentRegistry": "eip155:1:0x..." }
-  ],
-  "supportedTrust": ["reputation", "validation"]
+    { "agentId": "sati:devnet:ABC123mint", "agentRegistry": "solana:devnet:satiFVb9..." }
+  ]
 }
 ```
 
-This format is shared with Ethereum agent registries, enabling cross-chain agent discovery.
+### SATI Canonical Identifier
 
-### CAIP and DID Support
-
-SATI uses [Chain Agnostic Improvement Proposals](https://github.com/ChainAgnostic/CAIPs) for cross-chain interoperability:
-
-#### CAIP-2: Blockchain ID
-
-Chain identifiers follow CAIP-2 format: `namespace:reference`
-
-| Chain | CAIP-2 Identifier |
-|-------|-------------------|
-| Solana Mainnet | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
-| Solana Devnet | `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
-| Ethereum Mainnet | `eip155:1` |
-| Base | `eip155:8453` |
-
-#### CAIP-10: Account ID
-
-Account identifiers follow CAIP-10 format: `chain_id:account_address`
-
-```
-// Solana account on mainnet:
-solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv
-
-// Ethereum account:
-eip155:1:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7
-```
-
-#### DID Support
-
-Agents can advertise DIDs via `additionalMetadata`:
-
-```typescript
-// Supported DID methods:
-["did", "did:web:agent.example.com"]           // Web-based DID
-["did", "did:pkh:solana:5eykt4...:7S3P4..."]   // PKH (blockchain account)
-["did", "did:key:z6Mkf..."]                    // Key-based DID
-```
-
-#### SATI Canonical Identifier
-
-SATI uses a custom format for agent identification following CAIP-2 patterns:
+SATI uses a custom format for agent identification:
 
 ```
 sati:<network>:<mint_address>
@@ -1160,24 +1514,11 @@ sati:mainnet:ABC123mintPubkey
 sati:devnet:XYZ789mintPubkey
 ```
 
-The registry program address is stored separately in the `agentRegistry` field using CAIP-2 format:
+The registry program address is stored separately in `agentRegistry` using CAIP-2 format. This format is used in registration files, cross-chain resolution, and event indexing.
 
-```json
-{
-  "agentId": "sati:devnet:ABC123mintPubkey",
-  "agentRegistry": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF"
-}
-```
+### Standards Support
 
-This separation allows:
-- Compact agent identifiers (no redundant registry in every reference)
-- Clear CAIP-2 compliance for registry addresses
-- Flexibility for multi-registry scenarios
-
-This format is used in:
-- `registrations[]` array in registration files
-- Cross-chain agent resolution
-- Event indexing
+SATI supports [CAIP](https://github.com/ChainAgnostic/CAIPs) (Chain Agnostic Improvement Proposals) and DIDs for cross-chain interoperability. See [Appendix A](#appendix-a-caip-and-did-reference) for detailed format specifications
 
 ---
 
@@ -1185,7 +1526,7 @@ This format is used in:
 
 The TypeScript SDK (`@cascade-fyi/sati-sdk`) provides:
 - **Agent identity** operations (Token-2022)
-- **Core reputation** methods (FeedbackAuth, Feedback, etc.) for SATI schemas
+- **Unified attestation** methods (generic + type-specific helpers)
 - **Infrastructure** methods for third-party credentials
 
 ### Registry Methods
@@ -1213,32 +1554,67 @@ The TypeScript SDK (`@cascade-fyi/sati-sdk`) provides:
 | `getAgentOwner(mint)` | Get current owner | `PublicKey` |
 | `listAgents(params?)` | List agents with pagination | `AgentIdentity[]` |
 
-### Trust Methods (SAS)
+### Leaf Submission Methods
+
+Generic method and type-specific convenience helpers:
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| `submitFeedback(params)` | Submit dual-signed feedback to FeedbackRoot | `{ attestation, leafIndex }` |
-| `submitValidation(params)` | Submit dual-signed validation to ValidationRoot | `{ attestation, leafIndex }` |
+| `submitLeaf(params)` | Submit any leaf type to AttestationRoot | `{ attestation, leafIndex }` |
+| `submitFeedback(params)` | Submit feedback (convenience wrapper) | `{ attestation, leafIndex }` |
+| `submitValidation(params)` | Submit validation (convenience wrapper) | `{ attestation, leafIndex }` |
 | `updateReputationScore(params)` | Provider updates their score for agent | `{ attestation }` |
-| `createCertification(params)` | Create certification (security-audit, kyc, etc.) | `{ attestation }` |
+| `createCertification(params)` | Create certification | `{ attestation }` |
+
+**submitFeedback params:**
+
+```typescript
+await sati.submitFeedback({
+  agentMint,
+  client: clientPubkey,
+  score: 85,
+  tag1: TagCategory.Quality,
+  tag2: TagCategory.Speed,
+  contentHash: serviceHash,
+  signatures: [agentSig, clientSig],  // DualSignature mode
+  // OR
+  signatures: [clientSig],            // PaymentVerified mode
+  paymentProof: { txSig, amount, mint },
+});
+```
 
 ### Query Methods
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| `getFeedbackRoot(agent)` | Get FeedbackRoot for agent | `FeedbackRoot \| null` |
-| `getValidationRoot(agent)` | Get ValidationRoot for agent | `ValidationRoot \| null` |
+| `getAttestationRoot(agent, leafType)` | Get AttestationRoot for agent and leaf type | `AttestationRoot \| null` |
+| `getFeedbackRoot(agent)` | Get FeedbackRoot (convenience) | `AttestationRoot \| null` |
+| `getValidationRoot(agent)` | Get ValidationRoot (convenience) | `AttestationRoot \| null` |
 | `getReputationScore(agent, provider)` | Get provider's score for agent | `ReputationScore \| null` |
 | `getCertification(attestation)` | Get certification data | `Certification \| null` |
+
+### Indexer Query Methods
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `indexer.getLeafProof(agent, leafType, taskId)` | Get merkle proof for any leaf | `{ proof, leaf }` |
+| `indexer.getFeedbackProof(agent, taskId)` | Get merkle proof for feedback | `{ proof, leaf }` |
+| `indexer.getValidationProof(agent, taskId)` | Get merkle proof for validation | `{ proof, leaf }` |
+| `indexer.listLeaves(agent, leafType, params?)` | List leaves with pagination | `AttestationLeaf[]` |
+| `indexer.listFeedbacks(agent, params?)` | List feedbacks (typed) | `FeedbackLeaf[]` |
+| `indexer.listValidations(agent, params?)` | List validations (typed) | `ValidationLeaf[]` |
+| `indexer.getAgentStats(agent)` | Get aggregated stats | `AgentStats` |
 
 ### Verification Methods
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| `verifyFeedback(root, proof, leaf)` | Verify feedback in merkle tree | `boolean` |
-| `verifyValidation(root, proof, leaf)` | Verify validation in merkle tree | `boolean` |
+| `verifyLeaf(root, proof, leaf)` | Verify any leaf in merkle tree | `boolean` |
+| `verifyFeedback(root, proof, leaf)` | Verify feedback (convenience) | `boolean` |
+| `verifyValidation(root, proof, leaf)` | Verify validation (convenience) | `boolean` |
+| `verifySignatures(leaf, signatures)` | Verify signatures match leaf pubkeys | `boolean` |
 
-**Note**: `revokeFeedback()` intentionally not supported — feedback is immutable for reputation integrity.
+**Note**: `revokeLeaf()` intentionally not supported — attestations are immutable for reputation integrity.
 
 ### Event Parsing Methods
 
@@ -1252,7 +1628,7 @@ Since SATI uses `emit_cpi!` for events, the SDK provides utilities to parse even
 **Usage:**
 
 ```typescript
-import { SatiEventParser } from "@cascade-fyi/sati-sdk";
+import { SatiEventParser, LeafType } from "@cascade-fyi/sati-sdk";
 
 const parser = new SatiEventParser(SATI_PROGRAM_ID);
 
@@ -1261,20 +1637,75 @@ const tx = await connection.getTransaction(sig, {
   maxSupportedTransactionVersion: 0
 });
 const events = parser.parseTransaction(tx);
-// → [{ name: "FeedbackAdded", data: { agent, client, score, ... } }]
+
+// Generic parsing with type dispatch
+for (const event of events) {
+  if (event.name === "LeafAdded") {
+    const leaf = event.data;
+    if (leaf.leafType === LeafType.Feedback) {
+      const feedback = parser.asFeedback(leaf);
+      console.log(feedback.score, feedback.counterparty);
+    }
+  }
+}
 
 // From Helius raw webhook
 app.post('/webhook', (req) => {
   const events = parser.parseWebhookPayload(req.body);
-  for (const event of events) {
-    if (event.name === "FeedbackAdded") {
-      // Index feedback...
-    }
-  }
+  // Process events...
 });
 ```
 
 The parser filters `innerInstructions` for the SATI program, checks for the `EVENT_IX_TAG_LE` discriminator, and deserializes using the IDL's BorshCoder.
+
+### Concurrency Handling
+
+When multiple feedback submissions target the same agent's FeedbackRoot simultaneously, the second transaction may fail due to stale merkle root. The SDK handles this with optimistic concurrency:
+
+**Why conflicts are rare:**
+- Each agent has their own FeedbackRoot (no cross-agent conflicts)
+- Typically one entity submits (agent or their batching service)
+- Even with multiple submitters, ~400ms block time limits collision window
+
+**Retry pattern:**
+
+```typescript
+// SDK internally handles retries
+const result = await sati.submitFeedback({
+  agentMint,
+  feedback,
+  maxRetries: 3,  // Default: 3
+});
+
+// Manual retry if needed
+async function submitWithRetry(feedback: Feedback, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Fetch fresh merkle root
+      const currentRoot = await sati.getFeedbackRoot(agentMint);
+
+      // Build new tree with feedback appended
+      const { newRoot, proof } = buildUpdatedTree(currentRoot, feedback);
+
+      // Submit transaction
+      return await sati.submitFeedback({ agentMint, feedback, expectedRoot: currentRoot });
+    } catch (e) {
+      if (e.code === 'STALE_MERKLE_ROOT' && attempt < maxRetries - 1) {
+        // Root changed, retry with fresh state
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+```
+
+**Error codes:**
+
+| Code | Meaning | Action |
+|------|---------|--------|
+| `STALE_MERKLE_ROOT` | Root changed between fetch and submit | Retry with fresh root |
+| `INVALID_MERKLE_PROOF` | Proof doesn't verify against root | Bug in tree construction |
 
 ### Third-Party Usage
 
@@ -1393,85 +1824,44 @@ ipfs://QmYourRegistrationFileHash
 
 ### Costs
 
-#### Schema Optimizations Preserved
+All costs consolidated into a single reference table.
 
-All schema efficiency improvements operate at the SAS attestation level and are unaffected by CPI routing:
+| Category | Operation | Rent (SOL) | CU | Notes |
+|----------|-----------|------------|-----|-------|
+| **Infrastructure (one-time)** | | | | |
+| | Initialize registry | ~0.005 | 10,918 | One-time global setup |
+| | Setup SAS credential | ~0.003 | — | One-time per credential |
+| | Setup SAS schemas (4 core) | ~0.012 | — | One-time |
+| | Register third-party credential | ~0.001 | ~10,000 | One-time per third-party |
+| | Register schema config | ~0.0003 | — | One-time per schema |
+| **Agent Registration** | | | | |
+| | register_agent (minimal) | ~0.003 | 58,342 | Mint + metadata + group |
+| | register_agent (3 fields) | ~0.0035 | 82,877 | +additional metadata |
+| | register_agent (10 fields) | ~0.005 | 168,097 | Maximum metadata |
+| | register_agent (soulbound) | ~0.003 | 79,255 | NonTransferable extension |
+| | Update metadata | tx fee | — | Direct Token-2022 call |
+| | Transfer agent | tx fee | — | Direct Token-2022 call |
+| **Reputation (per agent)** | | | | |
+| | Create FeedbackRoot | ~0.0018 | ~30,000 | One-time per agent (253 bytes) |
+| | Create ValidationRoot | ~0.0018 | ~30,000 | One-time per agent (253 bytes) |
+| | Submit feedback | tx fee | ~40,000 | Merkle root update + event |
+| | Submit validation | tx fee | ~40,000 | Merkle root update + event |
+| **Scores & Certs** | | | | |
+| | Create ReputationScore | ~0.0017 | ~30,000 | One-time per provider+agent (248 bytes) |
+| | Update ReputationScore | tx fee | ~30,000 | Close+create (rent neutral) |
+| | Create Certification | ~0.0015 | ~30,000 | SAS attestation (215 bytes) |
+| **Per-operation overhead** | | | | |
+| | emit_cpi! (per event) | — | ~5,000 | Reliable event delivery |
+| | Ed25519 verify (per sig) | — | ~1,400 | Signature verification |
+| | CPI to SAS | — | ~10-15K | Permissionless proxy overhead |
 
-| Optimization | Layer | Affected by CPI? |
-|--------------|-------|------------------|
-| `token_account` for agent_mint | SAS storage | No |
-| `expiry` for authorization | SAS storage | No |
-| `signer` for client identity | SAS storage | No |
-| Reduced schema data sizes | SAS storage | No |
-
-#### CPI Overhead
-
-The CPI proxy pattern adds compute overhead for permissionless attestation creation:
-
-| Call Path | CUs | Notes |
-|-----------|-----|-------|
-| Direct SAS `create_attestation` | ~15,000-20,000 | Not available (requires authorized_signers) |
-| Via Registry CPI proxy | ~25,000-35,000 | Permissionless |
-| **Overhead** | ~10,000-15,000 | ~0.7-1% of budget |
-
-This overhead is the cost of permissionless infrastructure — negligible relative to rent costs and well within budget.
-
-#### Compute Units (Benchmarked)
-
-| Operation | CUs | % of 1.4M Budget |
-|-----------|-----|------------------|
-| initialize | 10,918 | 0.8% |
-| register_agent (minimal) | 58,342 | 4.2% |
-| register_agent (3 metadata fields) | 82,877 | 5.9% |
-| register_agent (max 10 fields) | 168,097 | 12.0% |
-| register_agent (soulbound) | 79,255 | 5.7% |
-| update_registry_authority | 3,516 | 0.3% |
-| register_credential | ~10,000 | 0.7% |
-| create_attestation (via CPI) | ~30,000 | 2.1% |
-| emit_cpi! (per event) | ~5,000 | 0.4% |
-| Ed25519 signature verify | ~1,400 | 0.1% |
+**Key insights:**
+- Registration costs are rent deposits (recoverable when burned)
+- Feedback submission is essentially free (tx fee only ~0.00001 SOL)
+- CPI overhead (~10-15K CU) is negligible (~1% of 1.4M budget)
+- FeedbackRoot/ValidationRoot are one-time per agent, not per feedback
 
 *See [benchmarks/](./benchmarks/) for detailed measurements and methodology.*
-
-#### Rent Costs (Estimated)
-
-**One-time costs:**
-
-| Operation | Cost | Notes |
-|-----------|------|-------|
-| Initialize registry | ~0.005 SOL | One-time |
-| Setup SAS credential | ~0.003 SOL | One-time per credential |
-| Setup SAS schemas (4 core) | ~0.012 SOL | One-time |
-| Register credential | ~0.001 SOL | One-time per third-party |
-| Register schema config | ~0.0003 SOL | One-time per schema |
-
-**Per-operation costs:**
-
-| Operation | Cost | Notes |
-|-----------|------|-------|
-| Register agent (minimal) | ~0.003 SOL | Mint + metadata + group member |
-| Register agent (3 fields) | ~0.0035 SOL | +additional metadata |
-| Register agent (10 fields) | ~0.005 SOL | Maximum metadata |
-| Update metadata | ~0.00001 SOL | Transaction fee only |
-| Transfer agent | ~0.00001 SOL | Transaction fee only |
-| Create FeedbackRoot | ~0.002 SOL | One-time per agent (285 bytes) |
-| Create ValidationRoot | ~0.002 SOL | One-time per agent (285 bytes) |
-| Submit feedback | ~0.00001 SOL | Merkle root update (tx fee only) |
-| Submit validation | ~0.00001 SOL | Merkle root update (tx fee only) |
-| Create ReputationScore | ~0.0017 SOL | One-time per provider+agent (248 bytes) |
-| Update ReputationScore | ~0.00001 SOL | Close+create (rent neutral, tx fee) |
-| Certification | ~0.0015 SOL | SAS attestation (215 bytes) |
-
-#### Cost Summary
-
-| Aspect | Impact |
-|--------|--------|
-| Schema data sizes | **Unchanged** (optimizations preserved) |
-| Rent costs | **Unchanged** (based on account size) |
-| Compute costs | **+10-15K CU** per attestation (~1% budget) |
-| New one-time costs | **~0.001 SOL** per registered credential |
-
-The CPI overhead is negligible (~10-15K CU) compared to the value of unified indexing and SDK support.
 
 ---
 
@@ -1525,14 +1915,31 @@ To make the registry immutable, call `updateRegistryAuthority(null)`. This sets 
 
 ## What's NOT Included (Yet)
 
-| Feature | Status |
-|---------|--------|
-| Mandates / AP2 lifecycle | Can add via SAS schemas when demand emerges |
-| User→Agent delegation | Can add via SAS schemas if needed |
-| On-chain aggregation | Merkle roots are on-chain; individual feedbacks indexed off-chain |
-| Wrapped metadata/transfer | Direct Token-2022 calls are simpler |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Public reviews (no agent signature) | Deferred v2 | Spam risk without interaction proof; may revisit with reputation-weighted filtering |
+| Mandates / AP2 lifecycle | Future | Can add via new leaf type when demand emerges |
+| Agent→Agent delegation | Future | DelegationLeaf (leaf_type=2) ready for implementation |
+| On-chain aggregation | By design | Merkle roots are on-chain; individual feedbacks indexed off-chain |
+| Wrapped metadata/transfer | By design | Direct Token-2022 calls are simpler |
 
-The SAS-based architecture means new capabilities can be added as schemas without breaking changes or program upgrades.
+**Why no public reviews in v1:**
+
+Public reviews (single-signer from client only) would allow anyone to submit feedback without proving interaction. While this maximizes openness, it creates:
+- Spam/sybil attack vectors
+- Review bombing risk
+- Unclear economic model (who pays?)
+
+The current model requires either:
+- **DualSignature** — Agent acknowledges interaction
+- **PaymentVerified** — On-chain payment proves interaction
+
+Both provide censorship resistance while requiring proof of interaction. Public reviews may be added in v2 with reputation-weighted filtering (e.g., reviewers with history weighted higher than new accounts).
+
+The unified schema architecture means adding public reviews requires only:
+1. New `AuthMode.SingleSigner` for FeedbackRoot
+2. Indexer filtering based on reviewer reputation
+3. No program changes
 
 ---
 
@@ -1541,19 +1948,33 @@ The SAS-based architecture means new capabilities can be added as schemas withou
 SATI solves the economics of on-chain agent reputation:
 
 - **Free feedback for clients** — Dual-signature enables agent-subsidized submission
-- **Infinite scale** — Merkle root batching: millions of feedbacks at fixed cost (112 bytes per agent)
+- **Censorship-resistant** — PaymentVerified mode ensures clients can always submit feedback
+- **Infinite scale** — Merkle root batching: millions of feedbacks at fixed cost (80 bytes per agent)
 - **No monopoly** — Multiple reputation providers compete with different algorithms
-- **Composable trust** — Schema-defined authorization for any use case
+- **Extensible by design** — Unified base types enable new trust primitives without program changes
 - **Escrow integration** — Merkle proofs enable automatic escrow release
+
+**Architecture highlights:**
+
+| Concept | Description |
+|---------|-------------|
+| **Opaque data + signatures** | Program verifies signatures on `keccak256(data)`, never parses content |
+| **Unified base types** | AttestationRoot/AttestationLeaf shared by all merkle-based schemas |
+| **Trust tiers** | Tier 1 (DualSig + Payment), Tier 2 (DualSig), Tier 3 (PaymentVerified) |
+| **Semantic verification** | Indexers and escrows parse leaves, verify pubkeys match signatures |
 
 **Core schemas:**
 
-| Schema | Purpose | Key Feature |
-|--------|---------|-------------|
-| FeedbackRoot | Client feedback | Free for clients, scales infinitely |
-| ValidationRoot | Objective verification | Enables escrow release |
-| ReputationScore | Aggregated scores | Provider-owned, no monopoly |
-| Certification | Third-party attestations | Immutable proof |
+| Schema | Derives From | Auth Mode | Key Feature |
+|--------|--------------|-----------|-------------|
+| FeedbackRoot | AttestationRoot | DualSig/PaymentVerified | Free for clients, censorship-resistant |
+| ValidationRoot | AttestationRoot | DualSignature | Enables escrow release |
+| ReputationScore | — | SingleSigner | Provider-owned, no monopoly |
+| Certification | — | CredentialAuthority | Immutable proof |
+
+**Future schemas** (no program changes needed):
+- DelegationRoot (leaf_type=2) — Agent-to-agent delegation
+- MandateRoot (leaf_type=3) — Client authorization to agents
 
 **Third-party credentials** can register to gain permissionless attestation creation, unified indexing, and SDK support.
 
@@ -1562,9 +1983,9 @@ SATI solves the economics of on-chain agent reputation:
 | Registry | SATI Registry Program (`satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`) | Deployed |
 | Identity | Token-2022 NFT + TokenMetadata + TokenGroup | Available |
 | Core Schemas | FeedbackRoot, ValidationRoot, ReputationScore, Certification | To deploy |
-| Authorization | SchemaConfig with AuthMode | To implement |
+| Authorization | SchemaConfig with AuthMode (DualSig, PaymentVerified, SingleSigner, CredentialAuth) | To implement |
 | Third-party Support | Credential registration + CPI proxy | To implement |
-| Indexer | Multi-credential indexing + merkle proofs | To implement |
+| Indexer | Multi-credential indexing + merkle proofs + payment deduplication | To implement |
 | Smart accounts | Native Token-2022 support | Available |
 
 ---
@@ -1578,3 +1999,118 @@ SATI solves the economics of on-chain agent reputation:
 - [Solana Attestation Service](https://github.com/solana-foundation/solana-attestation-service)
 - [Squads Smart Account](https://github.com/Squads-Protocol/smart-account-program)
 - [Anchor Framework](https://www.anchor-lang.com/docs)
+
+---
+
+## Appendix A: CAIP and DID Reference
+
+Detailed format specifications for cross-chain interoperability standards used by SATI.
+
+### CAIP-2: Blockchain ID
+
+Chain identifiers follow format: `namespace:reference`
+
+| Chain | CAIP-2 Identifier |
+|-------|-------------------|
+| Solana Mainnet | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
+| Solana Devnet | `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
+| Ethereum Mainnet | `eip155:1` |
+| Base | `eip155:8453` |
+
+### CAIP-10: Account ID
+
+Account identifiers follow format: `chain_id:account_address`
+
+```
+// Solana account on mainnet:
+solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv
+
+// Ethereum account:
+eip155:1:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7
+```
+
+### DID Support
+
+Agents can advertise DIDs via `additionalMetadata`:
+
+```typescript
+["did", "did:web:agent.example.com"]           // Web-based DID
+["did", "did:pkh:solana:5eykt4...:7S3P4..."]   // PKH (blockchain account)
+["did", "did:key:z6Mkf..."]                    // Key-based DID
+```
+
+### Full Registration File Example
+
+```json
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "myAgentName",
+  "description": "Agent description",
+  "image": "https://example.com/agent.png",
+  "endpoints": [
+    { "name": "A2A", "endpoint": "https://agent.example/agent-card.json", "version": "0.3.0" },
+    { "name": "MCP", "endpoint": "https://mcp.agent.example/", "version": "2025-06-18" },
+    { "name": "agentWallet", "endpoint": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv" }
+  ],
+  "registrations": [
+    { "agentId": "sati:devnet:ABC123mint", "agentRegistry": "solana:devnet:satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF" },
+    { "agentId": 22, "agentRegistry": "eip155:1:0x..." }
+  ],
+  "supportedTrust": ["reputation", "validation"]
+}
+```
+
+---
+
+## Appendix B: Merkle Tree Implementation
+
+Reference implementation for SATI merkle trees.
+
+### Leaf Hashing
+
+```rust
+use solana_program::keccak;
+
+fn hash_leaf(leaf: &AttestationLeaf) -> [u8; 32] {
+    // Borsh serialize, then Keccak-256 hash
+    keccak::hashv(&[&leaf.try_to_vec().unwrap()]).to_bytes()
+}
+```
+
+### Parent Hashing
+
+```rust
+fn hash_parent(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
+    keccak::hashv(&[left, right]).to_bytes()
+}
+```
+
+### Proof Verification
+
+```rust
+fn verify_proof(
+    leaf: [u8; 32],
+    proof: &[[u8; 32]],
+    index: u32,
+    root: [u8; 32]
+) -> bool {
+    let mut current = leaf;
+    for (depth, sibling) in proof.iter().enumerate() {
+        let is_left = (index >> depth) & 1 == 0;
+        current = if is_left {
+            hash_parent(&current, sibling)
+        } else {
+            hash_parent(sibling, &current)
+        };
+    }
+    current == root
+}
+```
+
+### Tree Structure
+
+- Binary merkle tree (each node has 0 or 2 children)
+- Leaves indexed left-to-right starting at 0
+- Append-only (new leaves get next available index)
+- Left child: `2 * parent_index`
+- Right child: `2 * parent_index + 1`
