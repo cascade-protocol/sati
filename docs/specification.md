@@ -440,6 +440,17 @@ Close an attestation with authorization proof.
 
 ### Events
 
+All events use Anchor's `emit_cpi!` macro for reliable indexing. Account structs requiring event emission include the `#[event_cpi]` attribute, which automatically adds `event_authority` and `program` accounts.
+
+**Why `emit_cpi!` instead of `emit!`:**
+
+| Approach | Mechanism | Truncation Risk | CU Cost |
+|----------|-----------|-----------------|---------|
+| `emit!` | `sol_log_data` syscall | Yes (10KB log limit) | ~1K |
+| `emit_cpi!` | Self-CPI to `innerInstructions` | No | ~5K |
+
+Feedback and validation data is critical for reputation integrity — truncation is unacceptable. The 5K CU overhead (~0.4% of budget) is a worthwhile tradeoff for guaranteed delivery.
+
 #### AgentRegistered
 
 | Field | Type |
@@ -877,7 +888,7 @@ Instead of individual attestations per feedback, SATI stores merkle roots:
 
 ### Events for Indexing
 
-Since individual feedbacks aren't on-chain, SATI emits events for indexer consumption:
+Since individual feedbacks aren't on-chain, SATI emits events via `emit_cpi!` for indexer consumption. These events are stored in transaction `meta.innerInstructions`, not program logs — ensuring they're never truncated.
 
 ```
 FeedbackAdded {
@@ -900,6 +911,30 @@ ValidationAdded {
     timestamp: i64,
 }
 ```
+
+### Indexing Architecture
+
+SATI events are stored in transaction `innerInstructions`, requiring specific parsing.
+
+**Recommended indexing approaches:**
+
+| Method | Use Case | Provider |
+|--------|----------|----------|
+| Raw Webhooks | Real-time event streaming | Helius |
+| `getTransactionsForAddress` | Historical backfill with filters | Helius (exclusive) |
+| Yellowstone gRPC | High-throughput streaming | Helius/Triton |
+| Custom RPC polling | Self-hosted infrastructure | Any |
+
+**Event data location:**
+
+```
+transaction.meta.innerInstructions[].instructions[]
+  → programIdIndex matches SATI program
+  → data starts with EVENT_IX_TAG_LE (0x1d9acb512ea545e4)
+  → remaining bytes are Borsh-encoded event
+```
+
+Since Anchor Issue #2609 remains open (no built-in CPI event subscription), the SATI SDK provides parsing utilities (see [SDK Interface](#sdk-interface)).
 
 ### Escrow Integration
 
@@ -1205,6 +1240,42 @@ The TypeScript SDK (`@cascade-fyi/sati-sdk`) provides:
 
 **Note**: `revokeFeedback()` intentionally not supported — feedback is immutable for reputation integrity.
 
+### Event Parsing Methods
+
+Since SATI uses `emit_cpi!` for events, the SDK provides utilities to parse events from transactions:
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `parseTransaction(tx)` | Parse SATI events from `VersionedTransactionResponse` | `SatiEvent[]` |
+| `parseWebhookPayload(payload)` | Parse events from Helius raw webhook payload | `SatiEvent[]` |
+
+**Usage:**
+
+```typescript
+import { SatiEventParser } from "@cascade-fyi/sati-sdk";
+
+const parser = new SatiEventParser(SATI_PROGRAM_ID);
+
+// From transaction signature
+const tx = await connection.getTransaction(sig, {
+  maxSupportedTransactionVersion: 0
+});
+const events = parser.parseTransaction(tx);
+// → [{ name: "FeedbackAdded", data: { agent, client, score, ... } }]
+
+// From Helius raw webhook
+app.post('/webhook', (req) => {
+  const events = parser.parseWebhookPayload(req.body);
+  for (const event of events) {
+    if (event.name === "FeedbackAdded") {
+      // Index feedback...
+    }
+  }
+});
+```
+
+The parser filters `innerInstructions` for the SATI program, checks for the `EVENT_IX_TAG_LE` discriminator, and deserializes using the IDL's BorshCoder.
+
 ### Third-Party Usage
 
 Third parties can use SATI infrastructure with their own credentials:
@@ -1357,6 +1428,8 @@ This overhead is the cost of permissionless infrastructure — negligible relati
 | update_registry_authority | 3,516 | 0.3% |
 | register_credential | ~10,000 | 0.7% |
 | create_attestation (via CPI) | ~30,000 | 2.1% |
+| emit_cpi! (per event) | ~5,000 | 0.4% |
+| Ed25519 signature verify | ~1,400 | 0.1% |
 
 *See [benchmarks/](./benchmarks/) for detailed measurements and methodology.*
 
