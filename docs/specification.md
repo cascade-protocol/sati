@@ -1607,14 +1607,14 @@ All costs consolidated into a single reference table.
 | | Update metadata | tx fee | — | Direct Token-2022 call |
 | | Transfer agent | tx fee | — | Direct Token-2022 call |
 | **Reputation (per agent)** | | | | |
-| | Create FeedbackRoot | ~0.0018 | ~30,000 | One-time per agent (253 bytes) |
-| | Create ValidationRoot | ~0.0018 | ~30,000 | One-time per agent (253 bytes) |
+| | Create FeedbackRoot | ~0.00265 | ~30,000 | One-time per agent (253 bytes) |
+| | Create ValidationRoot | ~0.00265 | ~30,000 | One-time per agent (253 bytes) |
 | | Submit feedback | tx fee | ~40,000 | Merkle root update + event |
 | | Submit validation | tx fee | ~40,000 | Merkle root update + event |
 | **Scores & Certs** | | | | |
-| | Create ReputationScore | ~0.0017 | ~30,000 | One-time per provider+agent (248 bytes) |
+| | Create ReputationScore | ~0.00262 | ~30,000 | One-time per provider+agent (248 bytes) |
 | | Update ReputationScore | tx fee | ~30,000 | Close+create (rent neutral) |
-| | Create Certification | ~0.0015 | ~30,000 | SAS attestation (215 bytes) |
+| | Create Certification | ~0.00239 | ~30,000 | SAS attestation (215 bytes) |
 | **Per-operation overhead** | | | | |
 | | emit_cpi! (per event) | — | ~5,000 | Reliable event delivery |
 | | Ed25519 verify (per sig) | — | ~1,400 | Signature verification |
