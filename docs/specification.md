@@ -67,6 +67,19 @@ From agent's perspective: **reputation cost is bundled into service pricing** �
 
 **This is why on-chain agent reputation can finally work.**
 
+### Incentive Alignment: Who Pays?
+
+| Feedback Type | Who Pays | Why |
+|---------------|----------|-----|
+| **Positive** | Agent | Benefits from reputation boost |
+| **Negative (DualSig)** | Client | Motivated to warn others, agent won't submit |
+| **Negative (PaymentVerified)** | Client | Already paid via x402, uses payment as proof |
+
+This creates natural incentive alignment:
+- Agents pay for positive feedback (they benefit)
+- Clients pay for negative feedback (they're motivated to warn others)
+- PaymentVerified ensures clients can always submit, even if agent refuses to sign
+
 ### The Math
 
 | Approach | Cost per Feedback | 10K Feedbacks | Who Pays |
@@ -800,6 +813,10 @@ Derives from **AttestationLeaf** with `leaf_type = 0`.
 | `payment_amount` | Option<u64> | Payment amount |
 | `payment_mint` | Option<Pubkey> | Payment token mint |
 
+**Why payment info appears in both leaf and instruction:**
+- **PaymentProof in instruction** → emitted in event → indexer verifies immediately
+- **Payment fields in leaf** → hashed into merkle tree → escrow can verify via proof without trusting indexer
+
 **Signatures required** (passed separately):
 - **DualSignature**: agent signs `hash(task_id, client, content_hash)`, client signs `hash(task_id, agent, score, timestamp)`
 - **PaymentVerified**: client signs `hash(task_id, agent, score, timestamp)` + payment_proof
@@ -912,6 +929,13 @@ Anyone with both signatures can submit to chain. The agent (who benefits) pays. 
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+**Cost breakdown:**
+| Phase | Cost | Who |
+|-------|------|-----|
+| Agent signs | FREE | Off-chain |
+| Client signs | FREE | Off-chain |
+| Submit to chain | ~$0.00002 tx fee | Whoever submits (typically agent) |
 
 #### PaymentVerified Mode
 
