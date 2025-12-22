@@ -24,9 +24,7 @@ Built on:
 - **Token-2022** — Agent identity as NFTs with native metadata
 - **Solana Attestation Service (SAS)** — Attestation storage with unified schema model
 
-The architecture decouples signature verification from data parsing — the program verifies signatures on opaque bytes, while indexers and escrows parse semantics. This enables FeedbackRoot, ValidationRoot, and future schemas (DelegationRoot, MandateRoot) to share infrastructure without code changes.
-
-Third parties can register credentials to gain permissionless attestation creation, unified indexing, and SDK support without building infrastructure.
+The architecture decouples signature verification from data parsing — the program verifies signatures on opaque bytes, while indexers and escrows parse semantics.
 
 ---
 
@@ -87,7 +85,7 @@ With merkle root batching, 10K feedbacks cost the same as 1 — just one on-chai
 3. [Registry Program](#registry-program)
 4. [Identity: Token-2022 NFT](#identity-token-2022-nft)
 5. [Reputation & Validation: SAS](#reputation--validation-sas)
-6. [Extensibility: Building on SATI](#extensibility-building-on-sati)
+6. [Extensibility](#extensibility)
 7. [SDK Interface](#sdk-interface)
 8. [Security Considerations](#security-considerations)
 9. [Deployment](#deployment)
@@ -172,7 +170,6 @@ No custom identity program needed. Token-2022 is the identity layer.
 ├─────────────────────────────────────────────────────────────────────┤
 │  initialize()                → Create registry + TokenGroup         │
 │  register_agent()            → Token-2022 NFT + group membership    │
-│  register_credential()       → Register external SAS credential     │
 │  register_schema_config()    → Register schema with auth mode       │
 │  create_attestation()        → CPI to SAS (auth-verified)           │
 │  update_attestation()        → Close+create with auth proof         │
@@ -183,14 +180,12 @@ No custom identity program needed. Token-2022 is the identity layer.
           ▼                               ▼
 ┌──────────────────────────┐    ┌─────────────────────────────────────┐
 │      Token-2022          │    │     Solana Attestation Service      │
-│  • Identity storage      │    │                  │                  │
-│  • TokenMetadata         │    │    ┌─────────────┼─────────────┐    │
-│  • TokenGroup            │    │    ▼             ▼             ▼    │
-│  • Direct updates/xfers  │    │ ┌───────┐   ┌───────┐   ┌───────┐  │
-└──────────────────────────┘    │ │ SATI  │   │Proj A │   │Proj B │  │
-                                │ │ Cred  │   │ Cred  │   │ Cred  │  │
-                                │ │(Core) │   │(Their)│   │(Their)│  │
-                                │ └───────┘   └───────┘   └───────┘  │
+│  • Identity storage      │    │                                     │
+│  • TokenMetadata         │    │  ┌─────────────────────────────┐    │
+│  • TokenGroup            │    │  │       SATI Credential       │    │
+│  • Direct updates/xfers  │    │  │  FeedbackRoot, ValidationRoot│   │
+└──────────────────────────┘    │  │  ReputationScore, Certification│  │
+                                │  └─────────────────────────────┘    │
                                 └─────────────────────────────────────┘
 ```
 
@@ -198,10 +193,10 @@ No custom identity program needed. Token-2022 is the identity layer.
 
 | Component | Responsibility |
 |-----------|----------------|
-| **SATI Registry** | Canonical entry point, agent registration, credential registration, CPI proxy for attestations |
+| **SATI Registry** | Canonical entry point, agent registration, CPI proxy for attestations |
 | **Token-2022** | Identity storage, metadata, transfers (direct calls) |
-| **SAS** | Attestation storage for all registered credentials |
-| **SATI Indexer** | Indexes all registered credentials, provides unified queries |
+| **SAS** | Attestation storage for SATI schemas |
+| **SATI Indexer** | Indexes SATI attestations, provides queries |
 
 ---
 
@@ -213,7 +208,6 @@ The SATI Registry is a minimal program that:
 - Provides a **canonical program address** (`satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`)
 - Holds TokenGroup `update_authority` as a PDA
 - Enables **permissionless, atomic agent registration**
-- Enables **credential registration** for third-party trust applications
 - Provides **CPI proxy** for permissionless attestation creation
 - Supports **governance lifecycle** (multisig → immutable)
 
@@ -246,20 +240,6 @@ PDA seeds: `["registry"]`
 | `bump` | u8 | PDA bump seed |
 
 **Size**: 81 bytes (8 discriminator + 32 + 32 + 8 + 1)
-
-#### CredentialRegistration
-
-PDA seeds: `["credential", credential_pubkey]`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `credential` | Pubkey | SAS credential address |
-| `owner` | Pubkey | Who registered (for deregistration) |
-| `registered_at` | i64 | Registration timestamp |
-| `active` | bool | Active status |
-| `bump` | u8 | PDA bump seed |
-
-**Size**: 82 bytes (8 discriminator + 32 + 32 + 8 + 1 + 1)
 
 #### SchemaConfig
 
@@ -353,39 +333,6 @@ Transfer or renounce registry authority.
 |-----------|------|-------------|
 | `new_authority` | Option<Pubkey> | New authority (None = renounce to immutable) |
 
-#### register_credential
-
-Register an external SAS credential with SATI infrastructure.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `credential` | Pubkey | SAS credential to register |
-
-**Preconditions**:
-- Credential must exist in SAS
-- Caller must be credential authority
-- Registry PDA must already be in credential's `authorized_signers`
-
-**Behavior**:
-- Creates CredentialRegistration PDA
-- Verifies Registry PDA is in credential's authorized_signers
-- Emits `CredentialRegistered` event
-
-#### deregister_credential
-
-Remove credential from SATI infrastructure.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `credential` | Pubkey | SAS credential to deregister |
-
-**Preconditions**:
-- Caller must be registration owner
-
-**Behavior**:
-- Sets `active = false` on CredentialRegistration
-- Emits `CredentialDeregistered` event
-
 #### create_attestation
 
 Create attestation with authorization proof.
@@ -406,8 +353,7 @@ Create attestation with authorization proof.
 **PaymentProof struct**: `{ tx_signature: [u8; 64], amount: u64, token_mint: Pubkey }`
 
 **Preconditions**:
-- Credential must be registered and active
-- Schema must belong to credential
+- Schema must belong to SATI credential
 - SchemaConfig must exist for schema
 - Signatures must be valid per auth_mode:
   - `DualSignature`: 2 signatures, both valid on `keccak256(data)`
@@ -676,19 +622,9 @@ Solana Attestation Service (SAS) by Solana Foundation:
 |---------|------------|
 | Mainnet/Devnet | `22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG` |
 
-### Credential Architecture
+### SATI Credential
 
-SATI uses a multi-credential model where both core schemas and third-party schemas coexist:
-
-| Credential Type | Owner | Purpose |
-|-----------------|-------|---------|
-| **SATI Core** | SATI governance | Agent reputation with economics-first design |
-| **Third-party** | External projects | Custom trust applications |
-
-All registered credentials share:
-- Permissionless attestation creation via SATI Registry CPI
-- Unified indexing by SATI indexer
-- SDK support for attestation operations
+SATI operates a single SAS credential controlled by SATI governance. All core schemas (FeedbackRoot, ValidationRoot, ReputationScore, Certification) live under this credential.
 
 ### Core Schemas
 
@@ -707,8 +643,6 @@ SATI provides a unified schema system built on base types:
 |--------|--------------|-----------|----------------|
 | **FeedbackRoot** | AttestationRoot | DualSignature or PaymentVerified | Free for clients, scales infinitely |
 | **ValidationRoot** | AttestationRoot | DualSignature | Enables automatic escrow release |
-| *(Future)* **DelegationRoot** | AttestationRoot | DualSignature | Agent-to-agent delegation |
-| *(Future)* **MandateRoot** | AttestationRoot | DualSignature | Client authorization to agents |
 
 **Direct schemas** (non-merkle, individual attestations):
 
@@ -723,11 +657,8 @@ SATI provides a unified schema system built on base types:
 |-----------|------|-----------|---------|
 | 0 | FeedbackLeaf | DualSignature or PaymentVerified | FeedbackRoot |
 | 1 | ValidationLeaf | DualSignature | ValidationRoot |
-| 2+ | *(Future)* | Configurable | DelegationRoot, MandateRoot, etc. |
 
 For merkle-based schemas: the root update is signed by the agent, but each leaf contains signatures verified at submission time. The program verifies signature count per auth_mode without parsing leaf content.
-
-**Extensibility:** New *Root schemas are created by defining a new leaf_type and registering a SchemaConfig. The base AttestationRoot and AttestationLeaf structures remain unchanged.
 
 ### SAS Native Field Usage
 
@@ -872,7 +803,7 @@ Derives from **AttestationLeaf** with `leaf_type = 0`.
 **Signatures required** (passed separately):
 - **DualSignature**: agent signs `hash(task_id, client, content_hash)`, client signs `hash(task_id, agent, score, timestamp)`
 - **PaymentVerified**: client signs `hash(task_id, agent, score, timestamp)` + payment_proof
-- **Both**: All of the above (highest trust tier)
+- **Both**: All of the above
 
 ---
 
@@ -949,15 +880,7 @@ Third-party certification (uses CredentialAuthority mode - traditional SAS auth)
 
 ### Verification Models
 
-SATI supports multiple verification modes for different trust scenarios.
-
-#### Trust Tiers
-
-| Tier | Mode | Proof of Interaction | Who Can Submit | Trust Level |
-|------|------|---------------------|----------------|-------------|
-| **Tier 1** | DualSignature + PaymentVerified | Agent sig + Client sig + Payment proof | Anyone | Highest |
-| **Tier 2** | DualSignature | Agent sig + Client sig | Anyone | High |
-| **Tier 3** | PaymentVerified | Client sig + Payment proof | Anyone | High |
+SATI supports two verification modes, usable separately or together.
 
 #### DualSignature Mode
 
@@ -1018,9 +941,9 @@ Alternative verification when agent signature is unavailable (agent unresponsive
 
 **Payment deduplication**: The `payment_tx_sig` in the leaf enables indexers to detect and ignore duplicate submissions for the same payment. No on-chain PDA needed — deduplication is handled at the indexing layer, preserving merkle batching economics.
 
-#### Combined Mode (Tier 1)
+#### Combined Mode
 
-For highest trust, both DualSignature AND PaymentVerified can be used together:
+Both DualSignature AND PaymentVerified can be used together:
 
 - Agent signature proves agent acknowledges the interaction
 - Client signature proves client's feedback
@@ -1328,154 +1251,9 @@ Note: FeedbackRoot and ValidationRoot use SingleSigner (agent only) at the root 
 
 ---
 
-## Extensibility: Building on SATI
+## Extensibility
 
-### SATI as Infrastructure
-
-SATI provides trust attestation infrastructure that third parties can build on:
-
-| Benefit | Description |
-|---------|-------------|
-| **Permissionless attestations** | Anyone can create attestations without pre-authorization |
-| **Unified indexing** | All registered credentials indexed by SATI indexer |
-| **SDK support** | Use SATI SDK for attestation operations |
-
-### Registering Your Credential
-
-To use SATI infrastructure with your own credential:
-
-**Step 1: Create SAS Credential**
-```
-Create your credential via SAS create_credential instruction
-```
-
-**Step 2: Add Registry PDA to Authorized Signers**
-```
-Add SATI Registry PDA to your credential's authorized_signers
-PDA seeds: ["registry"] with program satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF
-```
-
-**Step 3: Register with SATI**
-```
-Call sati.registerCredential(yourCredential)
-```
-
-**Step 4: Create Schemas**
-```
-Create schemas under your credential via SAS (direct call, you control this)
-```
-
-**Step 5: Use SATI for Attestations**
-```
-Call sati.createAttestation({ credential, schema, data, ... })
-```
-
-### Architecture
-
-```
-Your Credential (owned by you)
-    │
-    ├── Your Schema 1
-    ├── Your Schema 2
-    └── authorized_signers: [your_authority, SATI_REGISTRY_PDA]
-                                                    │
-                                                    ▼
-                                  ┌───────────────────────────┐
-                                  │ SATI Registry (CPI Proxy) │
-                                  │  • Validates registration  │
-                                  │  • Signs attestations      │
-                                  │  • Emits events            │
-                                  └───────────────────────────┘
-```
-
-### Core vs Third-Party
-
-| Aspect | SATI Core Schemas | Third-Party Schemas |
-|--------|-------------------|---------------------|
-| Governance | SATI multisig | Your control |
-| Schema definition | Economics-first trust model | Your design |
-| Indexer support | Full semantic understanding | Generic attestation indexing |
-| SDK helpers | Dedicated methods (`submitFeedback()`) | Generic `createAttestation()` |
-| Auth modes | Pre-configured (DualSig, SingleSigner) | Configure via `register_schema_config()` |
-
-### Why Register with SATI?
-
-Without SATI registration, you would need to:
-- Manage your own `authorized_signers` list (add every user who can create attestations)
-- Build your own permissionless creation mechanism
-- Build your own indexer
-- Build your own SDK
-
-With SATI registration:
-- Registry PDA signs on behalf of any caller (permissionless)
-- Unified indexing across all registered credentials
-- SDK works out of the box
-
-### Adding New Leaf Types
-
-The unified AttestationRoot/AttestationLeaf base types enable adding new trust primitives without program changes.
-
-**Current leaf types:**
-
-| leaf_type | Schema | Purpose |
-|-----------|--------|---------|
-| 0 | FeedbackLeaf | Client feedback on agent services |
-| 1 | ValidationLeaf | Objective validation results |
-| 2+ | Reserved | Future leaf types |
-
-**To add a new leaf type (e.g., DelegationLeaf):**
-
-**Step 1: Define type_data structure**
-
-```typescript
-// DelegationLeaf type_data (leaf_type = 2)
-interface DelegationTypeData {
-  scope: u8;         // 0=full, 1=payment, 2=communication
-  expires_at: i64;   // Delegation expiry
-  max_amount: u64;   // Maximum delegated amount
-}
-```
-
-**Step 2: Create schema via SAS**
-
-Create a DelegationRoot schema with the same layout as AttestationRoot (80 bytes). The schema name differentiates it from FeedbackRoot/ValidationRoot.
-
-**Step 3: Register SchemaConfig**
-
-```typescript
-await sati.registerSchemaConfig({
-  schema: delegationRootSchema,
-  authMode: AuthMode.DualSignature,  // Agent + delegatee
-  isMerkleBased: true,
-});
-```
-
-**Step 4: Add SDK helpers (optional)**
-
-```typescript
-// SDK convenience method
-await sati.submitDelegation({
-  agentMint,
-  delegatee: delegateePubkey,
-  scope: DelegationScope.Payment,
-  expiresAt: timestamp,
-  signatures: [agentSig, delegateeSig],
-});
-```
-
-**What stays the same:**
-- Program code (no changes needed)
-- Generic `LeafAdded` event structure
-- Merkle tree algorithm
-- Signature verification logic
-- Indexer infrastructure
-
-**What's new:**
-- New `leaf_type` value (2)
-- New `type_data` parser in SDK
-- Optional convenience methods in SDK
-
-This extensibility model means SATI governance only controls the core schema definitions (FeedbackRoot, ValidationRoot). Third parties can propose new leaf types via governance, or use third-party credentials for custom trust primitives.
+The unified AttestationRoot/AttestationLeaf base types are designed for future extensibility. New leaf types and third-party credential registration are deferred — see [What's NOT Included (Yet)](#whats-not-included-yet).
 
 ---
 
@@ -1526,23 +1304,14 @@ SATI supports [CAIP](https://github.com/ChainAgnostic/CAIPs) (Chain Agnostic Imp
 
 The TypeScript SDK (`@cascade-fyi/sati-sdk`) provides:
 - **Agent identity** operations (Token-2022)
-- **Unified attestation** methods (generic + type-specific helpers)
-- **Infrastructure** methods for third-party credentials
+- **Attestation** methods (type-specific helpers)
+- **Query and verification** methods
 
 ### Registry Methods
 
 | Method | Description | Returns |
 |--------|-------------|---------|
 | `registerAgent(params)` | Create Token-2022 NFT with metadata + group membership | `{ mint, memberNumber }` |
-
-### Infrastructure Methods
-
-| Method | Description | Returns |
-|--------|-------------|---------|
-| `registerCredential(credential)` | Register external SAS credential with SATI | `{ registration }` |
-| `deregisterCredential(credential)` | Deregister credential | `void` |
-| `listRegisteredCredentials()` | List all registered credentials | `CredentialRegistration[]` |
-| `createAttestation(params)` | Create attestation for any registered credential | `{ attestation }` |
 
 ### Identity Methods (Direct Token-2022)
 
@@ -1707,33 +1476,6 @@ async function submitWithRetry(feedback: Feedback, maxRetries = 3) {
 | `STALE_MERKLE_ROOT` | Root changed between fetch and submit | Retry with fresh root |
 | `INVALID_MERKLE_PROOF` | Proof doesn't verify against root | Bug in tree construction |
 
-### Third-Party Usage
-
-Third parties can use SATI infrastructure with their own credentials:
-
-```typescript
-// Register your credential with SATI
-await sati.registerCredential(myCredential);
-
-// Create attestation under your schema
-await sati.createAttestation({
-  credential: myCredential,
-  schema: mySchema,
-  data: mySchemaData,
-  nonce: randomBytes(32),
-  tokenAccount: optionalPubkey,
-  expiry: optionalTimestamp,
-});
-
-// Query attestations via indexer
-const attestations = await sati.indexer.query({
-  credential: myCredential,
-  schema: mySchema,
-});
-```
-
-Core SATI methods (`giveFeedback()`, `createCertification()`, etc.) internally use `createAttestation()` with the SATI Core credential.
-
 ---
 
 ## Security Considerations
@@ -1830,9 +1572,8 @@ All costs consolidated into a single reference table.
 |----------|-----------|------------|-----|-------|
 | **Infrastructure (one-time)** | | | | |
 | | Initialize registry | ~0.005 | 10,918 | One-time global setup |
-| | Setup SAS credential | ~0.003 | — | One-time per credential |
+| | Setup SAS credential | ~0.003 | — | One-time |
 | | Setup SAS schemas (4 core) | ~0.012 | — | One-time |
-| | Register third-party credential | ~0.001 | ~10,000 | One-time per third-party |
 | | Register schema config | ~0.0003 | — | One-time per schema |
 | **Agent Registration** | | | | |
 | | register_agent (minimal) | ~0.003 | 58,342 | Mint + metadata + group |
@@ -1900,16 +1641,11 @@ Both start as multisig, both can be renounced independently.
 
 To make the registry immutable, call `updateRegistryAuthority(null)`. This sets authority to `Pubkey::default()`, making the registry permanently trustless.
 
-### Credential Governance
+### Schema Governance
 
-| Credential | Authority | Upgradeable? |
-|------------|-----------|--------------|
-| SATI Core | SATI multisig → immutable | Schemas versioned, not upgraded |
-| Third-party | Their control | Their decision |
+SATI Core credential is controlled by SATI multisig, with path to immutability.
 
-**Core schema changes** require new schema versions (e.g., Feedback_v2), preserving existing attestations.
-
-**Third-party credentials** are fully controlled by their owners. SATI only provides infrastructure, not governance over third-party schemas.
+**Schema changes** require new schema versions (e.g., Feedback_v2), preserving existing attestations. Schemas are versioned, not upgraded in place.
 
 ---
 
@@ -1917,29 +1653,23 @@ To make the registry immutable, call `updateRegistryAuthority(null)`. This sets 
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Public reviews (no agent signature) | Deferred v2 | Spam risk without interaction proof; may revisit with reputation-weighted filtering |
-| Mandates / AP2 lifecycle | Future | Can add via new leaf type when demand emerges |
-| Agent→Agent delegation | Future | DelegationLeaf (leaf_type=2) ready for implementation |
-| On-chain aggregation | By design | Merkle roots are on-chain; individual feedbacks indexed off-chain |
-| Wrapped metadata/transfer | By design | Direct Token-2022 calls are simpler |
+| Public reviews (no agent signature) | Deferred | Spam risk without interaction proof |
+| Third-party credential system | Deferred | Platform model; add when demand exists |
+| Agent→Agent delegation | Future | New leaf type when needed |
+| Mandates / AP2 lifecycle | Future | New leaf type when needed |
+| On-chain aggregation | By design | Merkle roots on-chain; leaves indexed off-chain |
 
-**Why no public reviews in v1:**
+**Third-party credential system:**
 
-Public reviews (single-signer from client only) would allow anyone to submit feedback without proving interaction. While this maximizes openness, it creates:
-- Spam/sybil attack vectors
-- Review bombing risk
-- Unclear economic model (who pays?)
+The spec is designed to support external projects registering their own SAS credentials with SATI for permissionless attestation creation and unified indexing. This "SATI as platform" model adds complexity (extra instructions, account types, indexer logic) without immediate value. Will be added when third parties express demand.
 
-The current model requires either:
-- **DualSignature** — Agent acknowledges interaction
-- **PaymentVerified** — On-chain payment proves interaction
+**Public reviews:**
 
-Both provide censorship resistance while requiring proof of interaction. Public reviews may be added in v2 with reputation-weighted filtering (e.g., reviewers with history weighted higher than new accounts).
+Public reviews (client-only signature) would allow feedback without proving interaction. Deferred due to spam/sybil risk. May revisit with reputation-weighted filtering in v2.
 
-The unified schema architecture means adding public reviews requires only:
-1. New `AuthMode.SingleSigner` for FeedbackRoot
-2. Indexer filtering based on reviewer reputation
-3. No program changes
+**Future leaf types:**
+
+The unified AttestationRoot/AttestationLeaf design supports adding DelegationLeaf, MandateLeaf, etc. via new `leaf_type` values without program changes. Will be specified when use cases emerge.
 
 ---
 
@@ -1951,7 +1681,6 @@ SATI solves the economics of on-chain agent reputation:
 - **Censorship-resistant** — PaymentVerified mode ensures clients can always submit feedback
 - **Infinite scale** — Merkle root batching: millions of feedbacks at fixed cost (80 bytes per agent)
 - **No monopoly** — Multiple reputation providers compete with different algorithms
-- **Extensible by design** — Unified base types enable new trust primitives without program changes
 - **Escrow integration** — Merkle proofs enable automatic escrow release
 
 **Architecture highlights:**
@@ -1960,7 +1689,6 @@ SATI solves the economics of on-chain agent reputation:
 |---------|-------------|
 | **Opaque data + signatures** | Program verifies signatures on `keccak256(data)`, never parses content |
 | **Unified base types** | AttestationRoot/AttestationLeaf shared by all merkle-based schemas |
-| **Trust tiers** | Tier 1 (DualSig + Payment), Tier 2 (DualSig), Tier 3 (PaymentVerified) |
 | **Semantic verification** | Indexers and escrows parse leaves, verify pubkeys match signatures |
 
 **Core schemas:**
@@ -1972,20 +1700,13 @@ SATI solves the economics of on-chain agent reputation:
 | ReputationScore | — | SingleSigner | Provider-owned, no monopoly |
 | Certification | — | CredentialAuthority | Immutable proof |
 
-**Future schemas** (no program changes needed):
-- DelegationRoot (leaf_type=2) — Agent-to-agent delegation
-- MandateRoot (leaf_type=3) — Client authorization to agents
-
-**Third-party credentials** can register to gain permissionless attestation creation, unified indexing, and SDK support.
-
 | Component | Technology | Status |
 |-----------|------------|--------|
 | Registry | SATI Registry Program (`satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`) | Deployed |
 | Identity | Token-2022 NFT + TokenMetadata + TokenGroup | Available |
 | Core Schemas | FeedbackRoot, ValidationRoot, ReputationScore, Certification | To deploy |
-| Authorization | SchemaConfig with AuthMode (DualSig, PaymentVerified, SingleSigner, CredentialAuth) | To implement |
-| Third-party Support | Credential registration + CPI proxy | To implement |
-| Indexer | Multi-credential indexing + merkle proofs + payment deduplication | To implement |
+| Authorization | SchemaConfig with AuthMode | To implement |
+| Indexer | Merkle proofs + payment deduplication | To implement |
 | Smart accounts | Native Token-2022 support | Available |
 
 ---
