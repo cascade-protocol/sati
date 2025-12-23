@@ -648,3 +648,179 @@ fn test_register_agent_non_transferable_succeeds() {
     let (_, _, total_agents, _) = deserialize_registry_config(&registry_account.data);
     assert_eq!(total_agents, 1, "Counter should be 1");
 }
+
+// =============================================================================
+// CRITICAL: Mint Authority Renunciation (Supply=1 Guarantee)
+// =============================================================================
+
+/// Verifies that after register_agent, the agent mint's authority is renounced
+/// and supply is exactly 1. This is critical for the NFT uniqueness guarantee.
+#[test]
+fn test_register_agent_mint_authority_renounced() {
+    let mollusk = setup_mollusk();
+
+    let payer = Pubkey::new_unique();
+    let owner = payer;
+    let (registry_config, bump) = derive_registry_config();
+    let group_mint = Pubkey::new_unique();
+    let agent_mint = Keypair::new();
+    let agent_token_account = derive_ata_token2022(&owner, &agent_mint.pubkey());
+
+    let registry_data = serialize_registry_config(group_mint, payer, 0, bump);
+    let registry_lamports = Rent::default().minimum_balance(REGISTRY_CONFIG_SIZE);
+
+    let group_mint_data = serialize_token2022_group_mint(
+        group_mint,
+        Some(registry_config),
+        registry_config,
+        u32::MAX,
+    );
+    let group_mint_lamports = Rent::default().minimum_balance(group_mint_data.len());
+
+    let instruction = build_register_agent(
+        payer,
+        owner,
+        registry_config,
+        group_mint,
+        agent_mint.pubkey(),
+        agent_token_account,
+        "TestAgent",
+        "TAGT",
+        "https://example.com/agent.json",
+        None,
+        false,
+    );
+
+    let accounts = vec![
+        (payer, system_account(10_000_000_000)),
+        (owner, system_account(0)),
+        (
+            registry_config,
+            program_account(registry_lamports, registry_data, PROGRAM_ID),
+        ),
+        (
+            group_mint,
+            program_account(group_mint_lamports, group_mint_data, token2022::ID),
+        ),
+        (agent_mint.pubkey(), system_account(0)),
+        (agent_token_account, system_account(0)),
+        token2022_program_account(),
+        associated_token::keyed_account(),
+        system_program_account(),
+    ];
+
+    let result = mollusk.process_instruction(&instruction, &accounts);
+    assert!(
+        result.program_result.is_ok(),
+        "Instruction failed: {:?}",
+        result.program_result
+    );
+
+    // CRITICAL: Verify the agent mint's authority was renounced
+    let agent_mint_account = result
+        .get_account(&agent_mint.pubkey())
+        .expect("Agent mint account not found");
+
+    // Deserialize Token-2022 mint state with extensions
+    let mut mint_data = agent_mint_account.data.clone();
+    let mint_state = StateWithExtensionsMut::<Mint>::unpack(&mut mint_data)
+        .expect("Failed to unpack agent mint");
+
+    // 1. Mint authority MUST be None (renounced) - this ensures supply=1 forever
+    assert!(
+        mint_state.base.mint_authority.is_none(),
+        "SECURITY VIOLATION: Mint authority must be renounced (None) after registration"
+    );
+
+    // 2. Supply MUST be exactly 1
+    assert_eq!(
+        mint_state.base.supply, 1,
+        "Supply must be exactly 1 for NFT uniqueness"
+    );
+
+    // 3. Decimals must be 0 (NFT standard)
+    assert_eq!(mint_state.base.decimals, 0, "Decimals must be 0 for NFT");
+}
+
+/// Verifies mint authority renunciation for non-transferable (soulbound) agents
+#[test]
+fn test_register_agent_non_transferable_mint_authority_renounced() {
+    let mollusk = setup_mollusk();
+
+    let payer = Pubkey::new_unique();
+    let owner = payer;
+    let (registry_config, bump) = derive_registry_config();
+    let group_mint = Pubkey::new_unique();
+    let agent_mint = Keypair::new();
+    let agent_token_account = derive_ata_token2022(&owner, &agent_mint.pubkey());
+
+    let registry_data = serialize_registry_config(group_mint, payer, 0, bump);
+    let registry_lamports = Rent::default().minimum_balance(REGISTRY_CONFIG_SIZE);
+
+    let group_mint_data = serialize_token2022_group_mint(
+        group_mint,
+        Some(registry_config),
+        registry_config,
+        u32::MAX,
+    );
+    let group_mint_lamports = Rent::default().minimum_balance(group_mint_data.len());
+
+    let instruction = build_register_agent(
+        payer,
+        owner,
+        registry_config,
+        group_mint,
+        agent_mint.pubkey(),
+        agent_token_account,
+        "SoulboundAgent",
+        "SOUL",
+        "https://example.com/soulbound.json",
+        None,
+        true, // non_transferable = true
+    );
+
+    let accounts = vec![
+        (payer, system_account(10_000_000_000)),
+        (owner, system_account(0)),
+        (
+            registry_config,
+            program_account(registry_lamports, registry_data, PROGRAM_ID),
+        ),
+        (
+            group_mint,
+            program_account(group_mint_lamports, group_mint_data, token2022::ID),
+        ),
+        (agent_mint.pubkey(), system_account(0)),
+        (agent_token_account, system_account(0)),
+        token2022_program_account(),
+        associated_token::keyed_account(),
+        system_program_account(),
+    ];
+
+    let result = mollusk.process_instruction(&instruction, &accounts);
+    assert!(
+        result.program_result.is_ok(),
+        "Non-transferable registration failed: {:?}",
+        result.program_result
+    );
+
+    // CRITICAL: Verify the agent mint's authority was renounced
+    let agent_mint_account = result
+        .get_account(&agent_mint.pubkey())
+        .expect("Agent mint account not found");
+
+    let mut mint_data = agent_mint_account.data.clone();
+    let mint_state = StateWithExtensionsMut::<Mint>::unpack(&mut mint_data)
+        .expect("Failed to unpack agent mint");
+
+    // Mint authority MUST be None even for non-transferable agents
+    assert!(
+        mint_state.base.mint_authority.is_none(),
+        "SECURITY VIOLATION: Non-transferable agent mint authority must be renounced"
+    );
+
+    assert_eq!(
+        mint_state.base.supply, 1,
+        "Supply must be exactly 1 for soulbound NFT"
+    );
+}
