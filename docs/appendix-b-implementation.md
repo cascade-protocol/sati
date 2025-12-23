@@ -58,9 +58,8 @@ Registry operations have no protocol fees. Costs are:
 
 ```rust
 pub enum SignatureMode {
-    DualSignature,       // 2 signatures: agent + counterparty
-    SingleSigner,        // 1 signature: provider or authority
-    CredentialAuthority, // 0 signatures: SAS credential authority signs
+    DualSignature,  // 2 signatures: agent + counterparty
+    SingleSigner,   // 1 signature: provider signs
 }
 ```
 
@@ -68,14 +67,13 @@ pub enum SignatureMode {
 |------|------------|----------|
 | DualSignature | 2 | Feedback, Validation (blind feedback model) |
 | SingleSigner | 1 | ReputationScore (provider signs) |
-| CredentialAuthority | 0 | Certification (SAS auth) |
 
 ### StorageType Enum
 
 ```rust
 pub enum StorageType {
     Compressed, // Light Protocol (Feedback, Validation)
-    Regular,    // SAS attestation (ReputationScore, Certification)
+    Regular,    // SAS attestation (ReputationScore)
 }
 ```
 
@@ -94,7 +92,6 @@ pub fn create_compressed_attestation<'info>(
     match schema_config.signature_mode {
         SignatureMode::DualSignature => require!(params.signatures.len() == 2),
         SignatureMode::SingleSigner => require!(params.signatures.len() == 1),
-        SignatureMode::CredentialAuthority => require!(params.signatures.is_empty()),
     }
 
     // 2. Verify data length
@@ -325,7 +322,7 @@ Layout:
 ├─ Discriminator (1 byte) = 2
 ├─ Nonce (32 bytes) - Deterministic per schema type
 ├─ Credential (32 bytes) - SATI credential
-├─ Schema (32 bytes) - ReputationScore or Certification
+├─ Schema (32 bytes) - ReputationScore
 ├─ Data Length (4 bytes)
 ├─ Data (variable) - Schema-conformant bytes
 ├─ Signer (32 bytes) - SATI Attestation Program PDA
@@ -348,31 +345,19 @@ pub fn create_regular_attestation<'info>(
         SatiError::StorageTypeMismatch
     );
 
-    // 1. Verify signature count per signature_mode
-    match schema_config.signature_mode {
-        SignatureMode::SingleSigner => {
-            require!(params.signatures.len() == 1, SatiError::InvalidSignatureCount);
+    // 1. Verify signature count (SingleSigner mode for regular attestations)
+    require!(params.signatures.len() == 1, SatiError::InvalidSignatureCount);
 
-            // Provider must match counterparty field in data
-            let counterparty = Pubkey::try_from(&params.data[64..96])?;
-            require!(
-                params.signatures[0].pubkey == counterparty,
-                SatiError::SignatureMismatch
-            );
+    // Provider must match counterparty field in data
+    let counterparty = Pubkey::try_from(&params.data[64..96])?;
+    require!(
+        params.signatures[0].pubkey == counterparty,
+        SatiError::SignatureMismatch
+    );
 
-            // Verify provider's signature
-            let message_hash = compute_single_signer_hash(&params)?;
-            verify_ed25519(params.signatures[0].pubkey, params.signatures[0].sig, message_hash)?;
-        }
-        SignatureMode::CredentialAuthority => {
-            // No payload signatures — SATI program has authority
-            require!(params.signatures.is_empty(), SatiError::InvalidSignatureCount);
-
-            // Verify caller is authorized certifier (via additional account check)
-            verify_certifier_authorization(&ctx, &params)?;
-        }
-        _ => return Err(SatiError::InvalidSignatureMode.into()),
-    }
+    // Verify provider's signature
+    let message_hash = compute_single_signer_hash(&params)?;
+    verify_ed25519(params.signatures[0].pubkey, params.signatures[0].sig, message_hash)?;
 
     // 2. Verify base layout
     require!(params.data.len() >= MIN_BASE_LAYOUT_SIZE, SatiError::AttestationDataTooSmall);
@@ -418,37 +403,21 @@ pub fn create_regular_attestation<'info>(
 
 ### Regular Attestation Nonce Strategy
 
-Deterministic nonces ensure one attestation per logical entity:
+Deterministic nonce ensures one ReputationScore per (provider, agent) pair:
 
 ```rust
-fn compute_regular_nonce(
-    params: &CreateRegularParams,
-    schema_config: &SchemaConfig,
-) -> Result<Pubkey> {
+fn compute_regular_nonce(params: &CreateRegularParams) -> Result<Pubkey> {
     let token_account = &params.data[32..64];
-    let counterparty = &params.data[64..96];  // provider or certifier
+    let counterparty = &params.data[64..96];  // provider
 
-    let nonce_bytes = match params.data_type {
-        // ReputationScore: One per (provider, agent) pair
-        2 => keccak256(&[counterparty, token_account].concat()),
-
-        // Certification: Versioned per (agent, cert_type, certifier)
-        3 => {
-            let cert_type = params.data[96];
-            let version = params.data[97];
-            keccak256(&[token_account, &[cert_type, version], counterparty].concat())
-        }
-
-        _ => return Err(SatiError::InvalidDataType.into()),
-    };
+    // One ReputationScore per (provider, agent) pair
+    let nonce_bytes = keccak256(&[counterparty, token_account].concat());
 
     Ok(Pubkey::new_from_array(nonce_bytes.try_into()?))
 }
 ```
 
-**Implications:**
-- **ReputationScore**: Provider updates by closing old + creating new with same nonce
-- **Certification**: New version = new nonce = new attestation (old can be revoked)
+Provider updates by closing old attestation + creating new one with same deterministic nonce (rent neutral).
 
 ### close_regular_attestation Implementation
 
@@ -527,7 +496,7 @@ async function listReputationScores(
 ): Promise<ReputationScore[]> {
     const accounts = await connection.getProgramAccounts(SAS_PROGRAM_ID, {
         filters: [
-            { dataSize: 107 + 101 }, // ReputationScore data size + SAS overhead
+            { dataSize: 133 + 101 }, // ReputationScore data size (133) + SAS overhead
             { memcmp: { offset: 33, bytes: SATI_CREDENTIAL.toBase58() } },
             { memcmp: { offset: 65, bytes: REPUTATION_SCHEMA.toBase58() } },
             // Filter by token_account in data (offset varies by SAS structure)
@@ -536,23 +505,6 @@ async function listReputationScores(
     });
 
     return accounts.map(({ account }) => parseReputationScore(account.data));
-}
-
-// Get Certification by certifier + agent + type
-async function getCertification(
-    connection: Connection,
-    certifier: PublicKey,
-    tokenAccount: PublicKey,
-    certType: number,
-    version: number = 1
-): Promise<Certification | null> {
-    const nonce = computeCertificationNonce(tokenAccount, certType, certifier, version);
-    const pda = deriveAttestationPda(SATI_CREDENTIAL, CERTIFICATION_SCHEMA, nonce);
-
-    const account = await connection.getAccountInfo(pda);
-    if (!account) return null;
-
-    return parseCertification(account.data);
 }
 ```
 
@@ -744,8 +696,7 @@ await sati.createReputationScore({
   tokenAccount,                         // Agent being scored
   provider: providerPubkey,             // Reputation provider (counterparty)
   score: 85,                            // 0-100 normalized score
-  confidence: 90,                       // 0-100 confidence level
-  methodologyId: 1,                     // Provider's algorithm ID
+  contentRef: methodologyIpfsHash,      // Optional: off-chain methodology/details
   signature: {                          // Provider's signature (SingleSigner mode)
     pubkey: providerPubkey,
     sig: providerSig,
@@ -755,7 +706,7 @@ await sati.createReputationScore({
 
 **Signature message** (provider signs):
 ```
-hash(sas_schema, token_account, provider, score, confidence, methodology_id, timestamp)
+hash(sas_schema, token_account, provider, score, timestamp)
 ```
 
 ### updateReputationScore Parameters
@@ -766,42 +717,11 @@ await sati.updateReputationScore({
   tokenAccount,
   provider: providerPubkey,
   score: 88,                            // New score
-  confidence: 92,                       // New confidence
-  methodologyId: 1,                     // Same methodology
+  contentRef: methodologyIpfsHash,      // Optional: updated details
   signature: {
     pubkey: providerPubkey,
     sig: newProviderSig,                // New signature on new data
   },
-});
-```
-
-### createCertification Parameters
-
-```typescript
-await sati.createCertification({
-  tokenAccount,                         // Agent being certified
-  certifier: certifierPubkey,           // Certifying authority (counterparty)
-  certType: CertType.SecurityAudit,     // 0-3 certification type
-  version: 1,                           // Certification version
-  status: CertStatus.Active,            // 0=revoked, 1=active, 2=expired
-  expiresAt: expirationTimestamp,       // 0 = never expires
-  contentRef: certificateIpfsHash,      // Off-chain certificate details
-  // No signature required (CredentialAuthority mode)
-  // Caller must be authorized certifier
-});
-```
-
-**Authorization**: Certifier must be in authorized certifiers list (managed by SATI governance or whitelisted via on-chain config).
-
-### revokeCertification Parameters
-
-```typescript
-await sati.revokeCertification({
-  tokenAccount,
-  certifier: certifierPubkey,
-  certType: CertType.SecurityAudit,
-  version: 1,                           // Version to revoke
-  // Creates new attestation with status=revoked
 });
 ```
 
@@ -876,7 +796,7 @@ await sati.revokeCertification({
 | **Infrastructure (one-time)** | | | | |
 | | Initialize registry | ~0.005 | 10,918 | One-time global setup |
 | | Setup SAS credential | ~0.003 | — | One-time |
-| | Setup SAS schemas (4 core) | ~0.012 | — | One-time |
+| | Setup SAS schemas (3 core) | ~0.009 | — | One-time |
 | | Register schema config | ~0.0003 | — | One-time per schema |
 | **Agent Registration** | | | | |
 | | register_agent (minimal) | ~0.003 | 58,342 | Mint + metadata + group |
@@ -891,9 +811,8 @@ await sati.revokeCertification({
 | | Create validation | ~0.00001 | ~120,000 | Proof verify + tree append |
 | | Close compressed attestation | tx fee | ~100,000 | Nullify in state tree |
 | **Regular Attestations** | | | | |
-| | Create ReputationScore | ~0.002 | ~30,000 | SAS attestation (107 bytes) |
+| | Create ReputationScore | ~0.002 | ~30,000 | SAS attestation (133 bytes) |
 | | Update ReputationScore | tx fee | ~30,000 | Close+create (rent neutral) |
-| | Create Certification | ~0.002 | ~30,000 | SAS attestation (139 bytes) |
 | | Close regular attestation | tx fee | ~20,000 | SAS close + rent return |
 | **Per-operation overhead** | | | | |
 | | Validity proof verification | — | ~100,000 | ZK proof (constant per tx) |
@@ -1012,9 +931,8 @@ const valid = await sati.verifyAttestation(proof, attestation);
 | SATI SAS Credential | TBD | TBD | Authority: SATI multisig |
 | SATI Attestation PDA | TBD | TBD | Sole authorized signer on credential |
 | Schema: Feedback | TBD | TBD | 207 bytes, Compressed storage |
-| Schema: Validation | TBD | TBD | 107 bytes, Compressed storage |
-| Schema: ReputationScore | TBD | TBD | 107 bytes, Regular storage |
-| Schema: Certification | TBD | TBD | 139 bytes, Regular storage |
+| Schema: Validation | TBD | TBD | 206 bytes, Compressed storage |
+| Schema: ReputationScore | TBD | TBD | 133 bytes, Regular storage |
 
 ### Address Derivation Reference
 

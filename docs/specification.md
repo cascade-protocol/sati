@@ -60,7 +60,6 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Feedback (batched 5/tx) | ~$0.0006 | Amortized proof cost |
 | Validation | ~$0.002 | Same as feedback |
 | ReputationScore | ~0.002 SOL | Regular SAS attestation |
-| Certification | ~0.002 SOL | Regular SAS attestation |
 | Photon indexing | Free | Compressed attestations only |
 
 ---
@@ -92,9 +91,9 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 │   (Compressed Storage)    │         │   (Regular Storage)            │
 ├───────────────────────────┤         ├────────────────────────────────┤
 │ • Feedback attestations   │         │ • ReputationScore attestations │
-│ • Validation attestations │         │ • Certification attestations   │
-│ • ~$0.002 per attestation │         │ • ~$0.40 per attestation       │
-│ • Photon indexing (free)  │         │ • On-chain queryable (RPC)     │
+│ • Validation attestations │         │ • ~$0.40 per attestation       │
+│ • ~$0.002 per attestation │         │ • On-chain queryable (RPC)     │
+│ • Photon indexing (free)  │         │                                │
 └───────────────────────────┘         └────────────────────────────────┘
           │
           ▼
@@ -158,7 +157,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Field | Type | Description |
 |-------|------|-------------|
 | `sas_schema` | Pubkey | SAS schema address |
-| `signature_mode` | SignatureMode | DualSignature / SingleSigner / CredentialAuthority |
+| `signature_mode` | SignatureMode | DualSignature / SingleSigner |
 | `storage_type` | StorageType | Compressed / Regular |
 
 ### CompressedAttestation
@@ -271,7 +270,6 @@ Program parses this for signature binding; full schema parsed by indexers.
 | Feedback | Compressed | DualSignature | ✅ MVP |
 | Validation | Compressed | DualSignature | ✅ MVP |
 | ReputationScore | Regular | SingleSigner | ✅ MVP |
-| Certification | Regular | CredentialAuthority | ✅ MVP |
 
 **SignatureMode determines payload signature requirements:**
 
@@ -279,7 +277,6 @@ Program parses this for signature binding; full schema parsed by indexers.
 |------|------------|----------|
 | DualSignature | 2 | Feedback, Validation (blind feedback model) |
 | SingleSigner | 1 | ReputationScore (provider signs) |
-| CredentialAuthority | 0 | Certification (SATI program authority) |
 
 ### Feedback Schema (data_type = 0, 207 bytes)
 
@@ -310,7 +307,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 | 204 | validation_type | u8 | tee/zkml/reexecution/consensus |
 | 205 | status | u8 | 0=fail, 100=pass |
 
-### ReputationScore Schema (data_type = 2, 107 bytes)
+### ReputationScore Schema (data_type = 2, 133 bytes)
 
 Provider-computed scores using `StorageType::Regular` for direct on-chain queryability.
 
@@ -320,36 +317,9 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 | 32 | token_account | Pubkey | Agent being scored |
 | 64 | counterparty | Pubkey | Provider (reputation scorer) |
 | 96 | score | u8 | 0-100 normalized score |
-| 97 | confidence | u8 | 0-100 confidence level |
-| 98 | methodology_id | u8 | Provider's scoring algorithm ID |
-| 99 | timestamp | i64 | Last updated |
+| 97 | content_ref | [u8;36] | Off-chain methodology/details |
 
-**Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce.
-
-### Certification Schema (data_type = 3, 139 bytes)
-
-Third-party certifications (security audits, compliance, capability verification).
-
-| Offset | Field | Type | Description |
-|--------|-------|------|-------------|
-| 0 | task_ref | [u8;32] | Deterministic: `keccak256(token_account, cert_type, certifier, version)` |
-| 32 | token_account | Pubkey | Agent being certified |
-| 64 | counterparty | Pubkey | Certifier (audit firm, compliance body) |
-| 96 | cert_type | u8 | Certification type (see below) |
-| 97 | version | u8 | Certification version |
-| 98 | status | u8 | 0=revoked, 1=active, 2=expired |
-| 99 | issued_at | i64 | Issuance timestamp |
-| 107 | expires_at | i64 | Expiration (0 = never) |
-| 115 | content_ref | [u8;36] | Off-chain certificate details |
-
-**Certification Types:**
-
-| cert_type | Name | Description |
-|-----------|------|-------------|
-| 0 | SecurityAudit | Third-party security review |
-| 1 | Compliance | Regulatory compliance (SOC2, GDPR) |
-| 2 | Capability | Verified capability attestation |
-| 3 | Identity | KYC/identity verification |
+**Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. Timestamp and expiry use SAS attestation metadata.
 
 ### Address Derivation
 
@@ -366,11 +336,8 @@ let (address, seed) = derive_address(
 **Regular Attestations (SAS):**
 
 ```rust
-// Nonce is deterministic per schema type
-let nonce = match schema {
-    ReputationScore => keccak256(&[provider, token_account]),      // One per provider+agent
-    Certification => keccak256(&[token_account, cert_type, certifier, version]), // Versioned
-};
+// Nonce is deterministic: one ReputationScore per (provider, agent) pair
+let nonce = keccak256(&[provider, token_account]);
 
 // SAS PDA derivation
 let (attestation_pda, _) = Pubkey::find_program_address(
@@ -379,9 +346,7 @@ let (attestation_pda, _) = Pubkey::find_program_address(
 );
 ```
 
-**Deterministic nonces** ensure:
-- ReputationScore: One score per (provider, agent) pair — updates replace previous
-- Certification: Versioned per (agent, type, certifier) — revocations create new version
+**Deterministic nonce** ensures one ReputationScore per (provider, agent) pair — updates replace previous.
 
 ### Content Reference (36 bytes)
 
@@ -422,7 +387,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 
 ### SAS (Regular Storage)
 
-Stores ReputationScore and Certification as standard Solana accounts for direct on-chain queryability.
+Stores ReputationScore as standard Solana accounts for direct on-chain queryability.
 
 | Aspect | Value |
 |--------|-------|
@@ -472,15 +437,11 @@ enum TagCategory { Quality = 0, Speed = 1, Reliability = 2, Communication = 3, V
 | | `createValidation(params)` | `{ address, signature }` |
 | **Regular** | `createReputationScore(params)` | `{ address, signature }` |
 | | `updateReputationScore(params)` | `{ address, signature }` |
-| | `createCertification(params)` | `{ address, signature }` |
-| | `revokeCertification(params)` | `{ address, signature }` |
 | **Query (Compressed)** | `listFeedbacks(tokenAccount, params?)` | `Feedback[]` |
 | | `listValidations(tokenAccount, params?)` | `Validation[]` |
 | | `getAttestationWithProof(address)` | `{ attestation, proof }` |
 | **Query (Regular)** | `getReputationScore(provider, tokenAccount)` | `ReputationScore \| null` |
 | | `listReputationScores(tokenAccount)` | `ReputationScore[]` |
-| | `getCertification(certifier, tokenAccount, certType)` | `Certification \| null` |
-| | `listCertifications(tokenAccount)` | `Certification[]` |
 | **Verify** | `verifyAttestation(attestation, proof)` | boolean |
 | | `verifySignatures(attestation)` | boolean |
 
@@ -619,10 +580,20 @@ If agent signs AFTER seeing outcome, they can refuse negative feedback. By signi
 
 | Feature | Status | Notes |
 |---------|--------|-------|
+| Certification schema | Deferred | Third-party certs when demand exists |
 | Third-party credentials | Deferred | Platform model when demand exists |
 | Agent→Agent delegation | Future | New data type for agent hierarchies |
 | Escrow integration | Future | ZK proofs for automatic release |
 | Batch reputation updates | Future | Provider updates multiple agents atomically |
+
+### Certification System (Deferred)
+
+Third-party certifications (security audits, compliance, capability verification) are deferred until demand exists. For MVP, certifications can be modeled as ReputationScores where:
+- Provider = certified auditor/authority
+- Score = 100 (certified) or 0 (not certified)
+- content_ref = link to certificate details
+
+When added, Certification may use a new `CredentialAuthority` SignatureMode with whitelisted certifiers, or remain open like ReputationScore with trust delegated to consumers.
 
 ### Third-Party Credential System (Deferred)
 
