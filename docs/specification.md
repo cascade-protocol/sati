@@ -35,6 +35,13 @@ The breakthrough enabling free on-chain feedback. Agent and counterparty sign di
 
 **Key insight**: Agent signs BEFORE knowing feedback sentiment — cannot selectively participate.
 
+**Enforcement note**: The protocol does not enforce that agents sign with every response. Enforcement can be handled at the application layer:
+- **Facilitators** can require agent signatures before settling payments
+- **Clients** can refuse to pay agents that don't participate in reputation
+- **Marketplaces** can filter for agents with reputation participation
+
+This is not a protocol concern — SATI provides the infrastructure, enforcement is delegated to ecosystem participants.
+
 ### Incentive Alignment
 
 | Feedback | Who Pays | Why |
@@ -160,6 +167,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `signature_mode` | SignatureMode | DualSignature / SingleSigner |
 | `storage_type` | StorageType | Compressed / Regular |
 | `closeable` | bool | Whether attestations can be closed |
+| `bump` | u8 | PDA bump seed |
 
 ### CompressedAttestation
 
@@ -189,6 +197,8 @@ All schemas MUST start with:
 | 64 | 32 | `counterparty` |
 
 Program parses this for signature binding; full schema parsed by indexers.
+
+**Note on timestamps**: Attestation creation time is tracked via Photon's `slotCreated` field. For interaction time (when the original event occurred), clients can look up the transaction referenced in `task_ref`.
 
 ### Signature Verification (On-Chain)
 
@@ -224,7 +234,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 ### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `InvalidDataType` · `InvalidScore` · `InvalidStatus` · `LightCpiInvocationFailed`
 
 ---
 
@@ -239,6 +249,8 @@ Program parses this for signature binding; full schema parsed by indexers.
 | GroupMemberPointer | Points to group membership |
 | TokenGroupMember | SATI Registry membership |
 | NonTransferable | Optional: soulbound agents |
+
+> ⚠️ **Soulbound Warning**: The `NonTransferable` extension is **permanent and irreversible**. Once set at mint creation, the agent NFT can NEVER be transferred to another wallet. Use only when you are certain the agent should be permanently bound to the initial owner. Consider using a smart account (Squads) if you may need to change control in the future.
 
 ### Configuration
 
@@ -294,12 +306,14 @@ Program parses this for signature binding; full schema parsed by indexers.
 | 64 | counterparty | Pubkey | Client |
 | 96 | data_hash | [u8;32] | Request hash (agent's blind commitment) |
 | 128 | content_type | u8 | Content format (see Content Types) |
-| 129 | content | Vec\<u8\> | Variable: 4-byte len + data |
-| var | outcome | u8 | 0=Negative, 1=Neutral, 2=Positive |
-| var+1 | tag1 | u8 | Primary category |
-| var+2 | tag2 | u8 | Secondary category |
+| 129 | outcome | u8 | 0=Negative, 1=Neutral, 2=Positive |
+| 130 | tag1 | u8 | Primary category |
+| 131 | tag2 | u8 | Secondary category |
+| 132 | content | Vec\<u8\> | Variable: 4-byte len + data |
 
 **Size**: 136 bytes minimum (empty content), typical 150-200 bytes with inline feedback
+
+**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment.
 
 ### Validation Schema (data_type = 1, variable length)
 
@@ -310,11 +324,13 @@ Program parses this for signature binding; full schema parsed by indexers.
 | 64 | counterparty | Pubkey | Validator |
 | 96 | data_hash | [u8;32] | Work hash (agent's commitment) |
 | 128 | content_type | u8 | Content format (see Content Types) |
-| 129 | content | Vec\<u8\> | Variable: 4-byte len + data |
-| var | validation_type | u8 | tee/zkml/reexecution/consensus |
-| var+1 | status | u8 | 0=fail, 100=pass |
+| 129 | validation_type | u8 | tee/zkml/reexecution/consensus |
+| 130 | status | u8 | 0=fail, 100=pass |
+| 131 | content | Vec\<u8\> | Variable: 4-byte len + data |
 
 **Size**: 135 bytes minimum (empty content), typical 150-200 bytes with inline report
+
+**Fixed offset benefit**: `status` at offset 130 enables Photon memcmp filtering by validation result.
 
 ### ReputationScore Schema (data_type = 2, variable length)
 
@@ -322,7 +338,7 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 
 | Offset | Field | Type | Description |
 |--------|-------|------|-------------|
-| 0 | task_ref | [u8;32] | Deterministic: `keccak256(provider, token_account)` |
+| 0 | task_ref | [u8;32] | Deterministic: `keccak256(counterparty, token_account)` |
 | 32 | token_account | Pubkey | Agent being scored |
 | 64 | counterparty | Pubkey | Provider (reputation scorer) |
 | 96 | score | u8 | 0-100 normalized score |
@@ -331,7 +347,7 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 
 **Size**: 102 bytes minimum (empty content), typical 150-300 bytes with methodology details
 
-**Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. Timestamp and expiry use SAS attestation metadata.
+**Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. On-chain creation time is tracked via SAS attestation metadata.
 
 ### Address Derivation
 
@@ -351,7 +367,8 @@ let (address, seed) = derive_address(
 
 ```rust
 // Nonce is deterministic: one ReputationScore per (provider, agent) pair
-let nonce = keccak256(&[provider, token_account]);
+// Note: For ReputationScore, counterparty = provider (the reputation scorer)
+let nonce = keccak256(&[counterparty, token_account]);  // counterparty = provider
 
 // SAS PDA derivation
 let (attestation_pda, _) = Pubkey::find_program_address(
@@ -418,7 +435,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 | `getValidityProof` | Get ZK proof for on-chain verification |
 | `getCompressedAccountProof` | Merkle proof for escrow |
 
-**Filters**: `sas_schema` (offset 8), `token_account` (offset 40)
+**Filters**: `sas_schema` (offset 8), `token_account` (offset 40), `outcome` (offset 129 for Feedback), `status` (offset 130 for Validation)
 
 ### SAS (Regular Storage)
 
@@ -528,6 +545,8 @@ await sati.createFeedback({
 ### Known Limitations
 
 - **Sybil resistance**: Prevents self-attestation but not multiple wallets. Reputation providers implement sybil-resistant scoring.
+- **No pending state**: The protocol has no concept of "pending" validation or feedback. Attestations only exist once both signatures are collected and submitted. There is no on-chain way to check if a validation is in progress but not yet complete.
+- **Timestamp trust**: The `timestamp` field is set by the submitter and not verified against on-chain time. It should be trusted for ordering purposes only, not as cryptographic proof of time.
 
 ---
 
@@ -657,7 +676,15 @@ Agents register separately on each chain but link identities via the off-chain r
 ```
 
 **Required**: `type`, `name`, `description`, `image`
-**Optional**: `active` (operational status), `x402support` (accepts x402), `supportedTrusts` (`"reputation"`, `"validation"`, `"crypto-economic"`, `"tee-attestation"`)
+**Optional**: `active` (operational status), `x402support` (accepts x402), `supportedTrusts` (`"reputation"`, `"validation"`, `"crypto-economic"`, `"tee-attestation"`), `registrations` (can be null/empty initially)
+
+**Note on `registrations`**: This array can be null or empty when first creating the registration file. The typical workflow is:
+1. Create registration file with `registrations: []`
+2. Register agent on-chain (returns mint address)
+3. Update registration file with actual registration entry
+4. (Optional) Register on additional chains and update file
+
+This is necessary because the mint address isn't known until after registration completes.
 
 This enables:
 - **Same agent identity** across Solana, Ethereum, Base, etc.

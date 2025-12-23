@@ -18,6 +18,7 @@ This appendix contains detailed implementation guidance extracted from the main 
 | `MAX_METADATA_VALUE_LENGTH` | 200 | Maximum metadata value (bytes) |
 | `MAX_CONTENT_SIZE` | 512 | Maximum content field size (bytes) |
 | `MAX_ATTESTATION_DATA_SIZE` | 768 | Maximum total attestation data (bytes) |
+| `MIN_BASE_LAYOUT_SIZE` | 96 | Minimum size for base layout (task_ref + token_account + counterparty) |
 
 ### Account Sizes
 
@@ -49,6 +50,153 @@ Events use Anchor's `emit_cpi!` macro for reliable indexing:
 - **Attestation Program**: Must use `emit_cpi!` — attestation data is critical, future batching may increase event volume
 
 Account structs requiring event emission include the `#[event_cpi]` attribute, which automatically adds `event_authority` and `program` accounts.
+
+#### Registry Program Events
+
+```rust
+/// Emitted when a new agent is registered
+#[event]
+pub struct AgentRegistered {
+    /// Agent's token mint address (agent ID)
+    pub mint: Pubkey,
+    /// Initial owner of the agent NFT
+    pub owner: Pubkey,
+    /// Auto-incrementing member number in the TokenGroup
+    pub member_number: u64,
+    /// Agent display name
+    pub name: String,
+    /// URI pointing to registration file
+    pub uri: String,
+    /// Whether the agent is soulbound (non-transferable)
+    pub non_transferable: bool,
+    /// Unix timestamp when registered
+    pub timestamp: i64,
+}
+
+/// Emitted when registry authority is updated or renounced
+#[event]
+pub struct RegistryAuthorityUpdated {
+    /// Previous authority (None if immutable)
+    pub old_authority: Option<Pubkey>,
+    /// New authority (None = renounced/immutable)
+    pub new_authority: Option<Pubkey>,
+    /// Unix timestamp
+    pub timestamp: i64,
+}
+```
+
+#### Attestation Program Events
+
+```rust
+/// Emitted when a schema config is registered
+#[event]
+pub struct SchemaConfigRegistered {
+    /// SAS schema address
+    pub schema: Pubkey,
+    /// Signature mode (DualSignature or SingleSigner)
+    pub signature_mode: SignatureMode,
+    /// Storage type (Compressed or Regular)
+    pub storage_type: StorageType,
+    /// Whether attestations can be closed
+    pub closeable: bool,
+    /// Unix timestamp
+    pub timestamp: i64,
+}
+
+/// Emitted when an attestation is created (compressed or regular)
+#[event]
+pub struct AttestationCreated {
+    /// SAS schema address
+    pub sas_schema: Pubkey,
+    /// Agent being attested
+    pub token_account: Pubkey,
+    /// Counterparty (client for Feedback, validator for Validation, provider for ReputationScore)
+    pub counterparty: Pubkey,
+    /// Schema data type (0=Feedback, 1=Validation, 2=ReputationScore)
+    pub data_type: u8,
+    /// Storage type used
+    pub storage_type: StorageType,
+    /// Attestation address (Light address for compressed, PDA for regular)
+    pub address: Pubkey,
+    /// Unix timestamp from attestation data
+    pub timestamp: i64,
+}
+
+/// Emitted when an attestation is closed
+#[event]
+pub struct AttestationClosed {
+    /// SAS schema address
+    pub sas_schema: Pubkey,
+    /// Agent that was attested
+    pub token_account: Pubkey,
+    /// Attestation address that was closed
+    pub address: Pubkey,
+    /// Unix timestamp
+    pub timestamp: i64,
+}
+```
+
+#### Event Emission Pattern
+
+For `emit_cpi!`, add `#[event_cpi]` to the accounts struct:
+
+```rust
+#[event_cpi]
+#[derive(Accounts)]
+pub struct CreateAttestation<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    // ... other accounts
+}
+
+pub fn create_attestation(ctx: Context<CreateAttestation>, params: CreateParams) -> Result<()> {
+    // ... verification and storage logic
+
+    emit_cpi!(AttestationCreated {
+        sas_schema: schema_config.sas_schema,
+        token_account: token_account_pubkey,
+        counterparty: counterparty_pubkey,
+        data_type: params.data_type,
+        storage_type: schema_config.storage_type,
+        address,
+        timestamp,
+    });
+
+    Ok(())
+}
+```
+
+**TypeScript event parsing:**
+
+```typescript
+import { Program, BorshCoder } from "@coral-xyz/anchor";
+import { IDL } from "./sati_attestation";
+
+const coder = new BorshCoder(IDL);
+
+// Parse events from transaction logs
+function parseEvents(logs: string[]) {
+    const events = [];
+    for (const log of logs) {
+        if (log.startsWith("Program data: ")) {
+            const data = Buffer.from(log.slice(14), "base64");
+            const event = coder.events.decode(data.toString("base64"));
+            if (event) events.push(event);
+        }
+    }
+    return events;
+}
+
+// Subscribe to program events via WebSocket
+connection.onLogs(ATTESTATION_PROGRAM_ID, (logs) => {
+    const events = parseEvents(logs.logs);
+    for (const event of events) {
+        if (event.name === "AttestationCreated") {
+            console.log("New attestation:", event.data);
+        }
+    }
+});
+```
 
 ### Agent Removal
 
@@ -161,6 +309,318 @@ pub struct RegisterSchemaConfig<'info> {
 
 **Security**: `has_one = authority` ensures only the registry authority can register new schema configurations. This prevents unauthorized parties from creating arbitrary schemas.
 
+### CreateAttestation Context (Compressed)
+
+```rust
+#[event_cpi]
+#[derive(Accounts)]
+pub struct CreateAttestation<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        seeds = [b"schema_config", schema_config.sas_schema.as_ref()],
+        bump = schema_config.bump,
+    )]
+    pub schema_config: Account<'info, SchemaConfig>,
+
+    /// CHECK: Verified via Ed25519 introspection
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+
+    // Light Protocol accounts passed via remaining_accounts
+    // See "Light SDK remaining_accounts" section below
+}
+```
+
+### CloseAttestation Context (Compressed)
+
+```rust
+#[event_cpi]
+#[derive(Accounts)]
+pub struct CloseAttestation<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,  // Must be counterparty (provider for ReputationScore)
+
+    #[account(
+        seeds = [b"schema_config", schema_config.sas_schema.as_ref()],
+        bump = schema_config.bump,
+    )]
+    pub schema_config: Account<'info, SchemaConfig>,
+
+    // Light Protocol accounts passed via remaining_accounts
+}
+```
+
+### CreateRegularAttestation Context (SAS)
+
+```rust
+#[event_cpi]
+#[derive(Accounts)]
+pub struct CreateRegularAttestation<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        seeds = [b"schema_config", schema_config.sas_schema.as_ref()],
+        bump = schema_config.bump,
+    )]
+    pub schema_config: Account<'info, SchemaConfig>,
+
+    /// CHECK: SATI Attestation Program PDA, authorized signer on SAS credential
+    #[account(
+        seeds = [b"sati_attestation"],
+        bump,
+    )]
+    pub sati_pda: AccountInfo<'info>,
+
+    /// CHECK: SATI SAS credential account
+    pub sati_credential: AccountInfo<'info>,
+
+    /// CHECK: SAS schema account
+    pub sas_schema: AccountInfo<'info>,
+
+    /// CHECK: Attestation PDA to be created
+    #[account(mut)]
+    pub attestation: AccountInfo<'info>,
+
+    /// CHECK: Verified via Ed25519 introspection
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+
+    pub sas_program: Program<'info, SolanaAttestationService>,
+    pub system_program: Program<'info, System>,
+}
+```
+
+### CloseRegularAttestation Context (SAS)
+
+```rust
+#[event_cpi]
+#[derive(Accounts)]
+pub struct CloseRegularAttestation<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub signer: Signer<'info>,  // Must be counterparty (provider)
+
+    #[account(
+        seeds = [b"schema_config", schema_config.sas_schema.as_ref()],
+        bump = schema_config.bump,
+    )]
+    pub schema_config: Account<'info, SchemaConfig>,
+
+    /// CHECK: SATI Attestation Program PDA
+    #[account(
+        seeds = [b"sati_attestation"],
+        bump,
+    )]
+    pub sati_pda: AccountInfo<'info>,
+
+    /// CHECK: SATI SAS credential account
+    pub sati_credential: AccountInfo<'info>,
+
+    /// CHECK: Attestation to be closed
+    #[account(mut)]
+    pub attestation: AccountInfo<'info>,
+
+    pub sas_program: Program<'info, SolanaAttestationService>,
+}
+```
+
+### Parameter Structs
+
+```rust
+/// Parameters for creating a compressed attestation
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct CreateParams {
+    pub data_type: u8,              // 0=Feedback, 1=Validation, 2=ReputationScore
+    pub data: Vec<u8>,              // Schema-conformant bytes (96+ bytes)
+    pub signatures: Vec<SignatureData>,  // Ed25519 signatures
+}
+
+/// Parameters for creating a regular (SAS) attestation
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct CreateRegularParams {
+    pub data_type: u8,              // Always 2 for ReputationScore
+    pub data: Vec<u8>,              // Schema-conformant bytes
+    pub signatures: Vec<SignatureData>,  // Single signature for SingleSigner mode
+    pub expiry: i64,                // 0 = never expires
+}
+
+/// Ed25519 signature with public key
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct SignatureData {
+    pub pubkey: Pubkey,
+    pub sig: [u8; 64],
+}
+```
+
+### Ed25519 Signature Verification via Instruction Introspection
+
+SATI uses Solana's Ed25519 precompile for signature verification. The calling transaction must include Ed25519 program instructions, which are verified via the instructions sysvar.
+
+```rust
+use solana_program::{
+    ed25519_program::ID as ED25519_PROGRAM_ID,
+    sysvar::instructions::{load_instruction_at_checked, ID as SYSVAR_INSTRUCTIONS_ID},
+};
+
+/// Ed25519 instruction data format (per signature)
+#[derive(Clone, Debug)]
+pub struct Ed25519SignatureOffsets {
+    pub signature_offset: u16,           // Offset to 64-byte signature
+    pub signature_instruction_index: u16, // Instruction index (0xFFFF = same instruction)
+    pub public_key_offset: u16,          // Offset to 32-byte pubkey
+    pub public_key_instruction_index: u16,
+    pub message_data_offset: u16,        // Offset to message
+    pub message_data_size: u16,          // Message size
+    pub message_instruction_index: u16,
+}
+
+/// Verify Ed25519 signatures by checking the transaction's Ed25519 program instructions
+pub fn verify_ed25519_signatures(
+    instructions_sysvar: &AccountInfo,
+    expected_signatures: &[SignatureData],
+    expected_messages: &[Vec<u8>],
+) -> Result<()> {
+    require!(
+        instructions_sysvar.key == &SYSVAR_INSTRUCTIONS_ID,
+        SatiError::InvalidInstructionsSysvar
+    );
+
+    // Find and validate Ed25519 program instructions
+    let mut verified_count = 0;
+    let mut index = 0;
+
+    loop {
+        match load_instruction_at_checked(index, instructions_sysvar) {
+            Ok(instruction) => {
+                if instruction.program_id == ED25519_PROGRAM_ID {
+                    // Parse Ed25519 instruction format
+                    // First byte: number of signatures
+                    // Then: 14 bytes per signature (offsets structure)
+                    // Then: actual signature data, pubkeys, and messages
+
+                    let data = &instruction.data;
+                    require!(data.len() >= 2, SatiError::InvalidEd25519Instruction);
+
+                    let num_signatures = data[0] as usize;
+                    require!(num_signatures > 0, SatiError::InvalidEd25519Instruction);
+
+                    // Each signature has 14-byte offset structure (7 u16 fields)
+                    const OFFSETS_SIZE: usize = 14;
+                    let offsets_start = 2;  // After num_signatures byte and padding
+
+                    for i in 0..num_signatures {
+                        let offset_pos = offsets_start + (i * OFFSETS_SIZE);
+                        require!(
+                            data.len() >= offset_pos + OFFSETS_SIZE,
+                            SatiError::InvalidEd25519Instruction
+                        );
+
+                        // Parse offsets
+                        let sig_offset = u16::from_le_bytes(
+                            data[offset_pos..offset_pos + 2].try_into().unwrap()
+                        ) as usize;
+                        let pubkey_offset = u16::from_le_bytes(
+                            data[offset_pos + 4..offset_pos + 6].try_into().unwrap()
+                        ) as usize;
+                        let msg_offset = u16::from_le_bytes(
+                            data[offset_pos + 8..offset_pos + 10].try_into().unwrap()
+                        ) as usize;
+                        let msg_size = u16::from_le_bytes(
+                            data[offset_pos + 10..offset_pos + 12].try_into().unwrap()
+                        ) as usize;
+
+                        // Extract and verify pubkey matches expected
+                        require!(
+                            data.len() >= pubkey_offset + 32,
+                            SatiError::InvalidEd25519Instruction
+                        );
+                        let pubkey_bytes: [u8; 32] = data[pubkey_offset..pubkey_offset + 32]
+                            .try_into()
+                            .unwrap();
+                        let pubkey = Pubkey::new_from_array(pubkey_bytes);
+
+                        // Check if this pubkey matches any expected signature
+                        for (j, expected) in expected_signatures.iter().enumerate() {
+                            if expected.pubkey == pubkey {
+                                // Verify message matches expected
+                                require!(
+                                    data.len() >= msg_offset + msg_size,
+                                    SatiError::InvalidEd25519Instruction
+                                );
+                                let msg = &data[msg_offset..msg_offset + msg_size];
+                                require!(
+                                    msg == expected_messages[j].as_slice(),
+                                    SatiError::MessageMismatch
+                                );
+
+                                // Verify signature matches (Ed25519 precompile validates crypto)
+                                require!(
+                                    data.len() >= sig_offset + 64,
+                                    SatiError::InvalidEd25519Instruction
+                                );
+                                let sig: [u8; 64] = data[sig_offset..sig_offset + 64]
+                                    .try_into()
+                                    .unwrap();
+                                require!(sig == expected.sig, SatiError::SignatureMismatch);
+
+                                verified_count += 1;
+                            }
+                        }
+                    }
+                }
+                index += 1;
+            }
+            Err(_) => break,  // No more instructions
+        }
+    }
+
+    // Ensure all expected signatures were found
+    require!(
+        verified_count == expected_signatures.len(),
+        SatiError::MissingSignatures
+    );
+
+    Ok(())
+}
+```
+
+**SDK usage**: The SDK must include Ed25519 program instructions in the transaction **before** calling SATI. The transaction structure is:
+
+```typescript
+// Build transaction with Ed25519 instructions first
+const ed25519Ix1 = Ed25519Program.createInstructionWithPublicKey({
+    publicKey: agentPubkey.toBytes(),
+    message: interactionHash,
+    signature: agentSignature,
+});
+
+const ed25519Ix2 = Ed25519Program.createInstructionWithPublicKey({
+    publicKey: clientPubkey.toBytes(),
+    message: feedbackHash,
+    signature: clientSignature,
+});
+
+const createAttestationIx = await satiProgram.methods
+    .createAttestation(params)
+    .accounts({ /* ... */ })
+    .instruction();
+
+// Transaction must have Ed25519 instructions before SATI instruction
+const tx = new Transaction()
+    .add(ed25519Ix1)
+    .add(ed25519Ix2)
+    .add(createAttestationIx);
+```
+
+**Security**: This approach is more gas-efficient than calling `ed25519_program` directly because:
+1. Ed25519 precompile runs at ~1,400 CU per signature
+2. Verification happens atomically in the same transaction
+3. No additional CPI overhead
+
 ### Full Signature Verification Implementation
 
 ```rust
@@ -188,17 +648,7 @@ pub fn create_compressed_attestation<'info>(
         SatiError::AttestationDataTooLarge
     );
 
-    // 3. Verify content size (content starts at offset 129, Vec<u8> has 4-byte length prefix)
-    // IMPORTANT: Check len >= 133 before accessing [129..133]
-    if params.data.len() >= 133 {
-        let content_len = u32::from_le_bytes(params.data[129..133].try_into()?) as usize;
-        require!(
-            content_len <= MAX_CONTENT_SIZE,  // 512 bytes
-            SatiError::ContentTooLarge
-        );
-    }
-
-    // 4. Parse base layout for signature binding
+    // 3. Parse base layout for signature binding
     let token_account_pubkey = Pubkey::try_from(&params.data[32..64])?;
     let counterparty_pubkey = Pubkey::try_from(&params.data[64..96])?;
 
@@ -211,27 +661,97 @@ pub fn create_compressed_attestation<'info>(
     // 6. Self-attestation prevention
     require!(token_account_pubkey != counterparty_pubkey, SelfAttestationNotAllowed);
 
-    // 7. Validate outcome and content_type ranges
-    // For Feedback (data_type=0): outcome at variable offset after content
-    // For Validation (data_type=1): validation_type and status at variable offset
-    if params.data_type == 0 && params.data.len() >= 133 {
-        let content_len = u32::from_le_bytes(params.data[129..133].try_into()?) as usize;
-        let outcome_offset = 133 + content_len;
-        if params.data.len() > outcome_offset {
-            let outcome = params.data[outcome_offset];
-            require!(outcome <= 2, SatiError::InvalidOutcome);  // 0=Negative, 1=Neutral, 2=Positive
-        }
-        // Validate content_type at offset 128
-        let content_type = params.data[128];
-        require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
+    // 4. Verify content size based on schema layout
+    // Feedback: content at offset 132, Validation: content at 131, ReputationScore: content at 98
+    let content_offset = match params.data_type {
+        0 => 132,  // Feedback: after data_hash(32) + content_type(1) + outcome(1) + tag1(1) + tag2(1)
+        1 => 131,  // Validation: after data_hash(32) + content_type(1) + validation_type(1) + status(1)
+        2 => 98,   // ReputationScore: after score(1) + content_type(1)
+        _ => return Err(SatiError::InvalidDataType.into()),
+    };
+
+    if params.data.len() >= content_offset + 4 {
+        let content_len = u32::from_le_bytes(
+            params.data[content_offset..content_offset + 4].try_into()?
+        ) as usize;
+        require!(
+            content_len <= MAX_CONTENT_SIZE,  // 512 bytes
+            SatiError::ContentTooLarge
+        );
     }
 
-    // 8. Verify Ed25519 signatures
+    // 5. Validate schema-specific fields at fixed offsets
+    match params.data_type {
+        0 => {
+            // Feedback: content_type at 128, outcome at 129, tag1 at 130, tag2 at 131
+            if params.data.len() >= 132 {
+                let content_type = params.data[128];
+                require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
+
+                let outcome = params.data[129];
+                require!(outcome <= 2, SatiError::InvalidOutcome);  // 0=Negative, 1=Neutral, 2=Positive
+            }
+        }
+        1 => {
+            // Validation: content_type at 128, validation_type at 129, status at 130
+            if params.data.len() >= 131 {
+                let content_type = params.data[128];
+                require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
+
+                let status = params.data[130];
+                require!(status <= 100, SatiError::InvalidStatus);  // 0-100 range
+            }
+        }
+        2 => {
+            // ReputationScore: score at 96, content_type at 97
+            if params.data.len() >= 98 {
+                let score = params.data[96];
+                require!(score <= 100, SatiError::InvalidScore);  // 0-100 range
+
+                let content_type = params.data[97];
+                require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
+            }
+        }
+        _ => return Err(SatiError::InvalidDataType.into()),
+    }
+
+    // 6. Construct expected message hashes for signature verification
     // For DualSignature mode, each party signs a DIFFERENT hash:
     // Agent: hash(sas_schema, task_ref, token_account, data_hash)
     // Counterparty: hash(sas_schema, task_ref, token_account, outcome)
-    verify_ed25519(params.signatures[0].pubkey, params.signatures[0].sig, interaction_hash)?;
-    verify_ed25519(params.signatures[1].pubkey, params.signatures[1].sig, feedback_hash)?;
+    let task_ref: [u8; 32] = params.data[0..32].try_into()?;
+    let data_hash: [u8; 32] = params.data[96..128].try_into()?;
+
+    let expected_messages = match params.data_type {
+        0 => {  // Feedback
+            let outcome = params.data[129];
+            vec![
+                compute_interaction_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, &data_hash),
+                compute_feedback_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, outcome),
+            ]
+        }
+        1 => {  // Validation
+            let status = params.data[130];
+            vec![
+                compute_interaction_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, &data_hash),
+                compute_validation_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, status),
+            ]
+        }
+        2 => {  // ReputationScore (single signer)
+            let score = params.data[96];
+            vec![
+                compute_reputation_hash(&schema_config.sas_schema, &token_account_pubkey, &counterparty_pubkey, score),
+            ]
+        }
+        _ => return Err(SatiError::InvalidDataType.into()),
+    };
+
+    // 7. Verify Ed25519 signatures via instruction introspection
+    verify_ed25519_signatures(
+        &ctx.accounts.instructions_sysvar,
+        &params.signatures,
+        &expected_messages,
+    )?;
 
     // 9. Derive deterministic address using task_ref
     // Note: Use schema_config.sas_schema (authoritative) instead of params.sas_schema
@@ -281,6 +801,7 @@ pub fn close_compressed_attestation<'info>(
     proof: ValidityProof,
     account_meta: CompressedAccountMeta,
     current_data: Vec<u8>,
+    data_type: u8,  // Pass data_type explicitly
     schema_config: &SchemaConfig,
 ) -> Result<()> {
     // 1. Check if schema allows closing
@@ -305,7 +826,7 @@ pub fn close_compressed_attestation<'info>(
         CompressedAttestation {
             sas_schema: schema_config.sas_schema,
             token_account,
-            data_type: current_data[64], // data_type offset
+            data_type,  // Passed as parameter
             data: current_data.clone(),
             signatures: vec![],
         },
@@ -333,6 +854,96 @@ pub fn close_compressed_attestation<'info>(
 **Authorization model:**
 - Feedback/Validation: `closeable=false` — cannot be closed (immutable)
 - ReputationScore: `closeable=true` — only provider (counterparty) can close to update
+
+---
+
+## Squads Integration (Smart Accounts)
+
+Agents can be owned by Squads smart accounts for multisig control, key rotation, and organizational ownership.
+
+### Why Squads for Agent Ownership
+
+| Aspect | Regular Wallet | Squads |
+|--------|---------------|--------|
+| Key compromise | Agent lost | Rotate member keys |
+| Organizational control | Single person | Multi-signature approval |
+| Soulbound agents | Permanently locked | Can still change control via member updates |
+| Succession planning | Manual transfer | Built-in member management |
+
+### Registering an Agent with Squads Ownership
+
+```typescript
+import { Multisig } from "@sqds/sdk";
+
+// 1. Create or use existing Squads multisig
+const multisig = await Multisig.create({
+    connection,
+    threshold: 2,           // 2-of-3 approval
+    members: [member1, member2, member3],
+    createKey: Keypair.generate(),
+});
+
+// 2. Get the Squads vault ATA (will own the agent NFT)
+const squadsVault = multisig.getDefaultVaultPda();
+
+// 3. Register agent with Squads as owner
+// The vault becomes the token account holder
+await sati.registerAgent({
+    name: "OrgAgent",
+    symbol: "SATI",
+    uri: "ipfs://...",
+    owner: squadsVault,           // Squads vault owns the agent
+    nonTransferable: false,       // Can transfer within Squads control
+    additionalMetadata: [
+        ["agentWallet", `solana:5eykt4...:${agentWallet.toBase58()}`],
+        ["managedBy", "squads"],
+    ],
+});
+```
+
+### Updating Agent Metadata via Squads
+
+```typescript
+// 1. Create transaction to update metadata
+const updateIx = await sati.updateAgentMetadataInstruction({
+    mint: agentMint,
+    field: "uri",
+    value: "ipfs://new-registration-file",
+});
+
+// 2. Create Squads proposal
+const proposalPda = await multisig.createTransactionProposal({
+    transactionIndex: await multisig.getNextTransactionIndex(),
+    creator: member1,
+    instructions: [updateIx],
+});
+
+// 3. Members approve
+await multisig.approveProposal(proposalPda, member1);
+await multisig.approveProposal(proposalPda, member2);  // Meets threshold
+
+// 4. Execute
+await multisig.executeTransaction(proposalPda);
+```
+
+### Soulbound Agents with Squads
+
+For soulbound agents that need organizational control:
+
+```typescript
+// Register as soulbound but owned by Squads
+await sati.registerAgent({
+    name: "OrgSoulboundAgent",
+    owner: squadsVault,
+    nonTransferable: true,  // Cannot transfer...
+    // ...but Squads members can be rotated
+});
+
+// Key rotation: add new member, remove compromised member
+await multisig.addMember(newMember);
+await multisig.removeMember(compromisedMember);
+// Agent control is updated without transferring
+```
 
 ---
 
@@ -374,6 +985,52 @@ Incorrect ordering causes silent failures or runtime errors.
 - `did` — DID document reference
 - `a2a` — A2A agent card URL
 - `mcp` — MCP endpoint URL
+
+### Agent Wallet vs Token Account (Multi-Chain)
+
+SATI distinguishes between two identifiers:
+
+| Identifier | Purpose | Format |
+|-----------|---------|--------|
+| `token_account` | On-chain identity (Solana NFT mint) | Solana Pubkey |
+| `agentWallet` | Operational wallet for payments/signing | CAIP-10 (any chain) |
+
+**Why separate?**
+- Agent may operate on multiple chains with different wallets
+- Identity (NFT) is Solana-native, but payments can be on Base, Ethereum, etc.
+- Allows same agent identity across x402 payments on different chains
+
+**Example multi-chain agent:**
+
+```typescript
+// Register with Solana operational wallet
+await sati.registerAgent({
+    name: "MultiChainAgent",
+    additionalMetadata: [
+        // Solana wallet for Solana x402 payments
+        ["agentWallet", "solana:5eykt4...:7S3P4HxJpy..."],
+        // Base wallet for Base x402 payments
+        ["agentWallet:base", "eip155:8453:0x742d35Cc6634..."],
+        // Ethereum wallet
+        ["agentWallet:ethereum", "eip155:1:0xAbC123..."],
+    ],
+});
+```
+
+**Feedback binding:**
+- `task_ref` uses CAIP-220 format: includes chain ID where payment occurred
+- `token_account` always references Solana NFT mint (agent identity)
+- Counterparty can be on any chain (CAIP-10 in registration file)
+
+```typescript
+// Feedback for x402 payment on Base
+await sati.createFeedback({
+    tokenAccount: agentMint,              // Solana identity
+    taskRef: hashFromBasePayment,         // CAIP-220 from Base tx
+    counterparty: clientSolanaPubkey,     // Client's Solana signing key
+    // ...
+});
+```
 
 ---
 
@@ -423,6 +1080,26 @@ Light Protocol uses **concurrent merkle trees** for state storage:
 | Canopy depth | 10 (reduced proof size) |
 
 SATI uses shared public state trees (no tree deployment needed).
+
+### Light SDK remaining_accounts
+
+The SATI Attestation Program does not explicitly list Light Protocol accounts in its Anchor context. Instead, they are passed via `remaining_accounts` and parsed by `CpiAccounts::new()`. This is by design:
+
+**Why SDK handles remaining_accounts:**
+1. **Off-chain query required**: The SDK must query Photon to determine which state/address trees to use
+2. **Dynamic account selection**: Tree selection depends on current tree capacity and network conditions
+3. **Validity proof generation**: Proofs are generated off-chain and include tree-specific data
+4. **Program cannot query**: On-chain programs cannot query Photon or determine optimal trees
+
+The typical accounts passed via `remaining_accounts`:
+- Light System Program
+- Account Compression Program
+- Noop Program (for event logging)
+- State tree account(s)
+- Address tree account(s)
+- Nullifier queue(s)
+
+The SDK handles all of this transparently via `createRpc()` from `@lightprotocol/stateless.js`.
 
 ### CPI Validation Note
 
@@ -565,7 +1242,7 @@ Deterministic nonce ensures one ReputationScore per (provider, agent) pair:
 ```rust
 fn compute_regular_nonce(params: &CreateRegularParams) -> Result<Pubkey> {
     let token_account = &params.data[32..64];
-    let counterparty = &params.data[64..96];  // provider
+    let counterparty = &params.data[64..96];  // For ReputationScore, counterparty = provider
 
     // One ReputationScore per (provider, agent) pair
     let nonce_bytes = keccak256(&[counterparty, token_account].concat());
@@ -575,6 +1252,48 @@ fn compute_regular_nonce(params: &CreateRegularParams) -> Result<Pubkey> {
 ```
 
 Provider updates by closing old attestation + creating new one with same deterministic nonce (rent neutral).
+
+### Expiry Patterns
+
+SAS attestations support an `expiry` field for time-limited validity:
+
+```rust
+// Create with 30-day expiry
+CreateAttestationCpiBuilder::new(&ctx.accounts.sas_program)
+    .nonce(nonce)
+    .data(params.data.clone())
+    .expiry(Clock::get()?.unix_timestamp + 30 * 24 * 60 * 60)  // 30 days
+    .invoke_signed(&[sati_pda_seeds])?;
+
+// Create with no expiry (0 = never expires)
+CreateAttestationCpiBuilder::new(&ctx.accounts.sas_program)
+    .nonce(nonce)
+    .data(params.data.clone())
+    .expiry(0)
+    .invoke_signed(&[sati_pda_seeds])?;
+```
+
+**Expiry use cases:**
+
+| Schema | Recommended Expiry | Rationale |
+|--------|-------------------|-----------|
+| Feedback | 0 (never) | Historical record, immutable |
+| Validation | 0 or 90 days | May want to re-validate periodically |
+| ReputationScore | 30 days | Scores should be refreshed regularly |
+
+**Checking expiry client-side:**
+
+```typescript
+const attestation = await getReputationScore(provider, agent);
+
+// Check if expired
+const now = Math.floor(Date.now() / 1000);
+if (attestation.expiry > 0 && attestation.expiry < now) {
+    console.log("ReputationScore expired, request fresh score");
+}
+```
+
+**Note**: Expiry is not enforced on-chain for reads — any program can read expired attestations. Enforcement is at the application layer (consumers should check expiry).
 
 ### close_regular_attestation Implementation
 
@@ -718,13 +1437,15 @@ Offset   Size      Field
 64       32        counterparty: Pubkey
 96       32        data_hash: [u8; 32]
 128      1         content_type: u8
-129      4+N       content: Vec<u8>        // Borsh: 4-byte len prefix + N bytes
-129+4+N  1         outcome: u8
-130+4+N  1         tag1: u8
-131+4+N  1         tag2: u8
+129      1         outcome: u8            // Fixed offset for memcmp filtering
+130      1         tag1: u8
+131      1         tag2: u8
+132      4+N       content: Vec<u8>        // Borsh: 4-byte len prefix + N bytes
 ```
 
 **Borsh Vec<u8> encoding**: `[length: u32 LE][data: u8 × length]`
+
+**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment.
 
 **Minimum size**: 136 bytes (empty content: 4-byte length prefix with N=0)
 **Example with 50-byte JSON**: 186 bytes (136 + 50)
@@ -797,6 +1518,14 @@ const accountProof = await helius.zk.getCompressedAccountProof({
 **Note on byte offsets**: The 8-byte discriminator is INCLUDED in memcmp filtering:
 - `sas_schema`: offset 8 (after discriminator)
 - `token_account`: offset 40 (8 + 32)
+- `outcome` (Feedback): offset 137 (8 + 129)
+- `status` (Validation): offset 138 (8 + 130)
+
+**Client-side aggregation**: SATI stores complete feedback histories rather than on-chain aggregates. Aggregation (averages, weighted scores, time-decay) is performed client-side via Photon cursor pagination. This design enables:
+- Spam detection via pattern analysis
+- Reviewer reputation weighting
+- Custom scoring algorithms per consumer
+- No on-chain upgrade required for algorithm changes
 
 ### Helius Photon Endpoints
 
@@ -935,6 +1664,100 @@ await sati.updateReputationScore({
 | `subscribeToAgentEvents(callback)` | WebSocket subscription | `Subscription` |
 | `subscribeToAttestationEvents(callback)` | WebSocket subscription | `Subscription` |
 
+### SDK Helper Signatures
+
+**Hash construction helpers:**
+
+```typescript
+// Compute the hash agent signs (blind to outcome)
+function computeInteractionHash(params: {
+    sasSchema: PublicKey;
+    taskRef: Uint8Array;
+    tokenAccount: PublicKey;
+    dataHash: Uint8Array;
+}): Uint8Array;
+
+// Compute the hash counterparty signs (with outcome)
+function computeFeedbackHash(params: {
+    sasSchema: PublicKey;
+    taskRef: Uint8Array;
+    tokenAccount: PublicKey;
+    outcome: Outcome;
+}): Uint8Array;
+
+// Compute the hash provider signs
+function computeReputationHash(params: {
+    sasSchema: PublicKey;
+    tokenAccount: PublicKey;
+    provider: PublicKey;
+    score: number;
+}): Uint8Array;
+```
+
+**Address derivation helpers:**
+
+```typescript
+// Derive compressed attestation address
+function deriveAttestationAddress(params: {
+    taskRef: Uint8Array;
+    sasSchema: PublicKey;
+    tokenAccount: PublicKey;
+    counterparty: PublicKey;
+    addressTree: PublicKey;
+}): PublicKey;
+
+// Derive ReputationScore PDA
+function deriveReputationScorePda(params: {
+    provider: PublicKey;
+    tokenAccount: PublicKey;
+}): PublicKey;
+
+// Derive agent token account from mint
+function deriveAgentTokenAccount(params: {
+    mint: PublicKey;
+    owner: PublicKey;
+}): PublicKey;
+```
+
+**Instruction builders (for custom transaction construction):**
+
+```typescript
+// Build register_agent instruction
+function registerAgentInstruction(params: RegisterAgentParams): TransactionInstruction;
+
+// Build create_attestation instruction
+function createAttestationInstruction(params: CreateAttestationParams): TransactionInstruction;
+
+// Build close_attestation instruction
+function closeAttestationInstruction(params: CloseAttestationParams): TransactionInstruction;
+
+// Build update_metadata instruction (direct Token-2022)
+function updateAgentMetadataInstruction(params: {
+    mint: PublicKey;
+    field: string;
+    value: string;
+}): TransactionInstruction;
+```
+
+**Verification helpers:**
+
+```typescript
+// Verify Ed25519 signature locally
+function verifySignature(params: {
+    publicKey: PublicKey;
+    message: Uint8Array;
+    signature: Uint8Array;
+}): boolean;
+
+// Verify attestation signatures match expected hashes
+function verifyAttestationSignatures(attestation: Attestation): boolean;
+
+// Check if ReputationScore is expired
+function isExpired(attestation: ReputationScore): boolean;
+```
+
+**Why SDK verifies signatures locally**: The SDK validates signatures before submitting transactions to fail fast and avoid wasted network round-trips. On-chain verification via Ed25519 introspection is the authoritative check, but local verification provides immediate feedback to developers.
+
 ---
 
 ## Security Implementation Details
@@ -970,6 +1793,127 @@ await sati.updateReputationScore({
 | Canonical signatures | Ed25519 signatures must be in canonical form (s < L/2) |
 
 **Note on Ed25519 verification**: Solana's `ed25519_program` precompile is used via instruction introspection. The calling transaction must include Ed25519 program instructions with signatures, which the SATI program verifies via the instructions sysvar.
+
+### Signature Message Construction
+
+For DualSignature mode (Feedback, Validation), agent and counterparty sign **different** messages:
+
+**Agent's Interaction Hash** (signed with response, blind to outcome):
+```rust
+/// Agent signs this hash when responding to the request (before knowing outcome)
+fn compute_interaction_hash(
+    sas_schema: &Pubkey,
+    task_ref: &[u8; 32],
+    token_account: &Pubkey,
+    data_hash: &[u8; 32],  // Hash of request data (agent's commitment)
+) -> [u8; 32] {
+    // Domain separator prevents cross-schema replay
+    let domain = b"SATI:interaction:v1";
+
+    let message = [
+        domain.as_slice(),
+        sas_schema.as_ref(),      // 32 bytes
+        task_ref.as_ref(),        // 32 bytes
+        token_account.as_ref(),   // 32 bytes
+        data_hash.as_ref(),       // 32 bytes
+    ].concat();
+
+    keccak256(&message)
+}
+```
+
+**Counterparty's Feedback Hash** (signed after receiving service):
+```rust
+/// Counterparty signs this hash when providing feedback (after service complete)
+fn compute_feedback_hash(
+    sas_schema: &Pubkey,
+    task_ref: &[u8; 32],
+    token_account: &Pubkey,
+    outcome: u8,  // 0=Negative, 1=Neutral, 2=Positive
+) -> [u8; 32] {
+    // Domain separator prevents cross-schema replay
+    let domain = b"SATI:feedback:v1";
+
+    let message = [
+        domain.as_slice(),
+        sas_schema.as_ref(),      // 32 bytes
+        task_ref.as_ref(),        // 32 bytes
+        token_account.as_ref(),   // 32 bytes
+        &[outcome],               // 1 byte
+    ].concat();
+
+    keccak256(&message)
+}
+```
+
+**SingleSigner Mode** (ReputationScore):
+```rust
+/// Provider signs this hash when publishing a score
+fn compute_reputation_hash(
+    sas_schema: &Pubkey,
+    token_account: &Pubkey,
+    provider: &Pubkey,
+    score: u8,  // 0-100
+) -> [u8; 32] {
+    let domain = b"SATI:reputation:v1";
+
+    let message = [
+        domain.as_slice(),
+        sas_schema.as_ref(),      // 32 bytes
+        token_account.as_ref(),   // 32 bytes
+        provider.as_ref(),        // 32 bytes
+        &[score],                 // 1 byte
+    ].concat();
+
+    keccak256(&message)
+}
+```
+
+**TypeScript SDK equivalent:**
+```typescript
+import { keccak_256 } from "@noble/hashes/sha3";
+
+function computeInteractionHash(
+    sasSchema: PublicKey,
+    taskRef: Uint8Array,      // 32 bytes
+    tokenAccount: PublicKey,
+    dataHash: Uint8Array,     // 32 bytes
+): Uint8Array {
+    const domain = new TextEncoder().encode("SATI:interaction:v1");
+    const message = new Uint8Array([
+        ...domain,
+        ...sasSchema.toBytes(),
+        ...taskRef,
+        ...tokenAccount.toBytes(),
+        ...dataHash,
+    ]);
+    return keccak_256(message);
+}
+
+function computeFeedbackHash(
+    sasSchema: PublicKey,
+    taskRef: Uint8Array,
+    tokenAccount: PublicKey,
+    outcome: number,          // 0, 1, or 2
+): Uint8Array {
+    const domain = new TextEncoder().encode("SATI:feedback:v1");
+    const message = new Uint8Array([
+        ...domain,
+        ...sasSchema.toBytes(),
+        ...taskRef,
+        ...tokenAccount.toBytes(),
+        outcome,
+    ]);
+    return keccak_256(message);
+}
+```
+
+**Security properties:**
+- Domain separation (`SATI:interaction:v1` vs `SATI:feedback:v1`) prevents replay across message types
+- Schema inclusion prevents cross-schema replay
+- Agent signs before knowing outcome (blind feedback model)
+- Counterparty cannot forge agent's signature (requires agent's private key)
+- Agent cannot forge counterparty's feedback (requires counterparty's private key)
 
 ### Light Protocol Security
 
@@ -1038,6 +1982,12 @@ pub enum SatiError {
     InvalidOutcome,
     #[msg("Invalid content type (must be 0-4)")]
     InvalidContentType,
+    #[msg("Invalid data type")]
+    InvalidDataType,
+    #[msg("Invalid score value (must be 0-100)")]
+    InvalidScore,
+    #[msg("Invalid validation status (must be 0-100)")]
+    InvalidStatus,
     #[msg("Light Protocol CPI invocation failed")]
     LightCpiInvocationFailed,
 }
@@ -1123,43 +2073,231 @@ To make the registry immutable, call `updateRegistryAuthority(null)`. This sets 
 
 ## Escrow Integration
 
-Compressed attestations enable automatic escrow release via ZK proofs:
+Compressed attestations enable automatic escrow release via ZK proofs. An escrow program can verify that a validation attestation exists and meets release criteria.
+
+### Escrow Program with Light CPI Verification
 
 ```rust
-// Escrow contract verifies validation before releasing funds
-fn release_escrow(
-    attestation_proof: ValidityProof,    // From Photon (Groth16 ZK proof)
-    attestation_data: Vec<u8>,           // Parsed attestation
-) -> Result<()> {
-    // Verify compressed account exists via Light CPI
-    light_system_program::verify_compressed_account(
-        &attestation_proof,
-        &expected_address,
-    )?;
+use anchor_lang::prelude::*;
+use light_sdk::{
+    account::LightAccount,
+    address::v1::derive_address,
+    cpi::{v1::CpiAccounts, CpiSigner},
+    derive_light_cpi_signer,
+    instruction::{account_meta::CompressedAccountMeta, PackedAddressTreeInfo, ValidityProof},
+    LightDiscriminator, LightHasher,
+};
 
-    // Parse attestation data (escrow knows Validation data structure)
-    let attestation: CompressedAttestation = parse_attestation(&attestation_data)?;
-    require!(attestation.data_type == 1, InvalidDataType);  // Must be validation
+declare_id!("EscrowProgramID...");
 
-    let validation: Validation = parse_data(&attestation.data)?;
-    require!(validation.status >= PASS_THRESHOLD, ValidationFailed);
+pub const LIGHT_CPI_SIGNER: CpiSigner = derive_light_cpi_signer!("EscrowProgramID...");
 
-    // Release escrow
-    transfer_funds(escrow, recipient)?;
+/// Minimum validation status required to release escrow (0-100 scale)
+pub const PASS_THRESHOLD: u8 = 80;
 
-    Ok(())
+#[program]
+pub mod escrow {
+    use super::*;
+    use light_sdk::cpi::{v1::LightSystemProgramCpi, InvokeLightSystemProgram};
+
+    /// Release escrow funds if valid validation attestation exists
+    pub fn release_escrow<'info>(
+        ctx: Context<'_, '_, '_, 'info, ReleaseEscrow<'info>>,
+        proof: ValidityProof,
+        account_meta: CompressedAccountMeta,
+        attestation_data: Vec<u8>,           // Current attestation state
+        expected_task_ref: [u8; 32],          // Task this escrow is for
+        expected_agent: Pubkey,               // Agent who should be validated
+    ) -> Result<()> {
+        let light_cpi_accounts = CpiAccounts::new(
+            ctx.accounts.signer.as_ref(),
+            ctx.remaining_accounts,
+            crate::LIGHT_CPI_SIGNER,
+        );
+
+        // 1. Reconstruct the compressed attestation from provided data
+        let attestation = CompressedAttestation {
+            sas_schema: ctx.accounts.validation_schema.key(),
+            token_account: expected_agent,
+            data_type: 1,  // Validation
+            data: attestation_data.clone(),
+            signatures: vec![],  // Signatures stored but not needed for verification
+        };
+
+        // 2. Verify the compressed account exists via Light System Program
+        // This proves the attestation is in the merkle tree with the given hash
+        let account = LightAccount::<CompressedAttestation>::new_mut(
+            &SATI_ATTESTATION_PROGRAM_ID,
+            &account_meta,
+            attestation,
+        )?;
+
+        // The proof verification happens in LightSystemProgramCpi
+        // If the account doesn't exist or data doesn't match, this fails
+        LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, proof)
+            .with_light_account(account)?
+            .invoke(light_cpi_accounts)?;
+
+        // 3. Parse and validate the attestation data
+        // Base layout: task_ref(32) + token_account(32) + counterparty(32)
+        require!(attestation_data.len() >= 96, EscrowError::InvalidAttestation);
+
+        let task_ref: [u8; 32] = attestation_data[0..32].try_into()?;
+        let token_account = Pubkey::try_from(&attestation_data[32..64])?;
+
+        // Verify task_ref matches expected
+        require!(task_ref == expected_task_ref, EscrowError::TaskMismatch);
+
+        // Verify agent matches expected
+        require!(token_account == expected_agent, EscrowError::AgentMismatch);
+
+        // 4. Parse validation-specific fields at fixed offsets
+        // Validation layout: base(96) + data_hash(32) + content_type(1) + validation_type(1) + status(1) + content(4+N)
+        require!(attestation_data.len() >= 131, EscrowError::InvalidAttestation);
+
+        let status = attestation_data[130];  // Fixed offset for memcmp filtering
+        require!(status >= PASS_THRESHOLD, EscrowError::ValidationFailed);
+
+        // 5. Release escrow funds
+        let escrow_seeds = &[
+            b"escrow",
+            expected_task_ref.as_ref(),
+            &[ctx.bumps.escrow],
+        ];
+
+        anchor_lang::system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.escrow.to_account_info(),
+                    to: ctx.accounts.recipient.to_account_info(),
+                },
+                &[escrow_seeds],
+            ),
+            ctx.accounts.escrow.lamports(),
+        )?;
+
+        emit!(EscrowReleased {
+            task_ref: expected_task_ref,
+            agent: expected_agent,
+            recipient: ctx.accounts.recipient.key(),
+            amount: ctx.accounts.escrow.lamports(),
+            validation_status: status,
+        });
+
+        Ok(())
+    }
+}
+
+#[derive(Accounts)]
+#[instruction(expected_task_ref: [u8; 32])]
+pub struct ReleaseEscrow<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    /// CHECK: Validation schema account for verification
+    pub validation_schema: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"escrow", expected_task_ref.as_ref()],
+        bump,
+    )]
+    pub escrow: SystemAccount<'info>,
+
+    /// CHECK: Recipient receives the escrowed funds
+    #[account(mut)]
+    pub recipient: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[event]
+pub struct EscrowReleased {
+    pub task_ref: [u8; 32],
+    pub agent: Pubkey,
+    pub recipient: Pubkey,
+    pub amount: u64,
+    pub validation_status: u8,
+}
+
+#[error_code]
+pub enum EscrowError {
+    #[msg("Invalid attestation data")]
+    InvalidAttestation,
+    #[msg("Task reference mismatch")]
+    TaskMismatch,
+    #[msg("Agent mismatch")]
+    AgentMismatch,
+    #[msg("Validation status below threshold")]
+    ValidationFailed,
 }
 ```
 
-**SDK interface:**
+### TypeScript Client for Escrow Release
 
 ```typescript
-// Get proof from Photon (works for any attestation type)
-const { proof, attestation } = await sati.getAttestationProof(tokenAccount, dataType, taskRef);
+import { createRpc } from "@lightprotocol/stateless.js";
+import { PublicKey } from "@solana/web3.js";
 
-// Verify and use for escrow release
-const valid = await sati.verifyAttestation(proof, attestation);
+const rpc = createRpc("https://mainnet.helius-rpc.com?api-key=YOUR_KEY");
+
+async function releaseEscrowWithValidation(
+    taskRef: Uint8Array,
+    agent: PublicKey,
+    validationSchema: PublicKey,
+) {
+    // 1. Find the validation attestation for this task
+    const attestations = await rpc.getCompressedAccountsByOwner({
+        owner: SATI_ATTESTATION_PROGRAM_ID.toBase58(),
+        filters: [
+            { memcmp: { offset: 8, bytes: validationSchema.toBase58() } },  // schema
+            { memcmp: { offset: 40, bytes: agent.toBase58() } },            // token_account
+        ],
+    });
+
+    // 2. Find matching task_ref in attestation data
+    const matching = attestations.value.items.find((item) => {
+        const data = item.data;
+        const attestationTaskRef = data.slice(0, 32);
+        return Buffer.compare(attestationTaskRef, taskRef) === 0;
+    });
+
+    if (!matching) {
+        throw new Error("No validation attestation found for this task");
+    }
+
+    // 3. Get validity proof for the attestation
+    const proof = await rpc.getValidityProof({
+        hashes: [matching.hash],
+    });
+
+    // 4. Build and send release transaction
+    const tx = await escrowProgram.methods
+        .releaseEscrow(
+            proof.compressedProof,
+            matching.accountMeta,
+            matching.data,
+            Array.from(taskRef),
+            agent,
+        )
+        .accounts({
+            validationSchema,
+            escrow: deriveEscrowPda(taskRef),
+            recipient: agent,
+        })
+        .remainingAccounts(proof.remainingAccounts)
+        .rpc();
+
+    return tx;
+}
 ```
+
+**Key security properties:**
+- ZK proof ensures attestation exists in merkle tree and wasn't forged
+- `account_meta` ties the proof to specific account hash
+- Light CPI verification fails if data doesn't match the proven state
+- Task_ref check ensures escrow is released for the correct task
 
 ---
 
@@ -1169,7 +2307,7 @@ const valid = await sati.verifyAttestation(proof, attestation);
 
 | Program | Devnet | Mainnet | Status |
 |---------|--------|---------|--------|
-| Registry Program | `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF` | `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF` | **Deployed** |
+| Registry Program | TBD | TBD | Pending |
 | Attestation Program | TBD | TBD | Pending |
 | SAS Program | `22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG` | `22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG` | External |
 
@@ -1177,8 +2315,8 @@ const valid = await sati.verifyAttestation(proof, attestation);
 
 | Account | Devnet | Mainnet |
 |---------|--------|---------|
-| Registry Config (PDA) | `5tMXnDjqVsvQoem8tZ74nAMU1KYntUSTNEnMDoGFjnij` | `5tMXnDjqVsvQoem8tZ74nAMU1KYntUSTNEnMDoGFjnij` |
-| Group Mint | `4W3mJSqV6xkQXz1W1BW6ue3RBcMrY54tKnkpZ63ePMJ3` | `A1jEZyAasuU7D8NrcaQn7PD9To8eG2i9gxyFjy6Mii9q` |
+| Registry Config (PDA) | TBD | TBD |
+| Group Mint | TBD | TBD |
 
 ### SAS Accounts
 
@@ -1202,7 +2340,7 @@ SAS Schema PDA:         ["schema", credential, name, version]
 SAS Attestation PDA:    ["attestation", credential, schema, nonce]
 ```
 
-*Registry Program verified via solana-verify on-chain.*
+*Programs will be verified via solana-verify upon deployment.*
 
 ### Off-Chain Storage
 
