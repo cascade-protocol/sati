@@ -69,8 +69,6 @@ pub struct AgentRegistered {
     pub uri: String,
     /// Whether the agent is soulbound (non-transferable)
     pub non_transferable: bool,
-    /// Unix timestamp when registered
-    pub timestamp: i64,
 }
 
 /// Emitted when registry authority is updated or renounced
@@ -80,8 +78,6 @@ pub struct RegistryAuthorityUpdated {
     pub old_authority: Option<Pubkey>,
     /// New authority (None = renounced/immutable)
     pub new_authority: Option<Pubkey>,
-    /// Unix timestamp
-    pub timestamp: i64,
 }
 ```
 
@@ -99,8 +95,6 @@ pub struct SchemaConfigRegistered {
     pub storage_type: StorageType,
     /// Whether attestations can be closed
     pub closeable: bool,
-    /// Unix timestamp
-    pub timestamp: i64,
 }
 
 /// Emitted when an attestation is created (compressed or regular)
@@ -118,8 +112,6 @@ pub struct AttestationCreated {
     pub storage_type: StorageType,
     /// Attestation address (Light address for compressed, PDA for regular)
     pub address: Pubkey,
-    /// Unix timestamp from attestation data
-    pub timestamp: i64,
 }
 
 /// Emitted when an attestation is closed
@@ -131,8 +123,6 @@ pub struct AttestationClosed {
     pub token_account: Pubkey,
     /// Attestation address that was closed
     pub address: Pubkey,
-    /// Unix timestamp
-    pub timestamp: i64,
 }
 ```
 
@@ -159,7 +149,6 @@ pub fn create_attestation(ctx: Context<CreateAttestation>, params: CreateParams)
         data_type: params.data_type,
         storage_type: schema_config.storage_type,
         address,
-        timestamp,
     });
 
     Ok(())
@@ -1240,10 +1229,10 @@ pub fn create_regular_attestation<'info>(
     emit_cpi!(AttestationCreated {
         sas_schema: schema_config.sas_schema,
         token_account,
+        counterparty,
         data_type: params.data_type,
         storage_type: StorageType::Regular,
         address: ctx.accounts.attestation.key(),
-        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())
