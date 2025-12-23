@@ -1,5 +1,3 @@
-#![allow(ambiguous_glob_reexports)]
-
 pub mod initialize;
 pub mod register_agent;
 pub mod update_authority;

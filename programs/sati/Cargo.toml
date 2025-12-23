@@ -1,0 +1,47 @@
+[package]
+name = "sati"
+version = "0.1.0"
+description = "SATI - Solana Agent Trust Infrastructure"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/cascade-protocol/sati"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sati"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+# Core
+anchor-lang = { workspace = true, features = ["event-cpi"] }
+anchor-spl.workspace = true
+solana-security-txt.workspace = true
+solana-program.workspace = true
+
+# Token-2022 (registry)
+spl-token-2022 = "8.0"
+spl-token-metadata-interface = "0.7"
+spl-token-group-interface = "0.6"
+spl-type-length-value = "0.8"
+spl-associated-token-account = { version = "7.0", features = ["no-entrypoint"] }
+
+# Light Protocol (attestation)
+light-sdk.workspace = true
+light-hasher.workspace = true
+
+# SAS (attestation)
+solana-attestation-service-client.workspace = true
+
+# Crypto
+sha3.workspace = true
+
+[dev-dependencies]
+mollusk-svm = "0.5"
+mollusk-svm-bencher = "0.5"
+mollusk-svm-programs-token = "0.5"
+solana-sdk.workspace = true

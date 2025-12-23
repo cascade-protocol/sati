@@ -103,6 +103,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aligned-sized"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48a526ec4434d531d488af59fe866f36b310fe8906691c75dffa664450a3800a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "alloc-no-stdlib"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1804,6 +1815,91 @@ dependencies = [
 ]
 
 [[package]]
+name = "light-account-checks"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0785da22cd4a7667583141ca56c790a5c8afa2b22ad2a08204d78881035524e8"
+dependencies = [
+ "solana-account-info",
+ "solana-msg",
+ "solana-program-error",
+ "solana-pubkey",
+ "solana-sysvar",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "light-compressed-account"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "058df2733fa6a3e4bda6f162a6c5d41f10fc8c6f6ddb992af1de76b60214e4a6"
+dependencies = [
+ "borsh 0.10.4",
+ "light-hasher",
+ "light-macros",
+ "light-program-profiler",
+ "light-zero-copy",
+ "pinocchio",
+ "solana-msg",
+ "solana-program-error",
+ "solana-pubkey",
+ "thiserror 2.0.17",
+ "tinyvec",
+ "zerocopy",
+]
+
+[[package]]
+name = "light-compressible"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3648e2cd17ed29c72fefd95c099c9673a289e7ce1fd9b76f7f16cc1e5ddaf97"
+dependencies = [
+ "aligned-sized",
+ "borsh 0.10.4",
+ "bytemuck",
+ "light-account-checks",
+ "light-compressed-account",
+ "light-hasher",
+ "light-macros",
+ "light-program-profiler",
+ "light-zero-copy",
+ "pinocchio",
+ "pinocchio-pubkey",
+ "solana-msg",
+ "solana-program-error",
+ "solana-pubkey",
+ "solana-sysvar",
+ "thiserror 2.0.17",
+ "zerocopy",
+]
+
+[[package]]
+name = "light-hasher"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c822662e6e109bac0e132a43fd52a4ef684811245a794e048cf9cda001e934c8"
+dependencies = [
+ "borsh 0.10.4",
+ "num-bigint 0.4.6",
+ "sha2 0.10.9",
+ "thiserror 2.0.17",
+ "tinyvec",
+]
+
+[[package]]
+name = "light-macros"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "179ac51cadc1d0ca047b4d6265a7cc245ca3affc16a20a2749585aa6464d39c2"
+dependencies = [
+ "bs58",
+ "proc-macro2",
+ "quote",
+ "solana-pubkey",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "light-poseidon"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1813,6 +1909,107 @@ dependencies = [
  "ark-ff",
  "num-bigint 0.4.6",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "light-profiler-macro"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a8be18fe4de58a6f754caa74a3fbc6d8a758a26f1f3c24d5b0f5b55df5f5408"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "light-program-profiler"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1d345871581aebd8825868a3f08410290aa1cdddcb189ca7f7e588f61d79fcf"
+dependencies = [
+ "light-profiler-macro",
+]
+
+[[package]]
+name = "light-sdk"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58d6105c9ca358c0c484d83cae451eb5f12c869e82bd0a70dc1fb79a11051c5e"
+dependencies = [
+ "bincode",
+ "borsh 0.10.4",
+ "light-account-checks",
+ "light-compressed-account",
+ "light-compressible",
+ "light-hasher",
+ "light-macros",
+ "light-sdk-macros",
+ "light-sdk-types",
+ "light-zero-copy",
+ "num-bigint 0.4.6",
+ "solana-account-info",
+ "solana-clock",
+ "solana-cpi",
+ "solana-instruction",
+ "solana-loader-v3-interface 5.0.0",
+ "solana-msg",
+ "solana-program-error",
+ "solana-pubkey",
+ "solana-system-interface",
+ "solana-sysvar",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "light-sdk-macros"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9d1574d5e077c0bf4cec6ab82fcd323265b45d0aa4f0493c01d726e8b8863f9"
+dependencies = [
+ "light-hasher",
+ "light-sdk-types",
+ "proc-macro2",
+ "quote",
+ "solana-pubkey",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "light-sdk-types"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d11611baf72ac9f728eb17857b01cc9a80919ff34631965c69be69b8d31c28e"
+dependencies = [
+ "borsh 0.10.4",
+ "light-account-checks",
+ "light-compressed-account",
+ "light-hasher",
+ "light-macros",
+ "solana-msg",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "light-zero-copy"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8862f463792fd60ae8f5dc418150c16213e302e19d54fba0694cf8515be5ff"
+dependencies = [
+ "light-zero-copy-derive",
+ "zerocopy",
+]
+
+[[package]]
+name = "light-zero-copy-derive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8af086d52100b3cab1f2993b146adc7a69fa6aaa878ae4c19514c77c50304379"
+dependencies = [
+ "lazy_static",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]
@@ -2259,6 +2456,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
+name = "pinocchio"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b971851087bc3699b001954ad02389d50c41405ece3548cbcafc88b3e20017a"
+
+[[package]]
+name = "pinocchio-pubkey"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb0225638cadcbebae8932cb7f49cb5da7c15c21beb19f048f05a5ca7d93f065"
+dependencies = [
+ "five8_const",
+ "pinocchio",
+ "sha2-const-stable",
+]
+
+[[package]]
 name = "pkg-config"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2672,17 +2886,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
-name = "sati-registry"
+name = "sati"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "light-hasher",
+ "light-sdk",
  "mollusk-svm",
  "mollusk-svm-bencher",
  "mollusk-svm-programs-token",
+ "sha3",
+ "solana-attestation-service-client",
+ "solana-program",
  "solana-sdk",
  "solana-security-txt",
- "solana-system-interface",
  "spl-associated-token-account",
  "spl-token-2022",
  "spl-token-group-interface",
@@ -2832,6 +3050,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2-const-stable"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f179d4e11094a893b82fff208f74d448a7512f99f5a0acbd5c679b705f83ed9"
+
+[[package]]
 name = "sha3"
 version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2962,6 +3186,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d52e52720efe60465b052b9e7445a01c17550666beec855cce66f44766697bc2"
 dependencies = [
  "parking_lot",
+]
+
+[[package]]
+name = "solana-attestation-service-client"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad4872ad4d246f62bf461f4d31b225d15ad466b1a7f508936a312d9b7382797e"
+dependencies = [
+ "borsh 1.6.0",
+ "solana-program",
 ]
 
 [[package]]

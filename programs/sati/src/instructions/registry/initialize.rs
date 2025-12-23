@@ -74,6 +74,14 @@ pub fn handler(ctx: Context<Initialize>) -> Result<()> {
         SatiError::InvalidGroupMint
     );
 
+    // SECURITY: Verify the mint_authority is the registry PDA
+    // This ensures only the registry can mint new agent NFTs
+    let mint_authority: Option<Pubkey> = mint.base.mint_authority.into();
+    require!(
+        mint_authority == Some(registry_config_key),
+        SatiError::InvalidAuthority
+    );
+
     // Store registry configuration
     let registry = &mut ctx.accounts.registry_config;
     registry.authority = authority_key;
