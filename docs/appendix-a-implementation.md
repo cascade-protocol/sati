@@ -1,4 +1,4 @@
-# Appendix B: Implementation Details
+# Appendix A: Implementation Details
 
 This appendix contains detailed implementation guidance extracted from the main specification.
 
@@ -16,6 +16,8 @@ This appendix contains detailed implementation guidance extracted from the main 
 | `MAX_METADATA_ENTRIES` | 10 | Maximum additional metadata pairs |
 | `MAX_METADATA_KEY_LENGTH` | 32 | Maximum metadata key (bytes) |
 | `MAX_METADATA_VALUE_LENGTH` | 200 | Maximum metadata value (bytes) |
+| `MAX_CONTENT_SIZE` | 512 | Maximum content field size (bytes) |
+| `MAX_ATTESTATION_DATA_SIZE` | 768 | Maximum total attestation data (bytes) |
 
 ### Account Sizes
 
@@ -100,31 +102,40 @@ pub fn create_compressed_attestation<'info>(
         SatiError::AttestationDataTooSmall
     );
     require!(
-        params.data.len() <= MAX_ATTESTATION_DATA_SIZE,
+        params.data.len() <= MAX_ATTESTATION_DATA_SIZE,  // 768 bytes
         SatiError::AttestationDataTooLarge
     );
 
-    // 3. Parse base layout for signature binding
+    // 3. Verify content size (content starts at offset 129, Vec<u8> has 4-byte length prefix)
+    if params.data.len() > 129 {
+        let content_len = u32::from_le_bytes(params.data[129..133].try_into()?) as usize;
+        require!(
+            content_len <= MAX_CONTENT_SIZE,  // 512 bytes
+            SatiError::ContentTooLarge
+        );
+    }
+
+    // 4. Parse base layout for signature binding
     let token_account_pubkey = Pubkey::try_from(&params.data[32..64])?;
     let counterparty_pubkey = Pubkey::try_from(&params.data[64..96])?;
 
-    // 4. Verify signature-data binding
+    // 5. Verify signature-data binding
     if params.signatures.len() == 2 {
         require!(params.signatures[0].pubkey == token_account_pubkey, SignatureMismatch);
         require!(params.signatures[1].pubkey == counterparty_pubkey, SignatureMismatch);
     }
 
-    // 5. Self-attestation prevention
+    // 6. Self-attestation prevention
     require!(token_account_pubkey != counterparty_pubkey, SelfAttestationNotAllowed);
 
-    // 6. Verify Ed25519 signatures
+    // 7. Verify Ed25519 signatures
     // For DualSignature mode, each party signs a DIFFERENT hash:
-    // Agent: hash(sas_schema, task_ref, token_account, content_hash)
-    // Counterparty: hash(sas_schema, task_ref, token_account, outcome, timestamp)
+    // Agent: hash(sas_schema, task_ref, token_account, data_hash)
+    // Counterparty: hash(sas_schema, task_ref, token_account, outcome)
     verify_ed25519(params.signatures[0].pubkey, params.signatures[0].sig, interaction_hash)?;
     verify_ed25519(params.signatures[1].pubkey, params.signatures[1].sig, feedback_hash)?;
 
-    // 7. Derive deterministic address using task_ref
+    // 8. Derive deterministic address using task_ref
     let task_ref = &params.data[0..32];
     let nonce = keccak256(&[task_ref, params.sas_schema.as_ref(), params.token_account.as_ref()].concat());
     let (address, address_seed) = derive_address(
@@ -133,7 +144,7 @@ pub fn create_compressed_attestation<'info>(
         &crate::ID,
     );
 
-    // 8. Initialize compressed account via LightAccount wrapper
+    // 9. Initialize compressed account via LightAccount wrapper
     let mut attestation = LightAccount::<CompressedAttestation>::new_init(
         &crate::ID,
         Some(address),
@@ -145,9 +156,8 @@ pub fn create_compressed_attestation<'info>(
     attestation.data_type = params.data_type;
     attestation.data = params.data;
     attestation.signatures = params.signatures.iter().map(|s| s.sig).collect();
-    attestation.timestamp = Clock::get()?.unix_timestamp;
 
-    // 9. CPI to Light System Program
+    // 10. CPI to Light System Program
     let new_address_params = address_tree_info.into_new_address_params_packed(address_seed);
 
     LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, proof)
@@ -496,7 +506,7 @@ async function listReputationScores(
 ): Promise<ReputationScore[]> {
     const accounts = await connection.getProgramAccounts(SAS_PROGRAM_ID, {
         filters: [
-            { dataSize: 133 + 101 }, // ReputationScore data size (133) + SAS overhead
+            // Note: dataSize filter not reliable for variable-length schemas
             { memcmp: { offset: 33, bytes: SATI_CREDENTIAL.toBase58() } },
             { memcmp: { offset: 65, bytes: REPUTATION_SCHEMA.toBase58() } },
             // Filter by token_account in data (offset varies by SAS structure)
@@ -539,21 +549,25 @@ All attestation data uses **Borsh serialization** (Binary Object Representation 
 | 12 | String | 4 + N bytes |
 | 13 | VecU8 | 4 + N bytes |
 
-### Feedback Struct Example (207 bytes)
+### Feedback Struct Example (variable length)
 
 ```
-Offset   Size   Field
-0        32     task_ref: [u8; 32]
-32       32     token_account: Pubkey
-64       32     counterparty: Pubkey
-96       8      timestamp: i64 (little-endian)
-104      32     content_hash: [u8; 32]
-136      32     response_hash: [u8; 32]
-168      36     content_ref: [u8; 36]
-204      1      outcome: u8
-205      1      tag1: u8
-206      1      tag2: u8
+Offset   Size      Field
+0        32        task_ref: [u8; 32]
+32       32        token_account: Pubkey
+64       32        counterparty: Pubkey
+96       32        data_hash: [u8; 32]
+128      1         content_type: u8
+129      4+N       content: Vec<u8>        // Borsh: 4-byte len prefix + N bytes
+129+4+N  1         outcome: u8
+130+4+N  1         tag1: u8
+131+4+N  1         tag2: u8
 ```
+
+**Borsh Vec<u8> encoding**: `[length: u32 LE][data: u8 × length]`
+
+**Minimum size**: 136 bytes (empty content: 4-byte length prefix with N=0)
+**Example with 50-byte JSON**: 186 bytes (136 + 50)
 
 ---
 
@@ -646,15 +660,28 @@ await sati.createFeedback({
   outcome: Outcome.Positive,
   tag1: TagCategory.Quality,
   tag2: TagCategory.Speed,
-  contentHash: requestHash,              // Hash of the request
-  responseHash: responseHash,            // Hash of agent's response
+  dataHash: requestHash,                 // Hash of the request (agent's blind commitment)
   taskRef: paymentTxHash,                // CAIP-220 tx hash or arbitrary ID
+  content: {                             // Optional extended content
+    type: ContentType.JSON,              // 0=None, 1=JSON, 2=UTF8, 3=IPFS, 4=Arweave
+    data: JSON.stringify({
+      text: "Fast and accurate",
+      latency_ms: 180,
+    }),
+  },
   signatures: [
     { pubkey: agentPubkey, sig: agentSig },       // Agent's blind signature
     { pubkey: clientPubkey, sig: clientSig },    // Client's feedback signature
   ],
 });
 ```
+
+**Content types:**
+- `ContentType.None` (0): No extended content, just outcome + tags
+- `ContentType.JSON` (1): Inline JSON object
+- `ContentType.UTF8` (2): Plain text
+- `ContentType.IPFS` (3): IPFS CIDv1 (~36 bytes)
+- `ContentType.Arweave` (4): Arweave transaction ID (32 bytes)
 
 ### createFeedbackBatch
 
@@ -696,7 +723,14 @@ await sati.createReputationScore({
   tokenAccount,                         // Agent being scored
   provider: providerPubkey,             // Reputation provider (counterparty)
   score: 85,                            // 0-100 normalized score
-  contentRef: methodologyIpfsHash,      // Optional: off-chain methodology/details
+  content: {                            // Optional: methodology/details
+    type: ContentType.JSON,
+    data: JSON.stringify({
+      methodology: "weighted_feedback",
+      feedback_count: 127,
+      time_window_days: 30,
+    }),
+  },
   signature: {                          // Provider's signature (SingleSigner mode)
     pubkey: providerPubkey,
     sig: providerSig,
@@ -706,7 +740,7 @@ await sati.createReputationScore({
 
 **Signature message** (provider signs):
 ```
-hash(sas_schema, token_account, provider, score, timestamp)
+hash(sas_schema, token_account, provider, score)
 ```
 
 ### updateReputationScore Parameters
@@ -717,7 +751,14 @@ await sati.updateReputationScore({
   tokenAccount,
   provider: providerPubkey,
   score: 88,                            // New score
-  contentRef: methodologyIpfsHash,      // Optional: updated details
+  content: {                            // Optional: updated details
+    type: ContentType.JSON,
+    data: JSON.stringify({
+      methodology: "weighted_feedback",
+      feedback_count: 142,
+      time_window_days: 30,
+    }),
+  },
   signature: {
     pubkey: providerPubkey,
     sig: newProviderSig,                // New signature on new data
@@ -811,7 +852,7 @@ await sati.updateReputationScore({
 | | Create validation | ~0.00001 | ~120,000 | Proof verify + tree append |
 | | Close compressed attestation | tx fee | ~100,000 | Nullify in state tree |
 | **Regular Attestations** | | | | |
-| | Create ReputationScore | ~0.002 | ~30,000 | SAS attestation (133 bytes) |
+| | Create ReputationScore | ~0.002 | ~30,000 | SAS attestation (variable, 102+ bytes) |
 | | Update ReputationScore | tx fee | ~30,000 | Close+create (rent neutral) |
 | | Close regular attestation | tx fee | ~20,000 | SAS close + rent return |
 | **Per-operation overhead** | | | | |
@@ -930,9 +971,9 @@ const valid = await sati.verifyAttestation(proof, attestation);
 |---------|--------|---------|-------|
 | SATI SAS Credential | TBD | TBD | Authority: SATI multisig |
 | SATI Attestation PDA | TBD | TBD | Sole authorized signer on credential |
-| Schema: Feedback | TBD | TBD | 207 bytes, Compressed storage |
-| Schema: Validation | TBD | TBD | 206 bytes, Compressed storage |
-| Schema: ReputationScore | TBD | TBD | 133 bytes, Regular storage |
+| Schema: Feedback | TBD | TBD | Variable (136+ bytes), Compressed storage |
+| Schema: Validation | TBD | TBD | Variable (135+ bytes), Compressed storage |
+| Schema: ReputationScore | TBD | TBD | Variable (102+ bytes), Regular storage |
 
 ### Address Derivation Reference
 

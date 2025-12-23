@@ -28,8 +28,8 @@ The breakthrough enabling free on-chain feedback. Agent and counterparty sign di
 
 | Party | Signs | When | Proves |
 |-------|-------|------|--------|
-| Agent | `hash(schema, task_ref, token_account, content_hash)` | With response | "I served this task" |
-| Counterparty | `hash(schema, task_ref, token_account, outcome, timestamp)` | After service | "I gave this feedback" |
+| Agent | `hash(schema, task_ref, token_account, data_hash)` | With response | "I served this task" |
+| Counterparty | `hash(schema, task_ref, token_account, outcome)` | After service | "I gave this feedback" |
 
 **Flow**: Client pays (x402) → Agent responds + signs (blind) → Client signs feedback → Agent/facilitator submits
 
@@ -169,7 +169,6 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `data_type` | u8 | 64 | Schema data type |
 | `data` | Vec&lt;u8&gt; | 65+ | Schema-conformant bytes |
 | `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
-| `timestamp` | i64 | varies | Creation timestamp |
 
 ### Base Data Layout (first 96 bytes)
 
@@ -217,7 +216,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 ### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `LightCpiInvocationFailed`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `LightCpiInvocationFailed`
 
 ---
 
@@ -278,36 +277,38 @@ Program parses this for signature binding; full schema parsed by indexers.
 | DualSignature | 2 | Feedback, Validation (blind feedback model) |
 | SingleSigner | 1 | ReputationScore (provider signs) |
 
-### Feedback Schema (data_type = 0, 207 bytes)
+### Feedback Schema (data_type = 0, variable length)
 
 | Offset | Field | Type | Description |
 |--------|-------|------|-------------|
 | 0 | task_ref | [u8;32] | CAIP-220 tx hash or arbitrary ID |
 | 32 | token_account | Pubkey | Agent |
 | 64 | counterparty | Pubkey | Client |
-| 96 | timestamp | i64 | Feedback time |
-| 104 | content_hash | [u8;32] | Request hash |
-| 136 | response_hash | [u8;32] | Response hash |
-| 168 | content_ref | [u8;36] | Off-chain reference |
-| 204 | outcome | u8 | 0=Negative, 1=Neutral, 2=Positive |
-| 205 | tag1 | u8 | Primary category |
-| 206 | tag2 | u8 | Secondary category |
+| 96 | data_hash | [u8;32] | Request hash (agent's blind commitment) |
+| 128 | content_type | u8 | Content format (see Content Types) |
+| 129 | content | Vec\<u8\> | Variable: 4-byte len + data |
+| var | outcome | u8 | 0=Negative, 1=Neutral, 2=Positive |
+| var+1 | tag1 | u8 | Primary category |
+| var+2 | tag2 | u8 | Secondary category |
 
-### Validation Schema (data_type = 1, 206 bytes)
+**Size**: 136 bytes minimum (empty content), typical 150-200 bytes with inline feedback
+
+### Validation Schema (data_type = 1, variable length)
 
 | Offset | Field | Type | Description |
 |--------|-------|------|-------------|
 | 0 | task_ref | [u8;32] | Task reference |
 | 32 | token_account | Pubkey | Agent |
 | 64 | counterparty | Pubkey | Validator |
-| 96 | timestamp | i64 | Validation time |
-| 104 | content_hash | [u8;32] | Work hash |
-| 136 | response_hash | [u8;32] | Validator response |
-| 168 | content_ref | [u8;36] | Off-chain reference |
-| 204 | validation_type | u8 | tee/zkml/reexecution/consensus |
-| 205 | status | u8 | 0=fail, 100=pass |
+| 96 | data_hash | [u8;32] | Work hash (agent's commitment) |
+| 128 | content_type | u8 | Content format (see Content Types) |
+| 129 | content | Vec\<u8\> | Variable: 4-byte len + data |
+| var | validation_type | u8 | tee/zkml/reexecution/consensus |
+| var+1 | status | u8 | 0=fail, 100=pass |
 
-### ReputationScore Schema (data_type = 2, 133 bytes)
+**Size**: 135 bytes minimum (empty content), typical 150-200 bytes with inline report
+
+### ReputationScore Schema (data_type = 2, variable length)
 
 Provider-computed scores using `StorageType::Regular` for direct on-chain queryability.
 
@@ -317,7 +318,10 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 | 32 | token_account | Pubkey | Agent being scored |
 | 64 | counterparty | Pubkey | Provider (reputation scorer) |
 | 96 | score | u8 | 0-100 normalized score |
-| 97 | content_ref | [u8;36] | Off-chain methodology/details |
+| 97 | content_type | u8 | Content format (see Content Types) |
+| 98 | content | Vec\<u8\> | Variable: methodology/details |
+
+**Size**: 102 bytes minimum (empty content), typical 150-300 bytes with methodology details
 
 **Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. Timestamp and expiry use SAS attestation metadata.
 
@@ -348,13 +352,34 @@ let (attestation_pda, _) = Pubkey::find_program_address(
 
 **Deterministic nonce** ensures one ReputationScore per (provider, agent) pair — updates replace previous.
 
-### Content Reference (36 bytes)
+### Content Types
 
-| Byte 0 | Storage | Data (bytes 1-35) |
-|--------|---------|-------------------|
-| 0xe3 | IPFS | CIDv1 |
-| 0xce | Arweave | Transaction ID |
-| 0x00 | Raw | SHA-256 hash |
+The `content_type` field determines how to interpret the variable-length `content` field:
+
+| Code | Type | Content | Use Case |
+|------|------|---------|----------|
+| 0 | None | Empty | Just use outcome/tags (no extended content) |
+| 1 | JSON | Inline JSON object | Structured feedback with metadata |
+| 2 | UTF-8 | Plain text | Simple text feedback |
+| 3 | IPFS | CIDv1 (~36 bytes) | Large content stored off-chain |
+| 4 | Arweave | Transaction ID (32 bytes) | Permanent off-chain storage |
+
+**Size limit**: `MAX_CONTENT_SIZE = 512 bytes`. Enforced on-chain. For larger content, use IPFS/Arweave.
+
+**Examples:**
+
+```json
+// content_type=1 (JSON), ~60 bytes
+{"text":"Fast and accurate","latency_ms":180,"tokens":1200}
+
+// content_type=2 (UTF-8), ~30 bytes
+"Excellent service, would recommend"
+
+// content_type=0 (None)
+// Empty content, just use outcome + tags
+```
+
+**Design rationale**: Simple feedback doesn't need IPFS. Inline JSON/UTF-8 is directly readable by indexers without external fetches.
 
 ---
 
@@ -515,23 +540,117 @@ await sati.createFeedback({
 
 ---
 
+## ERC-8004 Compatibility
+
+SATI implements the [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/eip-8004) specification on Solana with enhancements for cost efficiency and security.
+
+### Compatibility Matrix
+
+| ERC-8004 Feature | SATI | Notes |
+|------------------|------|-------|
+| **Identity** | | |
+| Agent registration | ✅ | Registry program → Token-2022 NFT |
+| `tokenId` (auto-incrementing) | ✅ | TokenGroupMember.member_number |
+| `ownerOf(tokenId)` | ✅ | Token account holder |
+| `transferFrom()` | ✅ | Direct Token-2022 transfer |
+| `setApprovalForAll()` | ✅ | Token delegate |
+| `tokenURI` / registration file | ✅ | TokenMetadata.uri |
+| On-chain metadata | ✅ | TokenMetadata.additionalMetadata |
+| **Reputation** | | |
+| `feedbackAuth` | ⚡ | Replaced by dual-signature model (more secure) |
+| `giveFeedback()` | ✅ | Compressed attestation via Light Protocol |
+| `revokeFeedback()` | ✅ | close_attestation() |
+| `appendResponse()` | ✅ | FeedbackResponse schema (deferred) |
+| `getSummary()` | ✅ | Photon indexer queries |
+| `readFeedback()` | ✅ | Fetch compressed attestation |
+| **Validation** | | |
+| `validationRequest()` | ✅ | Validation schema |
+| `validationResponse()` | ✅ | Validation schema with status |
+| **Cross-Chain** | | |
+| Wallet display | ✅ | Phantom, Solflare, Backpack |
+| DID support | ✅ | additionalMetadata["did"] |
+| CAIP-2/CAIP-10 | ✅ | Chain-agnostic identifiers |
+
+### Authorization Model Comparison
+
+ERC-8004 uses `feedbackAuth` (agent pre-authorizes client). SATI uses **dual-signature blind feedback**:
+
+| Aspect | ERC-8004 feedbackAuth | SATI Dual-Signature |
+|--------|----------------------|---------------------|
+| Authorization | Agent signs permission upfront | Agent signs with response (blind) |
+| Selective blocking | Agent can refuse to authorize bad clients | Agent cannot refuse — signs before knowing outcome |
+| Sybil resistance | None (authorized client can submit anything) | Both parties must sign same task_ref |
+| Gas cost | Client pays | Agent pays (bundled into service) |
+
+> **Note**: ERC-8004 PR #11 removes `feedbackAuth` entirely, moving to open feedback. SATI's dual-signature model provides stronger guarantees than either approach.
+
+### CAIP and DID Support
+
+SATI uses [Chain Agnostic Improvement Proposals](https://github.com/ChainAgnostic/CAIPs) for cross-chain interoperability:
+
+**CAIP-2 (Blockchain ID)**: `namespace:reference`
+
+| Chain | CAIP-2 Identifier |
+|-------|-------------------|
+| Solana Mainnet | `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
+| Solana Devnet | `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
+| Ethereum Mainnet | `eip155:1` |
+| Base | `eip155:8453` |
+
+**CAIP-10 (Account ID)**: `chain_id:account_address`
+
+```
+solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv
+eip155:1:0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb7
+```
+
+**DID Support** (via additionalMetadata):
+
+```typescript
+["did", "did:web:agent.example.com"]           // Web-based DID
+["did", "did:pkh:solana:5eykt4...:7S3P4..."]   // PKH (blockchain account)
+["did", "did:key:z6Mkf..."]                    // Key-based DID
+```
+
+See [CAIP Standards](https://github.com/ChainAgnostic/CAIPs) for full format specifications.
+
+---
+
 ## Cross-Chain
 
-### Registration File (ERC-8004 compatible)
+### Cross-Chain Identity via `registrations[]`
+
+Agents register separately on each chain but link identities via the off-chain registration file. The `registrations` array lists all on-chain registrations for the same logical agent:
 
 ```json
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "myAgentName",
+  "description": "Agent description",
+  "image": "https://example.com/agent.png",
   "endpoints": [
-    { "name": "A2A", "endpoint": "https://agent.example/agent-card.json" },
+    { "name": "A2A", "endpoint": "https://agent.example/agent-card.json", "version": "0.3.0" },
+    { "name": "MCP", "endpoint": "https://mcp.agent.example/", "version": "2025-06-18" },
     { "name": "agentWallet", "endpoint": "solana:5eykt4...:7S3P4..." }
   ],
   "registrations": [
-    { "agentId": "sati:devnet:ABC123mint", "agentRegistry": "solana:devnet:satiFVb9..." }
-  ]
+    { "agentId": "sati:mainnet:ABC123mint", "agentRegistry": "solana:5eykt4...:satiFVb9..." },
+    { "agentId": 22, "agentRegistry": "eip155:1:0x..." },
+    { "agentId": 45, "agentRegistry": "eip155:8453:0x..." }
+  ],
+  "supportedTrusts": ["reputation", "validation"],
+  "active": true,
+  "x402support": true
 }
 ```
+
+**Required**: `type`, `name`, `description`, `image`
+**Optional**: `active` (operational status), `x402support` (accepts x402), `supportedTrusts` (`"reputation"`, `"validation"`, `"crypto-economic"`, `"tee-attestation"`)
+
+This enables:
+- **Same agent identity** across Solana, Ethereum, Base, etc.
+- **Verifiable cross-chain resolution** — verify registration file hash matches on-chain uri
+- **No on-chain bridging required** — off-chain linking via content-addressed storage
 
 ### SATI Identifier Format
 
@@ -539,7 +658,13 @@ await sati.createFeedback({
 sati:<network>:<mint_address>
 ```
 
-Supports CAIP and DIDs. See [Appendix A: CAIP & DID Reference](./appendix-a-caip-did.md).
+| Format | Example |
+|--------|---------|
+| SATI (Solana) | `sati:mainnet:ABC123mintPubkey` |
+| ERC-8004 (EVM) | `22` (tokenId on specific registry) |
+| Registry address | `solana:5eykt4...:satiFVb9...` (CAIP-10) |
+
+See [CAIP Standards](https://github.com/ChainAgnostic/CAIPs) and [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) for full format specifications.
 
 ---
 
@@ -603,8 +728,7 @@ The spec supports external projects registering their own SAS credentials with S
 
 ## Appendices
 
-- [Appendix A: CAIP & DID Reference](./appendix-a-caip-did.md) — Cross-chain identifier formats
-- [Appendix B: Implementation Details](./appendix-b-implementation.md) — Full implementation guidance
+- [Appendix A: Implementation Details](./appendix-a-implementation.md) — Full implementation guidance
 
 ---
 
