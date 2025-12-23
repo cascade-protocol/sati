@@ -662,10 +662,17 @@ pub fn create_compressed_attestation<'info>(
     require!(token_account_pubkey != counterparty_pubkey, SelfAttestationNotAllowed);
 
     // 4. Verify content size based on schema layout
-    // Feedback: content at offset 132, Validation: content at 131, ReputationScore: content at 98
+    // Feedback: content at variable offset (after string tags), Validation: content at 131, ReputationScore: content at 98
     let content_offset = match params.data_type {
-        0 => 132,  // Feedback: after data_hash(32) + content_type(1) + outcome(1) + tag1(1) + tag2(1)
-        1 => 131,  // Validation: after data_hash(32) + content_type(1) + validation_type(1) + status(1)
+        0 => {
+            // Feedback: tags are variable-length strings (1-byte len + UTF-8)
+            // Base offset 130, then skip tag1 and tag2 string lengths
+            let tag1_len = params.data[130] as usize;
+            let tag2_start = 131 + tag1_len;
+            let tag2_len = params.data[tag2_start] as usize;
+            tag2_start + 1 + tag2_len  // Content starts after tag2
+        }
+        1 => 131,  // Validation: after data_hash(32) + content_type(1) + validation_type(1) + response(1)
         2 => 98,   // ReputationScore: after score(1) + content_type(1)
         _ => return Err(SatiError::InvalidDataType.into()),
     };
@@ -683,23 +690,31 @@ pub fn create_compressed_attestation<'info>(
     // 5. Validate schema-specific fields at fixed offsets
     match params.data_type {
         0 => {
-            // Feedback: content_type at 128, outcome at 129, tag1 at 130, tag2 at 131
+            // Feedback: content_type at 128, outcome at 129, tag1/tag2 are variable-length strings
             if params.data.len() >= 132 {
                 let content_type = params.data[128];
                 require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
 
                 let outcome = params.data[129];
                 require!(outcome <= 2, SatiError::InvalidOutcome);  // 0=Negative, 1=Neutral, 2=Positive
+
+                // Validate tag string lengths (max 32 chars each)
+                let tag1_len = params.data[130] as usize;
+                require!(tag1_len <= 32, SatiError::TagTooLong);
+                let tag2_start = 131 + tag1_len;
+                require!(params.data.len() > tag2_start, SatiError::InvalidDataLayout);
+                let tag2_len = params.data[tag2_start] as usize;
+                require!(tag2_len <= 32, SatiError::TagTooLong);
             }
         }
         1 => {
-            // Validation: content_type at 128, validation_type at 129, status at 130
+            // Validation: content_type at 128, validation_type at 129, response at 130
             if params.data.len() >= 131 {
                 let content_type = params.data[128];
                 require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
 
-                let status = params.data[130];
-                require!(status <= 100, SatiError::InvalidStatus);  // 0-100 range
+                let response = params.data[130];
+                require!(response <= 100, SatiError::InvalidResponse);  // 0-100 range
             }
         }
         2 => {
@@ -731,10 +746,10 @@ pub fn create_compressed_attestation<'info>(
             ]
         }
         1 => {  // Validation
-            let status = params.data[130];
+            let response = params.data[130];
             vec![
                 compute_interaction_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, &data_hash),
-                compute_validation_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, status),
+                compute_validation_hash(&schema_config.sas_schema, &task_ref, &token_account_pubkey, response),
             ]
         }
         2 => {  // ReputationScore (single signer)
@@ -1438,17 +1453,17 @@ Offset   Size      Field
 96       32        data_hash: [u8; 32]
 128      1         content_type: u8
 129      1         outcome: u8            // Fixed offset for memcmp filtering
-130      1         tag1: u8
-131      1         tag2: u8
-132      4+N       content: Vec<u8>        // Borsh: 4-byte len prefix + N bytes
+130      1+M       tag1: String           // 1-byte len + UTF-8, max 32 chars
+var      1+N       tag2: String           // 1-byte len + UTF-8, max 32 chars
+var      4+K       content: Vec<u8>       // Borsh: 4-byte len prefix + K bytes
 ```
 
-**Borsh Vec<u8> encoding**: `[length: u32 LE][data: u8 × length]`
+**String encoding**: `[length: u8][data: UTF-8 × length]` (max 32 chars per tag)
 
-**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment.
+**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment. Tags are variable-length for ERC-8004 compatibility (e.g., `"quality"`, `"latency"`).
 
-**Minimum size**: 136 bytes (empty content: 4-byte length prefix with N=0)
-**Example with 50-byte JSON**: 186 bytes (136 + 50)
+**Minimum size**: 132 bytes (empty tags: 1+0 each, empty content: 4-byte length prefix)
+**Example with tags "quality"(7) + "speed"(5) + 50-byte JSON**: 198 bytes (130 + 8 + 6 + 4 + 50)
 
 ---
 
@@ -1519,7 +1534,7 @@ const accountProof = await helius.zk.getCompressedAccountProof({
 - `sas_schema`: offset 8 (after discriminator)
 - `token_account`: offset 40 (8 + 32)
 - `outcome` (Feedback): offset 137 (8 + 129)
-- `status` (Validation): offset 138 (8 + 130)
+- `response` (Validation): offset 138 (8 + 130)
 
 **Client-side aggregation**: SATI stores complete feedback histories rather than on-chain aggregates. Aggregation (averages, weighted scores, time-decay) is performed client-side via Photon cursor pagination. This design enables:
 - Spam detection via pattern analysis
@@ -1547,8 +1562,8 @@ await sati.createFeedback({
   tokenAccount,                          // Agent's token mint
   counterparty: clientPubkey,            // Client who received service
   outcome: Outcome.Positive,
-  tag1: TagCategory.Quality,
-  tag2: TagCategory.Speed,
+  tag1: "quality",                       // Free-form string (max 32 chars)
+  tag2: "speed",                         // Free-form string (max 32 chars)
   dataHash: requestHash,                 // Hash of the request (agent's blind commitment)
   taskRef: paymentTxHash,                // CAIP-220 tx hash or arbitrary ID
   content: {                             // Optional extended content
@@ -1986,8 +2001,12 @@ pub enum SatiError {
     InvalidDataType,
     #[msg("Invalid score value (must be 0-100)")]
     InvalidScore,
-    #[msg("Invalid validation status (must be 0-100)")]
-    InvalidStatus,
+    #[msg("Invalid validation response (must be 0-100)")]
+    InvalidResponse,
+    #[msg("Tag string exceeds maximum length (32 chars)")]
+    TagTooLong,
+    #[msg("Invalid data layout")]
+    InvalidDataLayout,
     #[msg("Light Protocol CPI invocation failed")]
     LightCpiInvocationFailed,
 }
@@ -2092,7 +2111,7 @@ declare_id!("EscrowProgramID...");
 
 pub const LIGHT_CPI_SIGNER: CpiSigner = derive_light_cpi_signer!("EscrowProgramID...");
 
-/// Minimum validation status required to release escrow (0-100 scale)
+/// Minimum validation response score required to release escrow (0-100 scale)
 pub const PASS_THRESHOLD: u8 = 80;
 
 #[program]
@@ -2152,11 +2171,11 @@ pub mod escrow {
         require!(token_account == expected_agent, EscrowError::AgentMismatch);
 
         // 4. Parse validation-specific fields at fixed offsets
-        // Validation layout: base(96) + data_hash(32) + content_type(1) + validation_type(1) + status(1) + content(4+N)
+        // Validation layout: base(96) + data_hash(32) + content_type(1) + validation_type(1) + response(1) + content(4+N)
         require!(attestation_data.len() >= 131, EscrowError::InvalidAttestation);
 
-        let status = attestation_data[130];  // Fixed offset for memcmp filtering
-        require!(status >= PASS_THRESHOLD, EscrowError::ValidationFailed);
+        let response = attestation_data[130];  // Fixed offset for memcmp filtering
+        require!(response >= PASS_THRESHOLD, EscrowError::ValidationFailed);
 
         // 5. Release escrow funds
         let escrow_seeds = &[
@@ -2182,7 +2201,7 @@ pub mod escrow {
             agent: expected_agent,
             recipient: ctx.accounts.recipient.key(),
             amount: ctx.accounts.escrow.lamports(),
-            validation_status: status,
+            validation_response: response,
         });
 
         Ok(())
@@ -2218,7 +2237,7 @@ pub struct EscrowReleased {
     pub agent: Pubkey,
     pub recipient: Pubkey,
     pub amount: u64,
-    pub validation_status: u8,
+    pub validation_response: u8,
 }
 
 #[error_code]
@@ -2229,7 +2248,7 @@ pub enum EscrowError {
     TaskMismatch,
     #[msg("Agent mismatch")]
     AgentMismatch,
-    #[msg("Validation status below threshold")]
+    #[msg("Validation response below threshold")]
     ValidationFailed,
 }
 ```

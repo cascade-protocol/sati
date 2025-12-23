@@ -74,6 +74,14 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 ## Architecture
 
 ```
+┌───────────────────────────┐
+│      Token-2022           │
+│  • Identity storage       │
+│  • TokenMetadata          │
+│  • TokenGroup             │
+└───────────────────────────┘
+          ▲
+          │ (CPI: mint NFT)
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      SATI Registry Program                          │
 │             (satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF)            │
@@ -82,8 +90,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 │  register_agent()            → Token-2022 NFT + group membership    │
 │  update_registry_authority() → Transfer/renounce control            │
 └─────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
+
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      SATI Attestation Program                        │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -92,6 +99,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 │  close_attestation()         → Close/nullify attestation            │
 └─────────────────────────────────────────────────────────────────────┘
           │                                         │
+          │ (CPI: compressed)                       │ (CPI: regular)
           ▼                                         ▼
 ┌───────────────────────────┐         ┌────────────────────────────────┐
 │   Light Protocol          │         │   Solana Attestation Service   │
@@ -102,14 +110,6 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 │ • ~$0.002 per attestation │         │ • On-chain queryable (RPC)     │
 │ • Photon indexing (free)  │         │                                │
 └───────────────────────────┘         └────────────────────────────────┘
-          │
-          ▼
-┌───────────────────────────┐
-│      Token-2022           │
-│  • Identity storage       │
-│  • TokenMetadata          │
-│  • TokenGroup             │
-└───────────────────────────┘
 ```
 
 | Component | Responsibility |
@@ -234,7 +234,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 ### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `InvalidDataType` · `InvalidScore` · `InvalidStatus` · `LightCpiInvocationFailed`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `InvalidDataType` · `InvalidScore` · `InvalidResponse` · `TagTooLong` · `InvalidDataLayout` · `LightCpiInvocationFailed`
 
 ---
 
@@ -307,13 +307,15 @@ Program parses this for signature binding; full schema parsed by indexers.
 | 96 | data_hash | [u8;32] | Request hash (agent's blind commitment) |
 | 128 | content_type | u8 | Content format (see Content Types) |
 | 129 | outcome | u8 | 0=Negative, 1=Neutral, 2=Positive |
-| 130 | tag1 | u8 | Primary category |
-| 131 | tag2 | u8 | Secondary category |
-| 132 | content | Vec\<u8\> | Variable: 4-byte len + data |
+| 130 | tag1 | String | Primary category (1-byte len + UTF-8, max 32 chars) |
+| var | tag2 | String | Secondary category (1-byte len + UTF-8, max 32 chars) |
+| var | content | Vec\<u8\> | Variable: 4-byte len + data |
 
-**Size**: 136 bytes minimum (empty content), typical 150-200 bytes with inline feedback
+**Size**: 132 bytes minimum (empty tags, empty content), typical 160-220 bytes with tags and inline feedback
 
-**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment.
+**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment. Tags are variable-length strings for ERC-8004 compatibility (e.g., `"quality"`, `"latency"`, `"accuracy"`).
+
+**ERC-8004 score mapping**: ERC-8004 uses `score` (0-100) while SATI uses categorical `outcome`. For interoperability, map as: Negative(0)→0, Neutral(1)→50, Positive(2)→100.
 
 ### Validation Schema (data_type = 1, variable length)
 
@@ -325,12 +327,14 @@ Program parses this for signature binding; full schema parsed by indexers.
 | 96 | data_hash | [u8;32] | Work hash (agent's commitment) |
 | 128 | content_type | u8 | Content format (see Content Types) |
 | 129 | validation_type | u8 | tee/zkml/reexecution/consensus |
-| 130 | status | u8 | 0=fail, 100=pass |
+| 130 | response | u8 | 0-100 validation confidence score |
 | 131 | content | Vec\<u8\> | Variable: 4-byte len + data |
 
 **Size**: 135 bytes minimum (empty content), typical 150-200 bytes with inline report
 
-**Fixed offset benefit**: `status` at offset 130 enables Photon memcmp filtering by validation result.
+**Fixed offset benefit**: `response` at offset 130 enables Photon memcmp filtering by validation score.
+
+**ERC-8004 alignment**: Field name `response` matches ERC-8004 Validation schema. Score 0-100 allows validators to express confidence levels (e.g., 95 = high confidence pass, 10 = low confidence fail).
 
 ### ReputationScore Schema (data_type = 2, variable length)
 
@@ -435,7 +439,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 | `getValidityProof` | Get ZK proof for on-chain verification |
 | `getCompressedAccountProof` | Merkle proof for escrow |
 
-**Filters**: `sas_schema` (offset 8), `token_account` (offset 40), `outcome` (offset 129 for Feedback), `status` (offset 130 for Validation)
+**Filters**: `sas_schema` (offset 8), `token_account` (offset 40), `outcome` (offset 129 for Feedback), `response` (offset 130 for Validation)
 
 ### SAS (Regular Storage)
 
@@ -473,7 +477,10 @@ Package: `@cascade-fyi/sati-sdk`
 
 ```typescript
 enum Outcome { Negative = 0, Neutral = 1, Positive = 2 }
-enum TagCategory { Quality = 0, Speed = 1, Reliability = 2, Communication = 3, Value = 4 }
+
+// Tags are free-form strings (max 32 chars each)
+// Common examples: "quality", "speed", "reliability", "communication", "value", "accuracy"
+type Tag = string;
 ```
 
 ### Methods
@@ -596,7 +603,7 @@ SATI implements the [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/
 | `readFeedback()` | ✅ | Fetch compressed attestation |
 | **Validation** | | |
 | `validationRequest()` | ✅ | Validation schema |
-| `validationResponse()` | ✅ | Validation schema with status |
+| `validationResponse()` | ✅ | Validation schema with response score |
 | **Cross-Chain** | | |
 | Wallet display | ✅ | Phantom, Solflare, Backpack |
 | DID support | ✅ | additionalMetadata["did"] |
@@ -669,14 +676,14 @@ Agents register separately on each chain but link identities via the off-chain r
     { "agentId": 22, "agentRegistry": "eip155:1:0x..." },
     { "agentId": 45, "agentRegistry": "eip155:8453:0x..." }
   ],
-  "supportedTrusts": ["reputation", "validation"],
+  "supportedTrust": ["reputation", "crypto-economic"],
   "active": true,
   "x402support": true
 }
 ```
 
 **Required**: `type`, `name`, `description`, `image`
-**Optional**: `active` (operational status), `x402support` (accepts x402), `supportedTrusts` (`"reputation"`, `"validation"`, `"crypto-economic"`, `"tee-attestation"`), `registrations` (can be null/empty initially)
+**Optional**: `active` (operational status), `x402support` (accepts x402), `supportedTrust` (`"reputation"`, `"crypto-economic"`, `"tee-attestation"`), `registrations` (can be null/empty initially)
 
 **Note on `registrations`**: This array can be null or empty when first creating the registration file. The typical workflow is:
 1. Create registration file with `registrations: []`
