@@ -159,8 +159,16 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `sas_schema` | Pubkey | SAS schema address |
 | `signature_mode` | SignatureMode | DualSignature / SingleSigner |
 | `storage_type` | StorageType | Compressed / Regular |
+| `closeable` | bool | Whether attestations can be closed |
 
 ### CompressedAttestation
+
+Compressed accounts require Light Protocol derives for hashing and discrimination:
+
+```rust
+#[derive(Clone, Debug, Default, LightDiscriminator, LightHasher)]
+pub struct CompressedAttestation { /* fields below */ }
+```
 
 | Field | Type | Offset | Description |
 |-------|------|--------|-------------|
@@ -193,9 +201,9 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
-| `register_schema_config` | schema, signature_mode, storage_type | Register schema config (authority only) |
+| `register_schema_config` | schema, signature_mode, storage_type, closeable | Register schema config (authority only) |
 | `create_attestation` | data, signatures, storage-specific params | Verify sigs → route to storage by `storage_type` |
-| `close_attestation` | storage-specific params | Close attestation (agent only) |
+| `close_attestation` | storage-specific params | Close if `closeable=true`; ReputationScore: provider only |
 
 **Storage-specific parameters:**
 
@@ -216,7 +224,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 ### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `LightCpiInvocationFailed`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed`
 
 ---
 
@@ -264,11 +272,11 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 ### Core Schemas
 
-| Schema | Storage | SignatureMode | Status |
-|--------|---------|---------------|--------|
-| Feedback | Compressed | DualSignature | ✅ MVP |
-| Validation | Compressed | DualSignature | ✅ MVP |
-| ReputationScore | Regular | SingleSigner | ✅ MVP |
+| Schema | Storage | SignatureMode | Closeable | Status |
+|--------|---------|---------------|-----------|--------|
+| Feedback | Compressed | DualSignature | No | ✅ MVP |
+| Validation | Compressed | DualSignature | No | ✅ MVP |
+| ReputationScore | Regular | SingleSigner | Yes (provider only) | ✅ MVP |
 
 **SignatureMode determines payload signature requirements:**
 
@@ -330,12 +338,14 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 **Compressed Attestations (Light Protocol):**
 
 ```rust
-let nonce = keccak256(&[task_ref, sas_schema, token_account].concat());
+let nonce = keccak256(&[task_ref, sas_schema, token_account, counterparty].concat());
 let (address, seed) = derive_address(
     &[b"attestation", sas_schema, token_account, &nonce],
     &address_tree_pubkey, &program_id
 );
 ```
+
+**Note**: Including `counterparty` in the nonce ensures unique addresses per (task, agent, counterparty) tuple, preventing address collisions when different counterparties attest to the same agent for the same task.
 
 **Regular Attestations (SAS):**
 
@@ -495,14 +505,16 @@ await sati.createFeedback({
 | Signature-data binding | Pubkeys match token_account/counterparty |
 | Self-attestation prevention | token_account ≠ counterparty |
 | Duplicate prevention | Deterministic address from task_ref |
+| Outcome range | Verified ∈ {0,1,2} before storage |
+| Content type range | Verified ∈ {0,1,2,3,4} before storage |
+| Closeable enforcement | Schema config controls whether close is allowed |
 
 ### Off-Chain Validation (SDK/Indexer)
 
 | Property | Enforcement |
 |----------|-------------|
 | task_ref format | SDK validates CAIP-220 |
-| Outcome range | Indexer verifies ∈ {0,1,2} |
-| Timestamp | Indexer checks reasonableness |
+| Timestamp filtering | Client-side filtering via Photon `slotCreated` |
 
 ### Trust Model
 

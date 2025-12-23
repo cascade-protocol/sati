@@ -23,6 +23,18 @@ This appendix contains detailed implementation guidance extracted from the main 
 
 **RegistryConfig**: 81 bytes (8 discriminator + 32 group_mint + 32 authority + 8 total_agents + 1 bump)
 
+### Checked Arithmetic
+
+Agent registration must use checked arithmetic when incrementing `total_agents`:
+
+```rust
+registry.total_agents = registry.total_agents
+    .checked_add(1)
+    .ok_or(SatiError::Overflow)?;
+```
+
+This prevents overflow in the theoretical case of 2^64 agent registrations.
+
 ### Events Implementation
 
 Events use Anchor's `emit_cpi!` macro for reliable indexing:
@@ -79,6 +91,76 @@ pub enum StorageType {
 }
 ```
 
+### SchemaConfig Struct
+
+```rust
+#[account]
+pub struct SchemaConfig {
+    pub sas_schema: Pubkey,           // SAS schema address
+    pub signature_mode: SignatureMode,
+    pub storage_type: StorageType,
+    pub closeable: bool,              // Whether attestations can be closed
+    pub bump: u8,
+}
+```
+
+**Closeable semantics:**
+- `false` for Feedback/Validation — immutable once created
+- `true` for ReputationScore — provider can close to update
+
+### CompressedAttestation Struct
+
+```rust
+use light_sdk::{LightDiscriminator, LightHasher};
+
+#[derive(Clone, Debug, Default, LightDiscriminator, LightHasher)]
+pub struct CompressedAttestation {
+    #[hash]
+    pub sas_schema: Pubkey,
+    #[hash]
+    pub token_account: Pubkey,
+    pub data_type: u8,
+    pub data: Vec<u8>,
+    pub signatures: Vec<[u8; 64]>,
+}
+```
+
+**Light Protocol derives:**
+- `LightDiscriminator` — generates 8-byte discriminator for account identification
+- `LightHasher` — enables Poseidon hashing for merkle tree leaves
+- `#[hash]` attribute marks fields included in the account hash for filtering
+
+### register_schema_config Context
+
+```rust
+#[derive(Accounts)]
+#[instruction(sas_schema: Pubkey)]
+pub struct RegisterSchemaConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    #[account(
+        has_one = authority,  // Only registry authority can register schemas
+    )]
+    pub registry: Account<'info, RegistryConfig>,
+
+    pub authority: Signer<'info>,
+
+    #[account(
+        init,
+        payer = payer,
+        space = 8 + SchemaConfig::INIT_SPACE,
+        seeds = [b"schema_config", sas_schema.as_ref()],
+        bump,
+    )]
+    pub schema_config: Account<'info, SchemaConfig>,
+
+    pub system_program: Program<'info, System>,
+}
+```
+
+**Security**: `has_one = authority` ensures only the registry authority can register new schema configurations. This prevents unauthorized parties from creating arbitrary schemas.
+
 ### Full Signature Verification Implementation
 
 ```rust
@@ -98,7 +180,7 @@ pub fn create_compressed_attestation<'info>(
 
     // 2. Verify data length
     require!(
-        params.data.len() >= MIN_BASE_LAYOUT_SIZE,
+        params.data.len() >= MIN_BASE_LAYOUT_SIZE,  // 96 bytes for base layout
         SatiError::AttestationDataTooSmall
     );
     require!(
@@ -107,7 +189,8 @@ pub fn create_compressed_attestation<'info>(
     );
 
     // 3. Verify content size (content starts at offset 129, Vec<u8> has 4-byte length prefix)
-    if params.data.len() > 129 {
+    // IMPORTANT: Check len >= 133 before accessing [129..133]
+    if params.data.len() >= 133 {
         let content_len = u32::from_le_bytes(params.data[129..133].try_into()?) as usize;
         require!(
             content_len <= MAX_CONTENT_SIZE,  // 512 bytes
@@ -128,36 +211,57 @@ pub fn create_compressed_attestation<'info>(
     // 6. Self-attestation prevention
     require!(token_account_pubkey != counterparty_pubkey, SelfAttestationNotAllowed);
 
-    // 7. Verify Ed25519 signatures
+    // 7. Validate outcome and content_type ranges
+    // For Feedback (data_type=0): outcome at variable offset after content
+    // For Validation (data_type=1): validation_type and status at variable offset
+    if params.data_type == 0 && params.data.len() >= 133 {
+        let content_len = u32::from_le_bytes(params.data[129..133].try_into()?) as usize;
+        let outcome_offset = 133 + content_len;
+        if params.data.len() > outcome_offset {
+            let outcome = params.data[outcome_offset];
+            require!(outcome <= 2, SatiError::InvalidOutcome);  // 0=Negative, 1=Neutral, 2=Positive
+        }
+        // Validate content_type at offset 128
+        let content_type = params.data[128];
+        require!(content_type <= 4, SatiError::InvalidContentType);  // 0-4 valid
+    }
+
+    // 8. Verify Ed25519 signatures
     // For DualSignature mode, each party signs a DIFFERENT hash:
     // Agent: hash(sas_schema, task_ref, token_account, data_hash)
     // Counterparty: hash(sas_schema, task_ref, token_account, outcome)
     verify_ed25519(params.signatures[0].pubkey, params.signatures[0].sig, interaction_hash)?;
     verify_ed25519(params.signatures[1].pubkey, params.signatures[1].sig, feedback_hash)?;
 
-    // 8. Derive deterministic address using task_ref
+    // 9. Derive deterministic address using task_ref
+    // Note: Use schema_config.sas_schema (authoritative) instead of params.sas_schema
     let task_ref = &params.data[0..32];
-    let nonce = keccak256(&[task_ref, params.sas_schema.as_ref(), params.token_account.as_ref()].concat());
+    let nonce = keccak256(&[
+        task_ref,
+        schema_config.sas_schema.as_ref(),
+        token_account_pubkey.as_ref(),
+        counterparty_pubkey.as_ref(),  // Include counterparty for uniqueness
+    ].concat());
     let (address, address_seed) = derive_address(
-        &[b"attestation", params.sas_schema.as_ref(), params.token_account.as_ref(), &nonce],
+        &[b"attestation", schema_config.sas_schema.as_ref(), token_account_pubkey.as_ref(), &nonce],
         &address_tree_info.get_tree_pubkey(&light_cpi_accounts)?,
         &crate::ID,
     );
 
-    // 9. Initialize compressed account via LightAccount wrapper
+    // 10. Initialize compressed account via LightAccount wrapper
     let mut attestation = LightAccount::<CompressedAttestation>::new_init(
         &crate::ID,
         Some(address),
         output_state_tree_index,
     );
 
-    attestation.sas_schema = params.sas_schema;
-    attestation.token_account = params.token_account;
+    attestation.sas_schema = schema_config.sas_schema;  // Use schema_config, not params
+    attestation.token_account = token_account_pubkey;
     attestation.data_type = params.data_type;
     attestation.data = params.data;
     attestation.signatures = params.signatures.iter().map(|s| s.sig).collect();
 
-    // 10. CPI to Light System Program
+    // 11. CPI to Light System Program
     let new_address_params = address_tree_info.into_new_address_params_packed(address_seed);
 
     LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, proof)
@@ -172,20 +276,63 @@ pub fn create_compressed_attestation<'info>(
 ### close_attestation Implementation
 
 ```rust
-// Authorization: Only the agent (owner of the agent NFT) can close attestations
+pub fn close_compressed_attestation<'info>(
+    ctx: Context<'_, '_, '_, 'info, CloseAttestation<'info>>,
+    proof: ValidityProof,
+    account_meta: CompressedAccountMeta,
+    current_data: Vec<u8>,
+    schema_config: &SchemaConfig,
+) -> Result<()> {
+    // 1. Check if schema allows closing
+    require!(schema_config.closeable, SatiError::AttestationNotCloseable);
 
-// Parse token_account from current_data
-let token_account = Pubkey::try_from(&current_data[32..64])?;
+    // 2. Parse token_account and counterparty from current_data
+    let token_account = Pubkey::try_from(&current_data[32..64])?;
+    let counterparty = Pubkey::try_from(&current_data[64..96])?;
 
-// Verify signer owns the agent NFT
-verify_nft_ownership(token_account, signer)?;
-require!(token_account_metadata.owner == signer.key(), UnauthorizedClose);
+    // 3. Authorization depends on schema type
+    // - Feedback/Validation: NOT closeable (closeable=false, checked above)
+    // - ReputationScore: Only the provider (counterparty) can close
+    require!(
+        ctx.accounts.signer.key() == counterparty,
+        SatiError::UnauthorizedClose
+    );
+
+    // 4. Close via Light Protocol
+    let attestation = LightAccount::<CompressedAttestation>::new_close(
+        &crate::ID,
+        &account_meta,
+        CompressedAttestation {
+            sas_schema: schema_config.sas_schema,
+            token_account,
+            data_type: current_data[64], // data_type offset
+            data: current_data.clone(),
+            signatures: vec![],
+        },
+    )?;
+
+    let light_cpi_accounts = CpiAccounts::new(
+        ctx.accounts.signer.as_ref(),
+        ctx.remaining_accounts,
+        crate::LIGHT_CPI_SIGNER,
+    );
+
+    LightSystemProgramCpi::new_cpi(crate::LIGHT_CPI_SIGNER, proof)
+        .with_light_account(attestation)?
+        .invoke(light_cpi_accounts)?;
+
+    Ok(())
+}
 ```
 
 **Close vs Burn**: SATI uses **close** (not burn) for attestations:
 - Close produces a zero-valued hash, marking the account as closed
 - The nullifier prevents reuse of the same address
 - Burn would remove from tree entirely (not supported by Light v1)
+
+**Authorization model:**
+- Feedback/Validation: `closeable=false` — cannot be closed (immutable)
+- ReputationScore: `closeable=true` — only provider (counterparty) can close to update
 
 ---
 
@@ -435,14 +582,27 @@ Provider updates by closing old attestation + creating new one with same determi
 pub fn close_regular_attestation<'info>(
     ctx: Context<'_, '_, '_, 'info, CloseRegularAttestation<'info>>,
 ) -> Result<()> {
-    // Parse token_account from attestation data
+    // 1. Check if schema allows closing
+    require!(
+        ctx.accounts.schema_config.closeable,
+        SatiError::AttestationNotCloseable
+    );
+
+    // 2. Parse token_account and counterparty (provider) from attestation data
+    // SAS layout: discriminator(1) + nonce(32) + credential(32) + schema(32) + data_len(4) + data
+    // Data layout: task_ref(32) + token_account(32) + counterparty(32) + ...
     let attestation_data = &ctx.accounts.attestation.data.borrow();
-    let token_account = Pubkey::try_from(&attestation_data[33+32..33+64])?; // After discriminator+nonce
+    let data_start = 1 + 32 + 32 + 32 + 4;  // After SAS header
+    let token_account = Pubkey::try_from(&attestation_data[data_start + 32..data_start + 64])?;
+    let counterparty = Pubkey::try_from(&attestation_data[data_start + 64..data_start + 96])?;
 
-    // Verify signer owns the agent NFT (same as compressed)
-    verify_nft_ownership(token_account, &ctx.accounts.signer)?;
+    // 3. Authorization: Only the provider (counterparty) can close ReputationScore
+    require!(
+        ctx.accounts.signer.key() == counterparty,
+        SatiError::UnauthorizedClose
+    );
 
-    // CPI to SAS CloseAttestation
+    // 4. CPI to SAS CloseAttestation
     let sati_pda_seeds: &[&[u8]] = &[b"sati_attestation", &[ctx.bumps.sati_pda]];
 
     CloseAttestationCpiBuilder::new(&ctx.accounts.sas_program)
@@ -806,7 +966,7 @@ await sati.updateReputationScore({
 | Blind feedback | Agent signs with response (before outcome known) |
 | Signature-data binding | On-chain verification that pubkeys match data |
 | Self-attestation prevention | On-chain check: `token_account != counterparty` |
-| Replay protection | Deterministic nonce from `keccak256(task_ref, schema, token_account)` |
+| Replay protection | Deterministic nonce from `keccak256(task_ref, schema, token_account, counterparty)` |
 | Canonical signatures | Ed25519 signatures must be in canonical form (s < L/2) |
 
 **Note on Ed25519 verification**: Solana's `ed25519_program` precompile is used via instruction introspection. The calling transaction must include Ed25519 program instructions with signatures, which the SATI program verifies via the instructions sysvar.
@@ -827,6 +987,61 @@ await sati.updateReputationScore({
 | Multisig authority | Registry, Attestation Program, and SAS credential use Squads smart accounts |
 | Immutability option | Can renounce authority after stable |
 | Separation of concerns | Registry vs Attestation Program vs SAS credential managed independently |
+
+### Error Codes
+
+```rust
+#[error_code]
+pub enum SatiError {
+    // Registry errors
+    #[msg("Invalid authority")]
+    InvalidAuthority,
+    #[msg("Registry authority is immutable")]
+    ImmutableAuthority,
+    #[msg("Name exceeds maximum length")]
+    NameTooLong,
+    #[msg("Symbol exceeds maximum length")]
+    SymbolTooLong,
+    #[msg("URI exceeds maximum length")]
+    UriTooLong,
+    #[msg("Too many metadata entries")]
+    TooManyMetadataEntries,
+    #[msg("Arithmetic overflow")]
+    Overflow,
+
+    // Attestation errors
+    #[msg("Schema config not found")]
+    SchemaConfigNotFound,
+    #[msg("Invalid signature count for signature mode")]
+    InvalidSignatureCount,
+    #[msg("Invalid Ed25519 signature")]
+    InvalidSignature,
+    #[msg("Storage type not supported for this operation")]
+    StorageTypeNotSupported,
+    #[msg("Storage type mismatch")]
+    StorageTypeMismatch,
+    #[msg("Attestation data too small")]
+    AttestationDataTooSmall,
+    #[msg("Attestation data exceeds maximum size")]
+    AttestationDataTooLarge,
+    #[msg("Content exceeds maximum size")]
+    ContentTooLarge,
+    #[msg("Signature pubkey does not match expected account")]
+    SignatureMismatch,
+    #[msg("Self-attestation is not allowed")]
+    SelfAttestationNotAllowed,
+    #[msg("Unauthorized to close attestation")]
+    UnauthorizedClose,
+    #[msg("Attestation cannot be closed for this schema")]
+    AttestationNotCloseable,
+    #[msg("Invalid outcome value (must be 0-2)")]
+    InvalidOutcome,
+    #[msg("Invalid content type (must be 0-4)")]
+    InvalidContentType,
+    #[msg("Light Protocol CPI invocation failed")]
+    LightCpiInvocationFailed,
+}
+```
 
 ---
 
@@ -978,9 +1193,10 @@ const valid = await sati.verifyAttestation(proof, attestation);
 ### Address Derivation Reference
 
 ```
-Registry Config PDA:    ["sati_registry", authority]
+Registry Config PDA:    ["registry"]
 Agent Token Account:    Random keypair (used as mint)
 Attestation PDA:        ["sati_attestation"]
+SchemaConfig PDA:       ["schema_config", sas_schema]
 SAS Credential PDA:     ["credential", authority, "sati-core"]
 SAS Schema PDA:         ["schema", credential, name, version]
 SAS Attestation PDA:    ["attestation", credential, schema, nonce]
