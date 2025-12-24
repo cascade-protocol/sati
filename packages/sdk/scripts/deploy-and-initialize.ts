@@ -45,7 +45,6 @@ import {
   createKeyPairSignerFromBytes,
   createSolanaRpc,
   createSolanaRpcSubscriptions,
-  generateKeyPairSigner,
   getProgramDerivedAddress,
   pipe,
   createTransactionMessage,
@@ -58,7 +57,7 @@ import {
   prependTransactionMessageInstructions,
   address,
   type KeyPairSigner,
-  type IInstruction,
+  type Instruction,
   type Address,
 } from "@solana/kit";
 import {
@@ -82,6 +81,12 @@ import { getInitializeInstructionAsync } from "../src/generated";
 const PRODUCTION_PROGRAM_ID = address(
   "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
 );
+
+// REQUIRED keypair filenames - NEVER use sati-keypair.json for production!
+const PROGRAM_KEYPAIR_FILENAME =
+  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json";
+const GROUP_KEYPAIR_FILENAME =
+  "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json";
 
 // Network RPC endpoints
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -230,35 +235,38 @@ async function deriveRegistryPda(programId: Address): Promise<Address> {
   return pda;
 }
 
-// Get the program binary path (and default keypairs)
+// Get the program binary path and REQUIRED vanity keypair paths
+// IMPORTANT: For devnet/mainnet, we ALWAYS use the vanity keypairs
 function getProgramPaths(): {
   binaryPath: string;
-  defaultProgramKeypairPath: string;
-  defaultGroupKeypairPath: string;
+  programKeypairPath: string;
+  groupKeypairPath: string;
 } {
   // Use process.cwd() for monorepo compatibility - run from packages/sdk
   const workspaceRoot = path.join(process.cwd(), "..", "..");
   const binaryPath = path.join(workspaceRoot, "target", "deploy", "sati.so");
-  const defaultProgramKeypairPath = path.join(
+
+  // ALWAYS use vanity keypairs - NEVER sati-keypair.json!
+  const programKeypairPath = path.join(
     workspaceRoot,
     "target",
     "deploy",
-    "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json",
+    PROGRAM_KEYPAIR_FILENAME,
   );
-  const defaultGroupKeypairPath = path.join(
+  const groupKeypairPath = path.join(
     workspaceRoot,
     "target",
     "deploy",
-    "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json",
+    GROUP_KEYPAIR_FILENAME,
   );
 
   if (!existsSync(binaryPath)) {
     throw new Error(
-      `Program binary not found at ${binaryPath}. Run 'anchor build' first.`,
+      `Program binary not found at ${binaryPath}. Run 'solana-verify build --library-name sati' first.`,
     );
   }
 
-  return { binaryPath, defaultProgramKeypairPath, defaultGroupKeypairPath };
+  return { binaryPath, programKeypairPath, groupKeypairPath };
 }
 
 // Deploy the program using solana CLI
@@ -315,32 +323,33 @@ async function main() {
     skipDeploy,
   } = parseArgs();
 
-  // Get program paths
-  const { binaryPath, defaultProgramKeypairPath, defaultGroupKeypairPath } =
-    getProgramPaths();
+  // Get paths - defaults to vanity keypairs (NEVER sati-keypair.json!)
+  const {
+    binaryPath,
+    programKeypairPath: defaultProgramKeypairPath,
+    groupKeypairPath: defaultGroupKeypairPath,
+  } = getProgramPaths();
 
-  // Determine program keypair path:
-  // - For localnet: use target/deploy/satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json
-  // - For devnet/mainnet: use provided --program-keypair (required)
+  // Use provided keypairs or default to vanity keypairs
   const programKeypairPath =
     providedProgramKeypair ?? defaultProgramKeypairPath;
-
-  // Determine group keypair path:
-  // - Use provided --group-keypair or default vanity keypair
   const groupKeypairPath = providedGroupKeypair ?? defaultGroupKeypairPath;
 
   // Validate program keypair exists
   if (!existsSync(programKeypairPath)) {
     throw new Error(
-      `Program keypair not found at ${programKeypairPath}. ` +
-        (network === "localnet"
-          ? "Run 'anchor build' first."
-          : "Provide a valid --program-keypair path."),
+      `Program keypair not found at ${programKeypairPath}.\n` +
+        `Expected vanity keypair: ${PROGRAM_KEYPAIR_FILENAME}`,
     );
   }
 
-  // Validate group keypair exists (or will generate new one)
-  const hasGroupKeypair = existsSync(groupKeypairPath);
+  // Validate group keypair exists
+  if (!existsSync(groupKeypairPath)) {
+    throw new Error(
+      `Group keypair not found at ${groupKeypairPath}.\n` +
+        `Expected vanity keypair: ${GROUP_KEYPAIR_FILENAME}`,
+    );
+  }
 
   console.log("=".repeat(60));
   console.log("SATI Registry: Atomic Deploy and Initialize");
@@ -348,9 +357,7 @@ async function main() {
   console.log(`Network:         ${network.toUpperCase()}`);
   console.log(`Wallet Keypair:  ${walletKeypairPath}`);
   console.log(`Program Keypair: ${programKeypairPath}`);
-  console.log(
-    `Group Keypair:   ${hasGroupKeypair ? groupKeypairPath : "(will generate new)"}`,
-  );
+  console.log(`Group Keypair:   ${groupKeypairPath}`);
   console.log(`Skip Deploy:     ${skipDeploy}`);
   if (network === "localnet") {
     console.log("\n[SAFE MODE] Running on localnet - no production risk");
@@ -410,15 +417,9 @@ async function main() {
   // PHASE 3: Initialize immediately
   console.log("\n--- PHASE 3: Initialize Registry ---");
 
-  // Load or generate group mint keypair
-  let groupMint: KeyPairSigner;
-  if (hasGroupKeypair) {
-    groupMint = await loadKeypair(groupKeypairPath);
-    console.log(`Group Mint: ${groupMint.address} (from vanity keypair)`);
-  } else {
-    groupMint = await generateKeyPairSigner();
-    console.log(`Group Mint: ${groupMint.address} (newly generated)`);
-  }
+  // Load group mint keypair (MUST use vanity keypair)
+  const groupMint = await loadKeypair(groupKeypairPath);
+  console.log(`Group Mint: ${groupMint.address}`);
 
   // Calculate mint account size
   // - Allocate only GroupPointer initially (InitializeGroup will reallocate for TokenGroup)
@@ -430,7 +431,7 @@ async function main() {
     .send();
 
   // Build instructions
-  const instructions: IInstruction[] = [];
+  const instructions: Instruction[] = [];
 
   // 1. Create mint account with GroupPointer space (InitializeGroup reallocates)
   instructions.push(
@@ -523,7 +524,8 @@ async function main() {
     rpc,
     rpcSubscriptions,
   });
-  await sendAndConfirm(signedTx, { commitment: "confirmed" });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await sendAndConfirm(signedTx as any, { commitment: "confirmed" });
 
   // PHASE 4: Verify we are the authority (DETECT LATE FRONTRUN)
   console.log("\n--- PHASE 4: Verification ---");
