@@ -32,60 +32,41 @@ pub fn keypair_to_pubkey(keypair: &Keypair) -> Pubkey {
 
 /// Create an Ed25519 program instruction for signature verification
 ///
-/// The Ed25519 program instruction format:
-/// - Byte 0: number of signatures
-/// - Byte 1: padding
-/// - Bytes 2..16: signature offset structure (for each signature)
-/// - Remainder: signature (64) + pubkey (32) + message
+/// Data layout matches solana_sdk::ed25519_instruction format:
+/// - Header: num_signatures (1) + padding (1)
+/// - Offset struct: 14 bytes
+/// - Payload: pubkey (32) + signature (64) + message (variable)
 pub fn create_ed25519_ix(pubkey: &Pubkey, message: &[u8], signature: &[u8; 64]) -> Instruction {
-    // Build the Ed25519 instruction data
-    // Offset structure: 7 u16 values = 14 bytes
-    // - signature_offset (u16)
-    // - signature_instruction_index (u16)
-    // - public_key_offset (u16)
-    // - public_key_instruction_index (u16)
-    // - message_offset (u16)
-    // - message_instruction_index (u16)
-    // - message_size (u16)
-
     let num_signatures: u8 = 1;
-    let padding: u8 = 0;
 
     // Data layout after header (2 bytes) and offset struct (14 bytes):
-    // Offset 16: signature (64 bytes)
-    // Offset 80: public key (32 bytes)
+    // Offset 16: public key (32 bytes)
+    // Offset 48: signature (64 bytes)
     // Offset 112: message (variable)
 
-    let signature_offset: u16 = 16;
-    let signature_instruction_index: u16 = u16::MAX; // This instruction
-    let public_key_offset: u16 = 80;
-    let public_key_instruction_index: u16 = u16::MAX;
+    let public_key_offset: u16 = 16;
+    let signature_offset: u16 = 48;
     let message_offset: u16 = 112;
-    let message_instruction_index: u16 = u16::MAX;
     let message_size: u16 = message.len() as u16;
 
     let mut data = Vec::with_capacity(112 + message.len());
 
     // Header
     data.push(num_signatures);
-    data.push(padding);
+    data.push(0); // padding
 
-    // Offset structure
+    // Offset structure (order: sig_offset, sig_ix, pk_offset, pk_ix, msg_offset, msg_size, msg_ix)
     data.extend_from_slice(&signature_offset.to_le_bytes());
-    data.extend_from_slice(&signature_instruction_index.to_le_bytes());
+    data.extend_from_slice(&u16::MAX.to_le_bytes()); // signature instruction index (this instruction)
     data.extend_from_slice(&public_key_offset.to_le_bytes());
-    data.extend_from_slice(&public_key_instruction_index.to_le_bytes());
+    data.extend_from_slice(&u16::MAX.to_le_bytes()); // pubkey instruction index
     data.extend_from_slice(&message_offset.to_le_bytes());
-    data.extend_from_slice(&message_instruction_index.to_le_bytes());
-    data.extend_from_slice(&message_size.to_le_bytes());
+    data.extend_from_slice(&message_size.to_le_bytes()); // message SIZE comes before instruction index
+    data.extend_from_slice(&u16::MAX.to_le_bytes()); // message instruction index
 
-    // Signature (64 bytes)
-    data.extend_from_slice(signature);
-
-    // Public key (32 bytes)
+    // Payload: pubkey, signature, message
     data.extend_from_slice(pubkey.as_ref());
-
-    // Message
+    data.extend_from_slice(signature);
     data.extend_from_slice(message);
 
     Instruction {
@@ -96,6 +77,11 @@ pub fn create_ed25519_ix(pubkey: &Pubkey, message: &[u8], signature: &[u8; 64]) 
 }
 
 /// Create Ed25519 instruction for multiple signatures
+///
+/// Data layout matches solana_sdk::ed25519_instruction format:
+/// - Header: num_signatures (1) + padding (1)
+/// - Offset structs: 14 bytes each (signature_offset, sig_ix, pubkey_offset, pk_ix, msg_offset, msg_ix, msg_size)
+/// - Payloads: pubkey (32) + signature (64) + message (variable) for each
 pub fn create_multi_ed25519_ix(
     signatures: &[(&Pubkey, &[u8], &[u8; 64])], // (pubkey, message, signature)
 ) -> Instruction {
@@ -109,26 +95,26 @@ pub fn create_multi_ed25519_ix(
     let mut current_offset = payloads_start;
 
     for &(pubkey, message, signature) in signatures {
-        // Build offset struct for this signature
-        let signature_offset = current_offset as u16;
-        let public_key_offset = (current_offset + 64) as u16;
-        let message_offset = (current_offset + 64 + 32) as u16;
+        // Order in payload: pubkey, signature, message (matches solana_sdk)
+        let public_key_offset = current_offset as u16;
+        let signature_offset = (current_offset + 32) as u16;
+        let message_offset = (current_offset + 32 + 64) as u16;
         let message_size = message.len() as u16;
 
         offset_data.extend_from_slice(&signature_offset.to_le_bytes());
-        offset_data.extend_from_slice(&u16::MAX.to_le_bytes()); // This instruction
+        offset_data.extend_from_slice(&u16::MAX.to_le_bytes()); // signature instruction index
         offset_data.extend_from_slice(&public_key_offset.to_le_bytes());
-        offset_data.extend_from_slice(&u16::MAX.to_le_bytes());
+        offset_data.extend_from_slice(&u16::MAX.to_le_bytes()); // pubkey instruction index
         offset_data.extend_from_slice(&message_offset.to_le_bytes());
-        offset_data.extend_from_slice(&u16::MAX.to_le_bytes());
-        offset_data.extend_from_slice(&message_size.to_le_bytes());
+        offset_data.extend_from_slice(&message_size.to_le_bytes()); // message SIZE before instruction index
+        offset_data.extend_from_slice(&u16::MAX.to_le_bytes()); // message instruction index
 
-        // Build payload for this signature
-        payload_data.extend_from_slice(signature);
+        // Build payload: pubkey, signature, message
         payload_data.extend_from_slice(pubkey.as_ref());
+        payload_data.extend_from_slice(signature);
         payload_data.extend_from_slice(message);
 
-        current_offset += 64 + 32 + message.len();
+        current_offset += 32 + 64 + message.len();
     }
 
     // Combine: header + offsets + payloads
@@ -221,6 +207,24 @@ pub fn compute_reputation_hash(
 pub fn compute_data_hash(data: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(data);
+    hasher.finalize().into()
+}
+
+/// Compute nonce for attestation address derivation (matches on-chain)
+///
+/// The nonce is a Keccak256 hash of the attestation identifiers,
+/// ensuring each attestation gets a unique deterministic address.
+pub fn compute_attestation_nonce(
+    task_ref: &[u8; 32],
+    sas_schema: &Pubkey,
+    token_account: &Pubkey,
+    counterparty: &Pubkey,
+) -> [u8; 32] {
+    let mut hasher = Keccak256::new();
+    hasher.update(task_ref);
+    hasher.update(sas_schema.as_ref());
+    hasher.update(token_account.as_ref());
+    hasher.update(counterparty.as_ref());
     hasher.finalize().into()
 }
 

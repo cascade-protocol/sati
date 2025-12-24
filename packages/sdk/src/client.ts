@@ -116,6 +116,17 @@ import type {
 
 import { deriveReputationAttestationPda } from "./sas-pdas";
 
+import {
+  deriveSatiCredentialPda,
+  deriveSatiSchemaPda,
+  getCreateSatiCredentialInstruction,
+  getCreateSatiSchemaInstruction,
+  fetchMaybeCredential,
+  fetchMaybeSchema,
+  SATI_SCHEMAS,
+  type SASSchemaDefinition,
+} from "./sas";
+
 import { createBatchEd25519Instruction } from "./ed25519";
 
 // Re-export types
@@ -1619,17 +1630,13 @@ export class SATI {
    * This is an admin operation typically run once per network.
    *
    * Creates:
-   * - SATI credential with SATI PDA as authorized signer
-   * - feedbackAuth schema
-   * - feedback schema
-   * - feedbackResponse schema
-   * - validationRequest schema
-   * - validationResponse schema
-   * - certification schema
-   * - reputationScore schema
+   * - SATI credential with authority as controller
+   * - Feedback schema (compressed, dual signature)
+   * - Validation schema (compressed, dual signature)
+   * - ReputationScore schema (regular SAS, single signer)
    *
-   * @internal This method is not yet implemented. Use scripts/deploy-sas-schemas.ts instead.
-   * @throws Always throws - implementation requires SAS SDK integration
+   * Then registers each schema config in the SATI program.
+   *
    * @param params - Setup parameters
    * @returns Deployment result with addresses and signatures
    */
@@ -1641,22 +1648,215 @@ export class SATI {
     /** Deploy test schemas (v0) instead of production */
     testMode?: boolean;
   }): Promise<SASDeploymentResult> {
-    const { authority, testMode } = params;
-    const mode = testMode ? "test" : "production";
+    const { payer, authority, testMode = false } = params;
+    const schemaVersion = testMode ? 0 : 1;
 
-    // TODO: Implement full SAS credential and schema deployment
-    // This requires:
-    // 1. Import SAS SDK: getCreateCredentialInstruction, getCreateSchemaInstruction
-    // 2. Derive SATI authority PDA
-    // 3. Check if credential exists, create if not
-    // 4. Add SATI PDA as authorized signer on the credential
-    // 5. Create each schema (feedbackAuth, feedback, feedbackResponse, etc.)
-    // 6. Register SchemaConfig in SATI for each schema
-    // 7. Return deployment result
+    const signatures: string[] = [];
+    const schemaStatuses: Array<{
+      name: string;
+      address: Address;
+      existed: boolean;
+      deployed: boolean;
+    }> = [];
 
-    throw new Error(
-      `setupSASSchemas: Not yet implemented for authority ${authority.address} (${mode} mode). ` +
-        "Requires SAS SDK integration. Use scripts/deploy-sas-schemas.ts instead.",
+    // 1. Derive credential PDA
+    const [credentialPda] = await deriveSatiCredentialPda(authority.address);
+    let credentialExisted = false;
+    let credentialDeployed = false;
+
+    // 2. Check if credential exists
+    const existingCredential = await fetchMaybeCredential(
+      this.rpc,
+      credentialPda,
     );
+
+    if (existingCredential) {
+      credentialExisted = true;
+      console.log(`Credential already exists: ${credentialPda}`);
+    } else {
+      // Create credential
+      console.log(`Creating credential: ${credentialPda}`);
+      const createCredentialIx = getCreateSatiCredentialInstruction({
+        payer,
+        authority,
+        credentialPda,
+        authorizedSigners: [], // No additional signers needed
+      });
+
+      const sig = await this.sendTransaction([createCredentialIx], payer);
+      signatures.push(sig);
+      credentialDeployed = true;
+      console.log(`Credential created: ${sig}`);
+    }
+
+    // 3. Deploy each schema
+    const schemaEntries: Array<{
+      key: "feedback" | "validation" | "reputationScore";
+      def: SASSchemaDefinition;
+    }> = [
+      { key: "feedback", def: SATI_SCHEMAS.feedback },
+      { key: "validation", def: SATI_SCHEMAS.validation },
+      { key: "reputationScore", def: SATI_SCHEMAS.reputationScore },
+    ];
+
+    const schemaPdas: Record<string, Address> = {};
+
+    for (const { key, def } of schemaEntries) {
+      const [schemaPda] = await deriveSatiSchemaPda(
+        credentialPda,
+        def.name,
+        schemaVersion,
+      );
+      schemaPdas[key] = schemaPda;
+
+      // Check if schema exists
+      const existingSchema = await fetchMaybeSchema(this.rpc, schemaPda);
+
+      if (existingSchema) {
+        schemaStatuses.push({
+          name: def.name,
+          address: schemaPda,
+          existed: true,
+          deployed: false,
+        });
+        console.log(`Schema ${def.name} already exists: ${schemaPda}`);
+      } else {
+        // Create schema
+        console.log(`Creating schema ${def.name}: ${schemaPda}`);
+        const createSchemaIx = getCreateSatiSchemaInstruction({
+          payer,
+          authority,
+          credentialPda,
+          schemaPda,
+          schema: def,
+        });
+
+        const sig = await this.sendTransaction([createSchemaIx], payer);
+        signatures.push(sig);
+        schemaStatuses.push({
+          name: def.name,
+          address: schemaPda,
+          existed: false,
+          deployed: true,
+        });
+        console.log(`Schema ${def.name} created: ${sig}`);
+      }
+    }
+
+    // 4. Register schema configs in SATI program
+    // Note: This requires registry authority - check if we have it
+    const [registryPda] = await findRegistryConfigPda();
+    const registryConfig = await fetchRegistryConfig(this.rpc, registryPda);
+
+    if (registryConfig.data.authority === authority.address) {
+      console.log("\nRegistering schema configs in SATI program...");
+
+      // Schema configurations matching SCHEMA_CONFIGS in schemas.ts
+      const schemaConfigs: Array<{
+        key: "feedback" | "validation" | "reputationScore";
+        signatureMode: 0 | 1; // 0 = DualSignature, 1 = SingleSigner
+        storageType: 0 | 1; // 0 = Compressed, 1 = Regular
+        closeable: boolean;
+      }> = [
+        {
+          key: "feedback",
+          signatureMode: 0,
+          storageType: 0,
+          closeable: false,
+        },
+        {
+          key: "validation",
+          signatureMode: 0,
+          storageType: 0,
+          closeable: false,
+        },
+        {
+          key: "reputationScore",
+          signatureMode: 1,
+          storageType: 1,
+          closeable: true,
+        },
+      ];
+
+      for (const config of schemaConfigs) {
+        const sasSchema = schemaPdas[config.key];
+        const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+        // Check if already registered
+        try {
+          await fetchSchemaConfig(this.rpc, schemaConfigPda);
+          console.log(`SchemaConfig for ${config.key} already registered`);
+        } catch {
+          // Not registered, create it
+          console.log(`Registering SchemaConfig for ${config.key}...`);
+          const registerIx = await getRegisterSchemaConfigInstructionAsync({
+            payer,
+            authority,
+            registryConfig: registryPda,
+            sasSchema,
+            signatureMode: config.signatureMode,
+            storageType: config.storageType,
+            closeable: config.closeable,
+          });
+
+          const sig = await this.sendTransaction([registerIx], payer);
+          signatures.push(sig);
+          console.log(`SchemaConfig for ${config.key} registered: ${sig}`);
+        }
+      }
+    } else {
+      console.log(
+        "\nSkipping SATI schema config registration (not registry authority)",
+      );
+    }
+
+    return {
+      success: true,
+      credential: {
+        address: credentialPda,
+        existed: credentialExisted,
+        deployed: credentialDeployed,
+      },
+      schemas: schemaStatuses,
+      signatures,
+      config: {
+        credential: credentialPda,
+        schemas: {
+          feedback: schemaPdas.feedback,
+          validation: schemaPdas.validation,
+          reputationScore: schemaPdas.reputationScore,
+        },
+      },
+    };
+  }
+
+  /**
+   * Send a transaction with compute budget and confirmation
+   * @internal
+   */
+  private async sendTransaction(
+    instructions: Parameters<typeof appendTransactionMessageInstructions>[0],
+    payer: KeyPairSigner,
+  ): Promise<string> {
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
+
+    const txMessage = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(payer.address, msg),
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstructions(instructions, msg),
+    );
+
+    const signedTx = await signTransactionMessageWithSigners(txMessage);
+    const signature = getSignatureFromTransaction(signedTx);
+
+    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+      commitment: "confirmed",
+    });
+
+    return signature;
   }
 }

@@ -74,19 +74,91 @@ export interface SASSchemaDefinition {
   fieldNames: string[];
 }
 
+// Schema name constants
+export const FEEDBACK_SCHEMA_NAME = "SATIFeedback";
+export const VALIDATION_SCHEMA_NAME = "SATIValidation";
+
+/**
+ * Feedback schema definition for SAS
+ *
+ * Layout: task_ref(32) + token_account(32) + counterparty(32) + data_hash(32) +
+ *         content_type(1) + outcome(1) + tag1(var) + tag2(var) + content(var)
+ *
+ * Note: Variable-length fields use blob type (9)
+ */
+export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
+  name: FEEDBACK_SCHEMA_NAME,
+  description:
+    "Feedback attestation with dual signatures from agent and counterparty",
+  // Layout types: pubkey=7, u8=0, blob=9
+  layout: [7, 7, 7, 7, 0, 0, 9, 9, 9], // task_ref, token, counter, hash, contentType, outcome, tag1, tag2, content
+  fieldNames: [
+    "task_ref",
+    "token_account",
+    "counterparty",
+    "data_hash",
+    "content_type",
+    "outcome",
+    "tag1",
+    "tag2",
+    "content",
+  ],
+};
+
+/**
+ * Validation schema definition for SAS
+ *
+ * Layout: task_ref(32) + token_account(32) + counterparty(32) + data_hash(32) +
+ *         content_type(1) + validation_type(1) + response(1) + content(var)
+ */
+export const VALIDATION_SAS_SCHEMA: SASSchemaDefinition = {
+  name: VALIDATION_SCHEMA_NAME,
+  description:
+    "Validation attestation with dual signatures from agent and validator",
+  // Layout types: pubkey=7, u8=0, blob=9
+  layout: [7, 7, 7, 7, 0, 0, 0, 9], // task_ref, token, counter, hash, contentType, validationType, response, content
+  fieldNames: [
+    "task_ref",
+    "token_account",
+    "counterparty",
+    "data_hash",
+    "content_type",
+    "validation_type",
+    "response",
+    "content",
+  ],
+};
+
 /**
  * ReputationScore schema definition for SAS
  *
- * Layout: pubkey(32) + pubkey(32) + u8(1) + i64(8) = 73 bytes
+ * Layout: task_ref(32) + token_account(32) + counterparty(32) + score(1) +
+ *         content_type(1) + content(var)
  */
 export const REPUTATION_SCORE_SAS_SCHEMA: SASSchemaDefinition = {
   name: REPUTATION_SCORE_SCHEMA_NAME,
   description:
     "Reputation score from an authorized provider for a SATI-registered agent",
-  // Layout: token_account (pubkey), provider (pubkey), score (u8), timestamp (i64)
-  layout: [7, 7, 0, 4], // pubkey=7, u8=0, i64=4
-  fieldNames: ["token_account", "provider", "score", "timestamp"],
+  // Layout types: pubkey=7, u8=0, blob=9
+  layout: [7, 7, 7, 0, 0, 9], // task_ref, token, counter, score, contentType, content
+  fieldNames: [
+    "task_ref",
+    "token_account",
+    "counterparty",
+    "score",
+    "content_type",
+    "content",
+  ],
 };
+
+/**
+ * All SATI schemas for deployment
+ */
+export const SATI_SCHEMAS = {
+  feedback: FEEDBACK_SAS_SCHEMA,
+  validation: VALIDATION_SAS_SCHEMA,
+  reputationScore: REPUTATION_SCORE_SAS_SCHEMA,
+} as const;
 
 /**
  * Derive SATI credential PDA

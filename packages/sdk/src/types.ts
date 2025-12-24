@@ -153,12 +153,11 @@ export interface SATISASConfig {
   credential: Address;
   /** Schema PDAs by name */
   schemas: {
-    feedbackAuth: Address;
+    /** Feedback schema (compressed, dual signature) */
     feedback: Address;
-    feedbackResponse: Address;
-    validationRequest: Address;
-    validationResponse: Address;
-    certification: Address;
+    /** Validation schema (compressed, dual signature) */
+    validation: Address;
+    /** ReputationScore schema (regular SAS, single signer) */
     reputationScore: Address;
   };
 }

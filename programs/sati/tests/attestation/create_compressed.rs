@@ -15,37 +15,68 @@
 //! cargo test -p sati --test main attestation::
 //! ```
 
-use solana_sdk::pubkey::Pubkey;
+use light_program_test::{program_test::TestRpc, AddressWithTree, Indexer, Rpc};
+use light_sdk::{
+    address::v1::derive_address,
+    instruction::{PackedAccounts, SystemAccountMetaConfig},
+};
+use sha2::{Digest, Sha256};
+use solana_sdk::{account::Account, pubkey::Pubkey, signer::Signer};
 
 use crate::common::{
     ed25519::{
-        compute_data_hash, compute_feedback_hash, compute_interaction_hash,
-        create_multi_ed25519_ix, generate_ed25519_keypair, keypair_to_pubkey, sign_message,
+        compute_attestation_nonce, compute_data_hash, compute_feedback_hash,
+        compute_interaction_hash, create_multi_ed25519_ix, generate_ed25519_keypair,
+        keypair_to_pubkey, sign_message,
     },
-    setup::{derive_schema_config_pda, setup_light_test_env, LightTestEnv},
+    instructions::{
+        build_create_attestation_ix, CreateParams, SignatureData, SignatureMode, StorageType,
+    },
+    setup::{derive_schema_config_pda, setup_light_test_env, LightTestEnv, SATI_PROGRAM_ID},
 };
 
+/// Compute Anchor account discriminator: sha256("account:AccountName")[..8]
+fn compute_anchor_discriminator(account_name: &str) -> [u8; 8] {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("account:{}", account_name));
+    let result = hasher.finalize();
+    result[..8].try_into().unwrap()
+}
+
+/// SchemaConfig account size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 1 = 44 bytes
+const SCHEMA_CONFIG_SIZE: usize = 44;
+
 /// Test successful create_attestation with DualSignature (Feedback)
-///
-/// NOTE: This test is currently ignored because Light Protocol test
-/// infrastructure requires additional setup for validity proof generation.
-/// The test structure is correct but needs Light Protocol prover running.
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
+#[ignore = "requires localnet - run: pnpm localnet"]
 async fn test_create_attestation_feedback_success() {
     // 1. Setup Light Protocol test environment with SATI program
-    let LightTestEnv {
-        rpc: _rpc,
-        indexer: _indexer,
-        payer: _payer,
-    } = setup_light_test_env().await;
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
-    // 2. Create mock registry and schema config
+    // 2. Create and mock SchemaConfig PDA
     let sas_schema = Pubkey::new_unique();
-    let (_schema_config_pda, _bump) = derive_schema_config_pda(&sas_schema);
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    // TODO: Set up initialized registry and schema config
-    // This requires either mocking or running the actual instructions
+    // Mock SchemaConfig account (avoids Token-2022 registry setup)
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref()); // sas_schema
+    schema_data[40] = SignatureMode::DualSignature as u8; // signature_mode
+    schema_data[41] = StorageType::Compressed as u8; // storage_type
+    schema_data[42] = 1; // closeable = true
+    schema_data[43] = bump; // bump
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
 
     // 3. Create agent and counterparty Ed25519 keypairs
     let agent_keypair = generate_ed25519_keypair();
@@ -58,7 +89,7 @@ async fn test_create_attestation_feedback_success() {
     let data_hash = compute_data_hash(b"test task data");
     let outcome: u8 = 2; // Positive feedback
 
-    let mut data = [0u8; 132];
+    let mut data = vec![0u8; 132];
     data[0..32].copy_from_slice(&task_ref); // task_ref
     data[32..64].copy_from_slice(agent_pubkey.as_ref()); // token_account
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref()); // counterparty
@@ -76,8 +107,70 @@ async fn test_create_attestation_feedback_success() {
     let agent_sig = sign_message(&agent_keypair, &agent_message);
     let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_message);
 
-    // 6. Create Ed25519 verification instruction
-    let _ed25519_ix = create_multi_ed25519_ix(&[
+    // 6. Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    // 7. Derive compressed account address
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_pubkey, &counterparty_pubkey);
+
+    // Build seeds matching on-chain derive_address call
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_pubkey.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _address_seed) =
+        derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // 8. Get validity proof for new address
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![], // No existing accounts
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    // 9. Pack tree infos
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    // 10. Build CreateParams
+    let params = CreateParams {
+        data_type: 0, // Feedback
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    // 11. Build instructions
+    let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &agent_message, &agent_sig),
         (
             &counterparty_pubkey,
@@ -85,25 +178,32 @@ async fn test_create_attestation_feedback_success() {
             &counterparty_sig,
         ),
     ]);
+    let attestation_ix =
+        build_create_attestation_ix(&payer.pubkey(), &schema_config_pda, params, system_accounts);
 
-    // 7. Get validity proof for new address
-    // TODO: This requires deriving the address and getting proof from indexer
-    // let address = derive_attestation_address(...);
-    // let proof = indexer.get_validity_proof(vec![], vec![address_with_tree], None).await;
+    // 12. Send transaction (Ed25519 instruction MUST come before attestation)
+    rpc.create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await
+        .expect("Transaction failed");
 
-    // 8. Build CreateParams
-    // TODO: Fill in proof and address_tree_info from indexer
-    // let params = CreateParams { ... };
+    // 13. Verify compressed account was created
+    let created = rpc
+        .get_compressed_account(compressed_address, None)
+        .await
+        .expect("Failed to query compressed account")
+        .value;
 
-    // 9. Build and send transaction
-    // let attestation_ix = build_create_attestation_ix(...);
-    // let tx = Transaction::new_signed_with_payer(...);
-    // rpc.process_transaction(tx).await.unwrap();
+    assert!(
+        created.is_some(),
+        "Compressed attestation should exist at derived address"
+    );
 
-    // 10. Verify attestation was created via indexer
-    // TODO: Query indexer for the new compressed account
-
-    println!("test_create_attestation_feedback_success: Test structure ready, needs Light Protocol prover");
+    let account = created.unwrap();
+    assert_eq!(
+        account.address,
+        Some(compressed_address),
+        "Address should match"
+    );
 }
 
 /// Test that create_attestation fails without Ed25519 signature instruction

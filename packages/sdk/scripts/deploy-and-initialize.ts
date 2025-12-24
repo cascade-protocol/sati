@@ -520,12 +520,12 @@ async function main() {
   const signedTx = await signTransactionMessageWithSigners(txMessage);
   const signature = getSignatureFromTransaction(signedTx);
 
+  // biome-ignore lint/suspicious/noExplicitAny: @solana/kit cluster-branded RPC types don't match dynamic network config
   const sendAndConfirm = sendAndConfirmTransactionFactory({
     rpc,
     rpcSubscriptions,
-  });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await sendAndConfirm(signedTx as any, { commitment: "confirmed" });
+  } as any);
+  await sendAndConfirm(signedTx, { commitment: "confirmed" });
 
   // PHASE 4: Verify we are the authority (DETECT LATE FRONTRUN)
   console.log("\n--- PHASE 4: Verification ---");
