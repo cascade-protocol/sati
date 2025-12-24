@@ -20,7 +20,7 @@ solana-sdk = "2.3"
 solana-program = "2.3"
 
 # Light Protocol for compressed accounts
-light-sdk = "0.17"
+light-sdk = { version = "0.17", features = ["anchor"] }
 light-hasher = "5.0"
 
 # Solana Attestation Service

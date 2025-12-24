@@ -65,16 +65,19 @@ export enum DataType {
 // =============================================================================
 
 const SATI_PROGRAM_ID = new PublicKey(
-  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz"
+  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
 );
 
 /**
  * Find registry config PDA
  */
 export function findRegistryConfigPda(
-  programId: PublicKey = SATI_PROGRAM_ID
+  programId: PublicKey = SATI_PROGRAM_ID,
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("registry")], programId);
+  return PublicKey.findProgramAddressSync(
+    [new TextEncoder().encode("registry")],
+    programId,
+  );
 }
 
 /**
@@ -82,11 +85,11 @@ export function findRegistryConfigPda(
  */
 export function findSchemaConfigPda(
   sasSchema: PublicKey,
-  programId: PublicKey = SATI_PROGRAM_ID
+  programId: PublicKey = SATI_PROGRAM_ID,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("schema_config"), sasSchema.toBuffer()],
-    programId
+    [new TextEncoder().encode("schema_config"), sasSchema.toBytes()],
+    programId,
   );
 }
 
@@ -130,13 +133,20 @@ export function buildFeedbackData(params: FeedbackDataParams): Uint8Array {
   const tag2Bytes = new TextEncoder().encode(tag2Str);
 
   // Truncate content to MAX_CONTENT_SIZE
-  const contentBytes = params.content?.slice(0, MAX_CONTENT_SIZE) ?? new Uint8Array(0);
+  const contentBytes =
+    params.content?.slice(0, MAX_CONTENT_SIZE) ?? new Uint8Array(0);
 
   // Calculate total size
   // base(130) + tag1(1+len) + tag2(1+len) + content(4+len)
   const baseSize = 130; // 32 + 32 + 32 + 32 + 1 + 1
   const totalSize =
-    baseSize + 1 + tag1Bytes.length + 1 + tag2Bytes.length + 4 + contentBytes.length;
+    baseSize +
+    1 +
+    tag1Bytes.length +
+    1 +
+    tag2Bytes.length +
+    4 +
+    contentBytes.length;
 
   const data = new Uint8Array(totalSize);
   let offset = 0;
@@ -214,7 +224,8 @@ export function buildValidationData(params: ValidationDataParams): Uint8Array {
   const encoder = getAddressEncoder();
 
   // Truncate content to MAX_CONTENT_SIZE
-  const contentBytes = params.content?.slice(0, MAX_CONTENT_SIZE) ?? new Uint8Array(0);
+  const contentBytes =
+    params.content?.slice(0, MAX_CONTENT_SIZE) ?? new Uint8Array(0);
 
   // base(131) + content(4+len)
   const baseSize = 131; // 32 + 32 + 32 + 32 + 1 + 1 + 1
@@ -281,12 +292,13 @@ export interface ReputationScoreDataParams {
  * - 98+: content (4 byte len + data)
  */
 export function buildReputationScoreData(
-  params: ReputationScoreDataParams
+  params: ReputationScoreDataParams,
 ): Uint8Array {
   const encoder = getAddressEncoder();
 
   // Truncate content to MAX_CONTENT_SIZE
-  const contentBytes = params.content?.slice(0, MAX_CONTENT_SIZE) ?? new Uint8Array(0);
+  const contentBytes =
+    params.content?.slice(0, MAX_CONTENT_SIZE) ?? new Uint8Array(0);
 
   // base(98) + content(4+len)
   const baseSize = 98; // 32 + 32 + 32 + 1 + 1

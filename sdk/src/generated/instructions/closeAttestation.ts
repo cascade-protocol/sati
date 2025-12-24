@@ -40,6 +40,16 @@ import {
 } from "@solana/kit";
 import { SATI_PROGRAM_ADDRESS } from "../programs";
 import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
+import {
+  getCompressedAccountMetaDecoder,
+  getCompressedAccountMetaEncoder,
+  getValidityProofDecoder,
+  getValidityProofEncoder,
+  type CompressedAccountMeta,
+  type CompressedAccountMetaArgs,
+  type ValidityProof,
+  type ValidityProofArgs,
+} from "../types";
 
 export const CLOSE_ATTESTATION_DISCRIMINATOR = new Uint8Array([
   249, 84, 133, 23, 48, 175, 252, 221,
@@ -93,10 +103,10 @@ export type CloseAttestationInstructionData = {
   signature2: ReadonlyUint8Array;
   /** The compressed account address being closed (for event emission) */
   address: Address;
-  /** Serialized Light Protocol proof bytes */
-  proofBytes: ReadonlyUint8Array;
-  /** Serialized compressed account metadata bytes */
-  accountMetaBytes: ReadonlyUint8Array;
+  /** Light Protocol validity proof */
+  proof: ValidityProof;
+  /** Light Protocol compressed account metadata */
+  accountMeta: CompressedAccountMeta;
 };
 
 export type CloseAttestationInstructionDataArgs = {
@@ -112,10 +122,10 @@ export type CloseAttestationInstructionDataArgs = {
   signature2: ReadonlyUint8Array;
   /** The compressed account address being closed (for event emission) */
   address: Address;
-  /** Serialized Light Protocol proof bytes */
-  proofBytes: ReadonlyUint8Array;
-  /** Serialized compressed account metadata bytes */
-  accountMetaBytes: ReadonlyUint8Array;
+  /** Light Protocol validity proof */
+  proof: ValidityProofArgs;
+  /** Light Protocol compressed account metadata */
+  accountMeta: CompressedAccountMetaArgs;
 };
 
 export function getCloseAttestationInstructionDataEncoder(): Encoder<CloseAttestationInstructionDataArgs> {
@@ -128,11 +138,8 @@ export function getCloseAttestationInstructionDataEncoder(): Encoder<CloseAttest
       ["signature1", fixEncoderSize(getBytesEncoder(), 64)],
       ["signature2", fixEncoderSize(getBytesEncoder(), 64)],
       ["address", getAddressEncoder()],
-      ["proofBytes", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
-      [
-        "accountMetaBytes",
-        addEncoderSizePrefix(getBytesEncoder(), getU32Encoder()),
-      ],
+      ["proof", getValidityProofEncoder()],
+      ["accountMeta", getCompressedAccountMetaEncoder()],
     ]),
     (value) => ({ ...value, discriminator: CLOSE_ATTESTATION_DISCRIMINATOR }),
   );
@@ -147,11 +154,8 @@ export function getCloseAttestationInstructionDataDecoder(): Decoder<CloseAttest
     ["signature1", fixDecoderSize(getBytesDecoder(), 64)],
     ["signature2", fixDecoderSize(getBytesDecoder(), 64)],
     ["address", getAddressDecoder()],
-    ["proofBytes", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
-    [
-      "accountMetaBytes",
-      addDecoderSizePrefix(getBytesDecoder(), getU32Decoder()),
-    ],
+    ["proof", getValidityProofDecoder()],
+    ["accountMeta", getCompressedAccountMetaDecoder()],
   ]);
 }
 
@@ -183,8 +187,8 @@ export type CloseAttestationAsyncInput<
   signature1: CloseAttestationInstructionDataArgs["signature1"];
   signature2: CloseAttestationInstructionDataArgs["signature2"];
   address: CloseAttestationInstructionDataArgs["address"];
-  proofBytes: CloseAttestationInstructionDataArgs["proofBytes"];
-  accountMetaBytes: CloseAttestationInstructionDataArgs["accountMetaBytes"];
+  proof: CloseAttestationInstructionDataArgs["proof"];
+  accountMeta: CloseAttestationInstructionDataArgs["accountMeta"];
 };
 
 export async function getCloseAttestationInstructionAsync<
@@ -282,8 +286,8 @@ export type CloseAttestationInput<
   signature1: CloseAttestationInstructionDataArgs["signature1"];
   signature2: CloseAttestationInstructionDataArgs["signature2"];
   address: CloseAttestationInstructionDataArgs["address"];
-  proofBytes: CloseAttestationInstructionDataArgs["proofBytes"];
-  accountMetaBytes: CloseAttestationInstructionDataArgs["accountMetaBytes"];
+  proof: CloseAttestationInstructionDataArgs["proof"];
+  accountMeta: CloseAttestationInstructionDataArgs["accountMeta"];
 };
 
 export function getCloseAttestationInstruction<

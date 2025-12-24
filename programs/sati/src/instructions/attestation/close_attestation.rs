@@ -1,12 +1,10 @@
 use anchor_lang::prelude::*;
-use borsh::BorshDeserialize;
 use light_sdk::{
     account::LightAccount,
     cpi::{
         v1::{CpiAccounts, LightSystemProgramCpi},
         InvokeLightSystemProgram, LightCpiInstruction,
     },
-    instruction::{account_meta::CompressedAccountMeta, ValidityProof},
 };
 
 use crate::errors::SatiError;
@@ -70,16 +68,10 @@ pub fn handler<'info>(
         LIGHT_CPI_SIGNER,
     );
 
-    // 4. Deserialize Light Protocol types from bytes
-    let account_meta = CompressedAccountMeta::try_from_slice(&params.account_meta_bytes)
-        .map_err(|_| SatiError::InvalidDataLayout)?;
-    let proof = ValidityProof::try_from_slice(&params.proof_bytes)
-        .map_err(|_| SatiError::InvalidDataLayout)?;
-
-    // 5. Reconstruct the attestation for closing with actual data from params
+    // 4. Reconstruct the attestation for closing with actual data from params
     let attestation = LightAccount::<CompressedAttestation>::new_close(
         &ID,
-        &account_meta,
+        &params.account_meta,
         CompressedAttestation {
             sas_schema: schema_config.sas_schema.to_bytes(),
             token_account: token_account_bytes,
@@ -91,13 +83,13 @@ pub fn handler<'info>(
         },
     )?;
 
-    // 6. CPI to Light System Program to close
-    LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, proof)
+    // 5. CPI to Light System Program to close
+    LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, params.proof)
         .with_light_account(attestation)?
         .invoke(light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
-    // 7. Emit event with actual address from params
+    // 6. Emit event with actual address from params
     emit_cpi!(AttestationClosed {
         sas_schema: schema_config.sas_schema,
         token_account,

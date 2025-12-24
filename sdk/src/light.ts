@@ -10,9 +10,9 @@
 
 import {
   createRpc,
-  Rpc,
+  type Rpc,
   bn,
-  CompressedAccountWithMerkleContext,
+  type CompressedAccountWithMerkleContext,
   getDefaultAddressTreeInfo,
   deriveAddress,
   deriveAddressSeed,
@@ -31,9 +31,23 @@ import {
   type FeedbackData,
   type ValidationData,
   type CompressedAttestation,
-  Outcome,
+  type Outcome,
 } from "./schemas.js";
 import { SATI_PROGRAM_ADDRESS } from "./generated/programs/sati.js";
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Browser-compatible base64 encoding for Uint8Array
+ */
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const binString = Array.from(bytes, (byte) =>
+    String.fromCodePoint(byte),
+  ).join("");
+  return btoa(binString);
+}
 
 // ============================================================================
 // Types
@@ -124,7 +138,11 @@ export interface CreationProofResult {
   /** Output state tree index */
   outputStateTreeIndex: number;
   /** Remaining accounts for the transaction */
-  remainingAccounts: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }>;
+  remainingAccounts: Array<{
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+  }>;
 }
 
 /**
@@ -138,7 +156,11 @@ export interface MutationProofResult {
   /** Output state tree index */
   outputStateTreeIndex: number;
   /** Remaining accounts for the transaction */
-  remainingAccounts: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }>;
+  remainingAccounts: Array<{
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+  }>;
 }
 
 // ============================================================================
@@ -194,16 +216,18 @@ export class LightClient {
    * @param seeds - Seeds for address derivation (e.g., [taskRef, sasSchema, tokenAccount])
    * @returns Derived address and address tree info
    */
-  async deriveAttestationAddress(
-    seeds: Uint8Array[]
-  ): Promise<{ address: PublicKey; addressTree: PublicKey; addressQueue: PublicKey }> {
+  async deriveAttestationAddress(seeds: Uint8Array[]): Promise<{
+    address: PublicKey;
+    addressTree: PublicKey;
+    addressQueue: PublicKey;
+  }> {
     const addressTreeInfo = getDefaultAddressTreeInfo();
     const addressTree = addressTreeInfo.tree;
     const addressQueue = addressTreeInfo.queue;
 
     const seed = deriveAddressSeed(
-      seeds.map((s) => Buffer.from(s)),
-      this.programId
+      seeds.map((s) => new Uint8Array(s)),
+      this.programId,
     );
     const address = deriveAddress(seed, addressTree);
 
@@ -235,7 +259,7 @@ export class LightClient {
    */
   async getAttestations(addresses: Uint8Array[]): Promise<ParsedAttestation[]> {
     const accounts = await this.rpc.getMultipleCompressedAccounts(
-      addresses.map((a) => bn(a))
+      addresses.map((a) => bn(a)),
     );
 
     const results: ParsedAttestation[] = [];
@@ -257,7 +281,7 @@ export class LightClient {
    */
   async listFeedbacks(
     tokenAccount: Address,
-    filter?: Partial<AttestationFilter>
+    filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     const accounts = await this.queryByOwnerWithFilters(tokenAccount, {
       ...filter,
@@ -275,13 +299,15 @@ export class LightClient {
    */
   async listValidations(
     tokenAccount: Address,
-    filter?: Partial<AttestationFilter>
+    filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     const accounts = await this.queryByOwnerWithFilters(tokenAccount, {
       ...filter,
       dataType: DataType.Validation,
     });
-    return accounts.filter((a) => a.attestation.dataType === DataType.Validation);
+    return accounts.filter(
+      (a) => a.attestation.dataType === DataType.Validation,
+    );
   }
 
   /**
@@ -293,7 +319,7 @@ export class LightClient {
    */
   async listAttestations(
     tokenAccount: Address,
-    filter?: Partial<AttestationFilter>
+    filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     return this.queryByOwnerWithFilters(tokenAccount, filter);
   }
@@ -307,7 +333,7 @@ export class LightClient {
    */
   async listBySchema(
     sasSchema: Address,
-    filter?: Partial<AttestationFilter>
+    filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     // Query all accounts owned by the SATI program and filter by schema
     const accounts = await this.queryProgramAccounts({
@@ -343,11 +369,13 @@ export class LightClient {
           tree: addressTree,
           queue: addressQueue,
         },
-      ]
+      ],
     );
 
     if (!proofResult.compressedProof) {
-      throw new Error("Failed to get validity proof: no compressed proof returned");
+      throw new Error(
+        "Failed to get validity proof: no compressed proof returned",
+      );
     }
 
     // Build packed accounts
@@ -356,7 +384,8 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Pack address tree accounts
-    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTree);
+    const addressMerkleTreePubkeyIndex =
+      packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // Get output state tree
@@ -391,7 +420,7 @@ export class LightClient {
    * @returns Proof, packed tree info, and remaining accounts for the transaction
    */
   async getMutationProof(
-    compressedAccount: CompressedAccountWithMerkleContext
+    compressedAccount: CompressedAccountWithMerkleContext,
   ): Promise<MutationProofResult> {
     const treeInfo = compressedAccount.treeInfo;
 
@@ -404,11 +433,13 @@ export class LightClient {
           queue: treeInfo.queue,
         },
       ],
-      [] // No new addresses for update/close
+      [], // No new addresses for update/close
     );
 
     if (!proofResult.compressedProof) {
-      throw new Error("Failed to get validity proof: no compressed proof returned");
+      throw new Error(
+        "Failed to get validity proof: no compressed proof returned",
+      );
     }
 
     // Build packed accounts
@@ -451,13 +482,17 @@ export class LightClient {
    */
   async getCombinedProof(
     newAddress: PublicKey,
-    existingAccount: CompressedAccountWithMerkleContext
+    existingAccount: CompressedAccountWithMerkleContext,
   ): Promise<{
     proof: ValidityProofResult;
     addressTreeInfo: PackedAddressTreeInfo;
     stateTreeInfo: PackedStateTreeInfo;
     outputStateTreeIndex: number;
-    remainingAccounts: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }>;
+    remainingAccounts: Array<{
+      pubkey: PublicKey;
+      isSigner: boolean;
+      isWritable: boolean;
+    }>;
   }> {
     const addressTreeInfo = getDefaultAddressTreeInfo();
     const treeInfo = existingAccount.treeInfo;
@@ -477,11 +512,13 @@ export class LightClient {
           tree: addressTreeInfo.tree,
           queue: addressTreeInfo.queue,
         },
-      ]
+      ],
     );
 
     if (!proofResult.compressedProof) {
-      throw new Error("Failed to get validity proof: no compressed proof returned");
+      throw new Error(
+        "Failed to get validity proof: no compressed proof returned",
+      );
     }
 
     // Build packed accounts
@@ -490,8 +527,12 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Pack address tree accounts
-    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTreeInfo.tree);
-    const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressTreeInfo.queue);
+    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(
+      addressTreeInfo.tree,
+    );
+    const addressQueuePubkeyIndex = packedAccounts.insertOrGet(
+      addressTreeInfo.queue,
+    );
 
     // Pack state tree accounts
     const merkleTreePubkeyIndex = packedAccounts.insertOrGet(treeInfo.tree);
@@ -531,7 +572,10 @@ export class LightClient {
   /**
    * Get default address tree info for new account creation
    */
-  getDefaultAddressTreeInfo(): { addressTree: PublicKey; addressQueue: PublicKey } {
+  getDefaultAddressTreeInfo(): {
+    addressTree: PublicKey;
+    addressQueue: PublicKey;
+  } {
     const trees = getDefaultAddressTreeInfo();
     return {
       addressTree: trees.tree,
@@ -563,6 +607,45 @@ export class LightClient {
     return packedAccounts.insertOrGet(outputStateTree);
   }
 
+  /**
+   * Get address tree info for creating new compressed accounts.
+   * Returns packed indices suitable for instruction data.
+   *
+   * @returns Packed address tree info with indices
+   */
+  async getAddressTreeInfo(): Promise<PackedAddressTreeInfo> {
+    const addressTreeInfo = getDefaultAddressTreeInfo();
+    const addressTree = addressTreeInfo.tree;
+    const addressQueue = addressTreeInfo.queue;
+
+    // Build packed accounts to get indices
+    const packedAccounts = new PackedAccounts();
+    const systemAccountConfig = SystemAccountMetaConfig.new(this.programId);
+    packedAccounts.addSystemAccounts(systemAccountConfig);
+
+    const addressMerkleTreePubkeyIndex =
+      packedAccounts.insertOrGet(addressTree);
+    const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
+
+    // Get current root index from Photon
+    const proofResult = await this.rpc.getValidityProofV0(
+      [],
+      [
+        {
+          address: bn(new Uint8Array(32)), // Dummy address for root index
+          tree: addressTree,
+          queue: addressQueue,
+        },
+      ],
+    );
+
+    return {
+      addressMerkleTreePubkeyIndex,
+      addressQueuePubkeyIndex,
+      rootIndex: proofResult.rootIndices[0] ?? 0,
+    };
+  }
+
   // ==========================================================================
   // Internal Methods
   // ==========================================================================
@@ -572,17 +655,20 @@ export class LightClient {
    */
   private async queryByOwnerWithFilters(
     owner: Address,
-    filter?: Partial<AttestationFilter>
+    filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
-    const ownerPubkey = new PublicKey(owner);
+    const _ownerPubkey = new PublicKey(owner);
 
     // Build memcmp filters
     const filters = this.buildMemcmpFilters(filter);
 
     // Query accounts owned by the program
-    const response = await this.rpc.getCompressedAccountsByOwner(this.programId, {
-      filters,
-    });
+    const response = await this.rpc.getCompressedAccountsByOwner(
+      this.programId,
+      {
+        filters,
+      },
+    );
 
     // Parse results
     const results: ParsedAttestation[] = [];
@@ -591,7 +677,7 @@ export class LightClient {
       if (parsed) {
         // Additional filter: check if tokenAccount matches owner
         const tokenAccountBytes = parsed.attestation.tokenAccount;
-        const tokenAccountPubkey = new PublicKey(tokenAccountBytes);
+        const _tokenAccountPubkey = new PublicKey(tokenAccountBytes);
         // Note: This filters by the tokenAccount field in the attestation data
         // which may or may not equal the "owner" passed in depending on your schema
         results.push(parsed);
@@ -605,13 +691,16 @@ export class LightClient {
    * Query all program accounts with filters
    */
   private async queryProgramAccounts(
-    filter?: Partial<AttestationFilter>
+    filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     const filters = this.buildMemcmpFilters(filter);
 
-    const response = await this.rpc.getCompressedAccountsByOwner(this.programId, {
-      filters,
-    });
+    const response = await this.rpc.getCompressedAccountsByOwner(
+      this.programId,
+      {
+        filters,
+      },
+    );
 
     const results: ParsedAttestation[] = [];
     for (const account of response.items) {
@@ -637,7 +726,7 @@ export class LightClient {
       filters.push({
         memcmp: {
           offset: COMPRESSED_OFFSETS.SAS_SCHEMA,
-          bytes: Buffer.from(addressToBytes(filter.sasSchema)).toString("base64"),
+          bytes: uint8ArrayToBase64(addressToBytes(filter.sasSchema)),
         },
       });
     }
@@ -647,7 +736,7 @@ export class LightClient {
       filters.push({
         memcmp: {
           offset: COMPRESSED_OFFSETS.TOKEN_ACCOUNT,
-          bytes: Buffer.from(addressToBytes(filter.tokenAccount)).toString("base64"),
+          bytes: uint8ArrayToBase64(addressToBytes(filter.tokenAccount)),
         },
       });
     }
@@ -657,7 +746,7 @@ export class LightClient {
       filters.push({
         memcmp: {
           offset: COMPRESSED_OFFSETS.DATA_TYPE,
-          bytes: Buffer.from([filter.dataType]).toString("base64"),
+          bytes: uint8ArrayToBase64(new Uint8Array([filter.dataType])),
         },
       });
     }
@@ -669,7 +758,7 @@ export class LightClient {
    * Parse a compressed account into typed attestation
    */
   private parseCompressedAccount(
-    account: CompressedAccountWithMerkleContext
+    account: CompressedAccountWithMerkleContext,
   ): ParsedAttestation | null {
     try {
       const data = account.data;
@@ -690,7 +779,10 @@ export class LightClient {
       const dataType = bytes[offset++] as DataType;
 
       // Parse Vec<u8> data field (4-byte length prefix + data)
-      const dataLen = new DataView(bytes.buffer, bytes.byteOffset + offset).getUint32(0, true);
+      const dataLen = new DataView(
+        bytes.buffer,
+        bytes.byteOffset + offset,
+      ).getUint32(0, true);
       offset += 4;
       const schemaData = bytes.slice(offset, offset + dataLen);
       offset += dataLen;
@@ -722,7 +814,9 @@ export class LightClient {
       }
 
       return {
-        address: account.hash ? new Uint8Array(account.hash.toArray()) : new Uint8Array(32),
+        address: account.hash
+          ? new Uint8Array(account.hash.toArray())
+          : new Uint8Array(32),
         raw: account,
         attestation,
         data: parsedData,
@@ -753,7 +847,10 @@ function addressToBytes(address: Address): Uint8Array {
  * @param programId - Optional custom program ID
  * @returns LightClient instance
  */
-export function createLightClient(rpcUrl?: string, programId?: PublicKey): LightClient {
+export function createLightClient(
+  rpcUrl?: string,
+  programId?: PublicKey,
+): LightClient {
   return new LightClient(rpcUrl, programId);
 }
 
@@ -768,7 +865,7 @@ export function createLightClient(rpcUrl?: string, programId?: PublicKey): Light
  */
 export function getPhotonRpcUrl(
   network: "mainnet" | "devnet" | "localnet",
-  apiKey?: string
+  apiKey?: string,
 ): string {
   switch (network) {
     case "mainnet":

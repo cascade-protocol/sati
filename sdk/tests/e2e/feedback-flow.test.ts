@@ -15,7 +15,11 @@
 
 import { describe, test, expect, beforeAll } from "vitest";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { address, createKeyPairSignerFromBytes, type KeyPairSigner } from "@solana/kit";
+import {
+  address,
+  createKeyPairSignerFromBytes,
+  type KeyPairSigner,
+} from "@solana/kit";
 import { SATI } from "../../src";
 import {
   computeInteractionHash,
@@ -23,7 +27,12 @@ import {
   computeAttestationNonce,
   Outcome,
 } from "../../src/hashes";
-import { DataType, ContentType, SignatureMode, StorageType } from "../../src/schemas";
+import {
+  DataType,
+  ContentType,
+  SignatureMode,
+  StorageType,
+} from "../../src/schemas";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
 import { findAssociatedTokenAddress } from "../../src/helpers";
 
@@ -44,36 +53,13 @@ import {
 // Configuration
 // =============================================================================
 
-const LOCAL_RPC_URL = "http://127.0.0.1:8899";
 const TEST_TIMEOUT = 60000;
-
-/**
- * Check if test environment is ready
- */
-async function isTestEnvironmentReady(): Promise<boolean> {
-  try {
-    const response = await fetch(LOCAL_RPC_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getHealth",
-      }),
-      signal: AbortSignal.timeout(2000),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
 
 // =============================================================================
 // Full Feedback Lifecycle Tests
 // =============================================================================
 
 describe("E2E: Full Feedback Lifecycle", () => {
-  let testEnvReady: boolean;
   let sati: SATI;
   let payer: KeyPairSigner;
   let agentOwner: KeyPairSigner;
@@ -87,15 +73,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
   let sasSchema: ReturnType<typeof address>;
   let agentMint: ReturnType<typeof address>;
   let tokenAccount: ReturnType<typeof address>;
-  let createdFeedbackAddress: ReturnType<typeof address>;
+  let _createdFeedbackAddress: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) {
-      console.log("⚠️  Test environment not available, lifecycle tests will be skipped");
-      return;
-    }
-
     sati = new SATI({ network: "localnet" });
 
     // Create payer keypair
@@ -107,7 +87,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
     counterpartyKeypair = createTestKeypair(101);
 
     agentOwner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    counterpartySigner = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
+    counterpartySigner = await createKeyPairSignerFromBytes(
+      counterpartyKeypair.secretKey,
+    );
 
     // Generate SAS schema address
     sasSchema = address(Keypair.generate().publicKey.toBase58());
@@ -118,7 +100,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
   // ---------------------------------------------------------------------------
 
   describe("Step 1: Agent Registration", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "registers agent with Token-2022 NFT",
       async () => {
         const name = `LifecycleAgent-${Date.now()}`;
@@ -146,21 +128,24 @@ describe("E2E: Full Feedback Lifecycle", () => {
         expect(agent?.name).toBe(name);
         expect(agent?.symbol).toBe(symbol);
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "gets agent token account",
       async () => {
         if (!agentMint) return;
 
         // Use findAssociatedTokenAddress from helpers
-        const [taAddress] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+        const [taAddress] = await findAssociatedTokenAddress(
+          agentMint,
+          agentOwner.address,
+        );
         expect(taAddress).toBeDefined();
 
         tokenAccount = taAddress;
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 
@@ -169,7 +154,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
   // ---------------------------------------------------------------------------
 
   describe("Step 2: Schema Configuration", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "registers schema config for Feedback (DualSignature, Compressed)",
       async () => {
         const result = await sati.registerSchemaConfig({
@@ -189,7 +174,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         expect(config?.signatureMode).toBe(SignatureMode.DualSignature);
         expect(config?.storageType).toBe(StorageType.Compressed);
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 
@@ -198,7 +183,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
   // ---------------------------------------------------------------------------
 
   describe("Step 3: Create Feedback", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "creates feedback with real Ed25519 signatures",
       async () => {
         if (!tokenAccount) return;
@@ -216,7 +201,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
           agentKeypair,
           counterpartyKeypair,
           dataHash,
-          outcome
+          outcome,
         );
 
         // Verify signatures before submitting
@@ -226,7 +211,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
           agentKeypair.address,
           dataHash,
           outcome,
-          signatures
+          signatures,
         );
         expect(verifyResult.valid).toBe(true);
 
@@ -255,12 +240,12 @@ describe("E2E: Full Feedback Lifecycle", () => {
         expect(result).toHaveProperty("address");
         expect(result).toHaveProperty("signature");
 
-        createdFeedbackAddress = result.address;
+        _createdFeedbackAddress = result.address;
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "rejects feedback with self-attestation",
       async () => {
         if (!tokenAccount) return;
@@ -273,13 +258,13 @@ describe("E2E: Full Feedback Lifecycle", () => {
           sasSchema,
           taskRef,
           agentKeypair.address,
-          dataHash
+          dataHash,
         );
         const feedbackHash = computeFeedbackHash(
           sasSchema,
           taskRef,
           agentKeypair.address,
-          Outcome.Positive
+          Outcome.Positive,
         );
 
         const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
@@ -304,10 +289,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
               pubkey: agentKeypair.address, // Same as agent!
               signature: selfSig,
             },
-          })
+          }),
         ).rejects.toThrow(); // SelfAttestationNotAllowed
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 
@@ -316,16 +301,16 @@ describe("E2E: Full Feedback Lifecycle", () => {
   // ---------------------------------------------------------------------------
 
   describe("Step 4: Query and Verify", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "waits for Photon indexer",
       async () => {
         // Give the indexer time to catch up
         await waitForIndexer();
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "queries feedbacks by token account",
       async () => {
         if (!tokenAccount) return;
@@ -342,10 +327,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
           expect(feedback.data).toHaveProperty("tokenAccount");
         }
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "queries feedbacks by outcome filter (memcmp at offset 129)",
       async () => {
         if (!tokenAccount) return;
@@ -364,10 +349,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
           }
         }
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "queries feedbacks by schema filter",
       async () => {
         if (!tokenAccount) return;
@@ -385,10 +370,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
           expect(sasSchemaAddr).toBe(sasSchema);
         }
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "verifies feedback data integrity",
       async () => {
         if (!tokenAccount) return;
@@ -416,7 +401,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
           expect(data).toHaveProperty("outcome");
         }
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 });
@@ -426,29 +411,25 @@ describe("E2E: Full Feedback Lifecycle", () => {
 // =============================================================================
 
 describe("E2E: Multiple Feedbacks Flow", () => {
-  let testEnvReady: boolean;
-  let sati: SATI;
-  let payer: KeyPairSigner;
+  let _sati: SATI;
+  let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) return;
-
-    sati = new SATI({ network: "localnet" });
+    _sati = new SATI({ network: "localnet" });
 
     const payerKp = Keypair.generate();
-    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+    _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
 
     agentKeypair = createTestKeypair(200);
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "creates multiple feedbacks with different outcomes",
     async () => {
-      const tokenAccount = agentKeypair.address;
+      const _tokenAccount = agentKeypair.address;
 
       // Create feedbacks with different outcomes
       const outcomes = [Outcome.Positive, Outcome.Neutral, Outcome.Negative];
@@ -465,7 +446,7 @@ describe("E2E: Multiple Feedbacks Flow", () => {
           agentKeypair,
           counterpartyKp,
           dataHash,
-          outcome
+          outcome,
         );
 
         createdFeedbacks.push(signatures);
@@ -477,7 +458,7 @@ describe("E2E: Multiple Feedbacks Flow", () => {
           agentKeypair.address,
           dataHash,
           outcome,
-          signatures
+          signatures,
         );
         expect(result.valid).toBe(true);
       }
@@ -485,10 +466,10 @@ describe("E2E: Multiple Feedbacks Flow", () => {
       // We created 3 sets of valid signatures for different outcomes
       expect(createdFeedbacks).toHaveLength(3);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "different counterparties produce unique attestation addresses",
     async () => {
       const taskRef = randomBytes32();
@@ -500,23 +481,23 @@ describe("E2E: Multiple Feedbacks Flow", () => {
         taskRef,
         sasSchema,
         agentKeypair.address,
-        counterparty1.address
+        counterparty1.address,
       );
 
       const nonce2 = computeAttestationNonce(
         taskRef,
         sasSchema,
         agentKeypair.address,
-        counterparty2.address
+        counterparty2.address,
       );
 
       // Same task and agent, different counterparty = different address
       expect(nonce1).not.toEqual(nonce2);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "same (task, agent, counterparty) produces same address (collision prevention)",
     async () => {
       const taskRef = randomBytes32();
@@ -526,20 +507,20 @@ describe("E2E: Multiple Feedbacks Flow", () => {
         taskRef,
         sasSchema,
         agentKeypair.address,
-        counterparty.address
+        counterparty.address,
       );
 
       const nonce2 = computeAttestationNonce(
         taskRef,
         sasSchema,
         agentKeypair.address,
-        counterparty.address
+        counterparty.address,
       );
 
       // Same inputs = same nonce (deterministic)
       expect(nonce1).toEqual(nonce2);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 });
 
@@ -548,21 +529,17 @@ describe("E2E: Multiple Feedbacks Flow", () => {
 // =============================================================================
 
 describe("E2E: Feedback Signature Edge Cases", () => {
-  let testEnvReady: boolean;
   let agentKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) return;
-
     agentKeypair = createTestKeypair(600);
     counterpartyKeypair = createTestKeypair(601);
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "agent signature is blind to outcome",
     async () => {
       const taskRef = randomBytes32();
@@ -575,7 +552,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       const sigNegative = createFeedbackSignatures(
@@ -584,7 +561,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Negative
+        Outcome.Negative,
       );
 
       // Agent signatures should be IDENTICAL (blind to outcome)
@@ -593,10 +570,10 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       // Counterparty signatures should DIFFER (includes outcome)
       expect(sigPositive[1].sig).not.toEqual(sigNegative[1].sig);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "same dataHash with different taskRef produces different agent signatures",
     async () => {
       const taskRef1 = randomBytes32();
@@ -609,7 +586,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       const sig2 = createFeedbackSignatures(
@@ -618,16 +595,16 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       // Different taskRef = different agent signature (even with same dataHash)
       expect(sig1[0].sig).not.toEqual(sig2[0].sig);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "counterparty cannot forge agent signature",
     async () => {
       const taskRef = randomBytes32();
@@ -638,23 +615,26 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         sasSchema,
         taskRef,
         agentKeypair.address,
-        dataHash
+        dataHash,
       );
 
-      const forgedSig = signMessage(interactionHash, counterpartyKeypair.secretKey);
+      const forgedSig = signMessage(
+        interactionHash,
+        counterpartyKeypair.secretKey,
+      );
 
       // Forged signature should fail verification against agent's public key
       const isValid = verifySignature(
         interactionHash,
         forgedSig,
-        agentKeypair.publicKey.toBytes()
+        agentKeypair.publicKey.toBytes(),
       );
       expect(isValid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "signatures for wrong tokenAccount fail verification",
     async () => {
       const taskRef = randomBytes32();
@@ -668,7 +648,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       // Try to verify with wrong tokenAccount
@@ -678,12 +658,12 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         wrongAgent.address, // Wrong agent!
         dataHash,
         Outcome.Positive,
-        signatures
+        signatures,
       );
 
       expect(result.valid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 });
 
@@ -692,13 +672,9 @@ describe("E2E: Feedback Signature Edge Cases", () => {
 // =============================================================================
 
 describe("E2E: Compressed Attestation Offset Verification", () => {
-  let testEnvReady: boolean;
+  // No beforeAll needed - these are pure computation tests that don't require RPC
 
-  beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-  });
-
-  test.skipIf(() => !testEnvReady)(
+  test(
     "verifies COMPRESSED_OFFSETS are correctly defined",
     async () => {
       // These offsets are critical for Photon memcmp filters
@@ -722,10 +698,10 @@ describe("E2E: Compressed Attestation Offset Verification", () => {
       // data[128]    contentType (1 byte)
       // data[129]    outcome (1 byte) <- CRITICAL for filtering
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "outcome is at fixed offset 129 within data for Feedback",
     async () => {
       // Offset within the data field where outcome lives
@@ -736,6 +712,6 @@ describe("E2E: Compressed Attestation Offset Verification", () => {
       // From global offset: 73 (data start) + 4 (length prefix) + 129 = 206
       // But Photon operates on raw data field, so 129 is correct
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 });

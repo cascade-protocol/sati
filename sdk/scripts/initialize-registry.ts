@@ -24,8 +24,6 @@ import {
   createSolanaRpc,
   createSolanaRpcSubscriptions,
   generateKeyPairSigner,
-  getAddressEncoder,
-  getProgramDerivedAddress,
   pipe,
   createTransactionMessage,
   setTransactionMessageFeePayer,
@@ -35,10 +33,7 @@ import {
   getSignatureFromTransaction,
   sendAndConfirmTransactionFactory,
   prependTransactionMessageInstructions,
-  address,
   type KeyPairSigner,
-  type Address,
-  type IInstruction,
 } from "@solana/kit";
 import {
   getSetComputeUnitLimitInstruction,
@@ -54,18 +49,19 @@ import {
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import { getInitializeInstruction } from "../src/generated";
+import { findRegistryConfigPda } from "../src/helpers";
 // Use @solana/spl-token for proper Token-2022 extension size calculation
 import { getMintLen, ExtensionType } from "@solana/spl-token";
 
-const PROGRAM_ID = address("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
-
 // Network RPC endpoints
 const RPC_ENDPOINTS: Record<string, string> = {
+  localhost: "http://127.0.0.1:8899",
   devnet: "https://api.devnet.solana.com",
   mainnet: "https://api.mainnet-beta.solana.com",
 };
 
 const WSS_ENDPOINTS: Record<string, string> = {
+  localhost: "ws://127.0.0.1:8900",
   devnet: "wss://api.devnet.solana.com",
   mainnet: "wss://api.mainnet-beta.solana.com",
 };
@@ -73,11 +69,11 @@ const WSS_ENDPOINTS: Record<string, string> = {
 // Parse command line arguments
 function parseArgs() {
   const args = process.argv.slice(2);
-  let network: "devnet" | "mainnet" = "devnet";
+  let network: "localhost" | "devnet" | "mainnet" = "devnet";
   let keypairPath = path.join(os.homedir(), ".config", "solana", "id.json");
 
   for (const arg of args) {
-    if (arg === "devnet" || arg === "mainnet") {
+    if (arg === "localhost" || arg === "devnet" || arg === "mainnet") {
       network = arg;
     } else if (!arg.startsWith("--")) {
       keypairPath = arg.startsWith("~") ? arg.replace("~", os.homedir()) : arg;
@@ -92,15 +88,6 @@ async function loadKeypair(keypairPath: string): Promise<KeyPairSigner> {
   const keypairData = readFileSync(keypairPath, "utf-8");
   const secretKey = Uint8Array.from(JSON.parse(keypairData));
   return createKeyPairSignerFromBytes(secretKey);
-}
-
-// Derive registry config PDA
-async function _getRegistryConfigPda(): Promise<Address> {
-  const [pda] = await getProgramDerivedAddress({
-    programAddress: PROGRAM_ID,
-    seeds: [getAddressEncoder().encode(address("registry")).slice(0, 8)],
-  });
-  return pda;
 }
 
 async function main() {
@@ -124,8 +111,8 @@ async function main() {
   const rpc = createSolanaRpc(rpcUrl);
   const rpcSubscriptions = createSolanaRpcSubscriptions(wssUrl);
 
-  // Check if registry already exists
-  const registryPda = address("5tMXnDjqVsvQoem8tZ74nAMU1KYntUSTNEnMDoGFjnij");
+  // Derive registry PDA
+  const [registryPda] = await findRegistryConfigPda();
   console.log(`\nRegistry PDA: ${registryPda}`);
 
   const existingAccount = await rpc.getAccountInfo(registryPda).send();

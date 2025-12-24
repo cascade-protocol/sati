@@ -85,7 +85,7 @@ describe("Ed25519 Core Operations", () => {
       const isValid = verifySignature(
         message,
         signature,
-        keypair.publicKey.toBytes()
+        keypair.publicKey.toBytes(),
       );
 
       expect(isValid).toBe(true);
@@ -100,7 +100,7 @@ describe("Ed25519 Core Operations", () => {
       const isValid = verifySignature(
         wrongMessage,
         signature,
-        keypair.publicKey.toBytes()
+        keypair.publicKey.toBytes(),
       );
 
       expect(isValid).toBe(false);
@@ -115,7 +115,7 @@ describe("Ed25519 Core Operations", () => {
       const isValid = verifySignature(
         message,
         signature,
-        wrongKeypair.publicKey.toBytes()
+        wrongKeypair.publicKey.toBytes(),
       );
 
       expect(isValid).toBe(false);
@@ -134,7 +134,7 @@ describe("Ed25519 Core Operations", () => {
       const isValid = verifySignature(
         message,
         tamperedSig,
-        keypair.publicKey.toBytes()
+        keypair.publicKey.toBytes(),
       );
 
       expect(isValid).toBe(false);
@@ -161,7 +161,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Positive
+      Outcome.Positive,
     );
 
     expect(signatures).toHaveLength(2);
@@ -177,7 +177,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Positive
+      Outcome.Positive,
     );
 
     expect(signatures[0].pubkey).toBe(agent.address);
@@ -193,7 +193,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Positive
+      Outcome.Positive,
     );
 
     expect(signatures[1].pubkey).toBe(counterparty.address);
@@ -209,7 +209,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Positive
+      Outcome.Positive,
     );
 
     // Agent signs interaction hash (blind to outcome)
@@ -217,13 +217,13 @@ describe("createFeedbackSignatures", () => {
       sasSchema,
       taskRef,
       agent.address,
-      dataHash
+      dataHash,
     );
 
     const isValid = verifySignature(
       interactionHash,
       signatures[0].sig,
-      agent.publicKey.toBytes()
+      agent.publicKey.toBytes(),
     );
 
     expect(isValid).toBe(true);
@@ -240,7 +240,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      outcome
+      outcome,
     );
 
     // Counterparty signs feedback hash (includes outcome)
@@ -248,13 +248,13 @@ describe("createFeedbackSignatures", () => {
       sasSchema,
       taskRef,
       agent.address,
-      outcome
+      outcome,
     );
 
     const isValid = verifySignature(
       feedbackHash,
       signatures[1].sig,
-      counterparty.publicKey.toBytes()
+      counterparty.publicKey.toBytes(),
     );
 
     expect(isValid).toBe(true);
@@ -270,7 +270,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Positive
+      Outcome.Positive,
     );
 
     const sigNegative = createFeedbackSignatures(
@@ -279,7 +279,7 @@ describe("createFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Negative
+      Outcome.Negative,
     );
 
     // Agent signatures should be the same (blind to outcome)
@@ -306,7 +306,7 @@ describe("verifyFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      outcome
+      outcome,
     );
 
     const result = verifyFeedbackSignatures(
@@ -315,7 +315,7 @@ describe("verifyFeedbackSignatures", () => {
       agent.address,
       dataHash,
       outcome,
-      signatures
+      signatures,
     );
 
     expect(result.valid).toBe(true);
@@ -336,7 +336,7 @@ describe("verifyFeedbackSignatures", () => {
       agent.address,
       dataHash,
       Outcome.Positive,
-      [] // No signatures
+      [], // No signatures
     );
 
     expect(result.valid).toBe(false);
@@ -357,7 +357,7 @@ describe("verifyFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      outcome
+      outcome,
     );
 
     // Swap the signatures
@@ -369,7 +369,7 @@ describe("verifyFeedbackSignatures", () => {
       agent.address,
       dataHash,
       outcome,
-      swappedSigs
+      swappedSigs,
     );
 
     // Both should fail because signatures are bound to wrong hashes
@@ -391,7 +391,7 @@ describe("verifyFeedbackSignatures", () => {
       agent,
       counterparty,
       dataHash,
-      Outcome.Positive
+      Outcome.Positive,
     );
 
     // Verify with wrong outcome (Negative)
@@ -401,7 +401,7 @@ describe("verifyFeedbackSignatures", () => {
       agent.address,
       dataHash,
       Outcome.Negative, // Wrong outcome
-      signatures
+      signatures,
     );
 
     expect(result.agentValid).toBe(true); // Agent didn't sign outcome
@@ -429,7 +429,7 @@ describe("createValidationSignatures", () => {
       agent,
       validator,
       dataHash,
-      85
+      85,
     );
 
     expect(signatures).toHaveLength(2);
@@ -446,20 +446,20 @@ describe("createValidationSignatures", () => {
       agent,
       validator,
       dataHash,
-      response
+      response,
     );
 
     const validationHash = computeValidationHash(
       sasSchema,
       taskRef,
       agent.address,
-      response
+      response,
     );
 
     const isValid = verifySignature(
       validationHash,
       signatures[1].sig,
-      validator.publicKey.toBytes()
+      validator.publicKey.toBytes(),
     );
 
     expect(isValid).toBe(true);
@@ -475,7 +475,7 @@ describe("createValidationSignatures", () => {
       agent,
       validator,
       dataHash,
-      0
+      0,
     );
 
     const sig100 = createValidationSignatures(
@@ -484,7 +484,7 @@ describe("createValidationSignatures", () => {
       agent,
       validator,
       dataHash,
-      100
+      100,
     );
 
     // Agent signatures should be the same (blind)
@@ -510,7 +510,7 @@ describe("createReputationSignature", () => {
       sasSchema,
       agent.address,
       provider,
-      75
+      75,
     );
 
     expect(signatures).toHaveLength(1);
@@ -526,20 +526,20 @@ describe("createReputationSignature", () => {
       sasSchema,
       agent.address,
       provider,
-      score
+      score,
     );
 
     const reputationHash = computeReputationHash(
       sasSchema,
       agent.address,
       provider.address,
-      score
+      score,
     );
 
     const isValid = verifySignature(
       reputationHash,
       signatures[0].sig,
-      provider.publicKey.toBytes()
+      provider.publicKey.toBytes(),
     );
 
     expect(isValid).toBe(true);
@@ -549,8 +549,18 @@ describe("createReputationSignature", () => {
     const agent = createTestKeypair(1);
     const provider = createTestKeypair(2);
 
-    const sig50 = createReputationSignature(sasSchema, agent.address, provider, 50);
-    const sig75 = createReputationSignature(sasSchema, agent.address, provider, 75);
+    const sig50 = createReputationSignature(
+      sasSchema,
+      agent.address,
+      provider,
+      50,
+    );
+    const sig75 = createReputationSignature(
+      sasSchema,
+      agent.address,
+      provider,
+      75,
+    );
 
     expect(sig50[0].sig).not.toEqual(sig75[0].sig);
   });

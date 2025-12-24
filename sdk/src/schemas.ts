@@ -181,14 +181,27 @@ export const FEEDBACK_OFFSETS = {
  * Serialize Feedback data to bytes
  */
 export function serializeFeedback(data: FeedbackData): Uint8Array {
-  const tag1Bytes = new TextEncoder().encode(data.tag1.slice(0, MAX_TAG_LENGTH));
-  const tag2Bytes = new TextEncoder().encode(data.tag2.slice(0, MAX_TAG_LENGTH));
+  const tag1Bytes = new TextEncoder().encode(
+    data.tag1.slice(0, MAX_TAG_LENGTH),
+  );
+  const tag2Bytes = new TextEncoder().encode(
+    data.tag2.slice(0, MAX_TAG_LENGTH),
+  );
   const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
 
   // Calculate total size: base(96) + dataHash(32) + contentType(1) + outcome(1) +
   // tag1_len(1) + tag1 + tag2_len(1) + tag2 + content_len(4) + content
   const totalSize =
-    96 + 32 + 1 + 1 + 1 + tag1Bytes.length + 1 + tag2Bytes.length + 4 + contentBytes.length;
+    96 +
+    32 +
+    1 +
+    1 +
+    1 +
+    tag1Bytes.length +
+    1 +
+    tag2Bytes.length +
+    4 +
+    contentBytes.length;
 
   const buffer = new Uint8Array(totalSize);
   const view = new DataView(buffer.buffer);
@@ -485,7 +498,9 @@ export const REPUTATION_SCORE_OFFSETS = {
 /**
  * Serialize ReputationScore data to bytes
  */
-export function serializeReputationScore(data: ReputationScoreData): Uint8Array {
+export function serializeReputationScore(
+  data: ReputationScoreData,
+): Uint8Array {
   if (data.score > 100) {
     throw new Error("Score must be 0-100");
   }
@@ -529,7 +544,9 @@ export function serializeReputationScore(data: ReputationScoreData): Uint8Array 
 /**
  * Deserialize ReputationScore data from bytes
  */
-export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreData {
+export function deserializeReputationScore(
+  bytes: Uint8Array,
+): ReputationScoreData {
   if (bytes.length < 102) {
     throw new Error("ReputationScore data too small (minimum 102 bytes)");
   }
@@ -659,9 +676,11 @@ export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
 /**
  * Import address encoder lazily to avoid circular dependencies
  */
-let _addressEncoder: ReturnType<typeof import("@solana/kit").getAddressEncoder> | null = null;
+let _addressEncoder: ReturnType<
+  typeof import("@solana/kit").getAddressEncoder
+> | null = null;
 
-async function getEncoder() {
+async function _getEncoder() {
   if (!_addressEncoder) {
     const { getAddressEncoder } = await import("@solana/kit");
     _addressEncoder = getAddressEncoder();
@@ -693,7 +712,7 @@ function bytesToAddress(bytes: Uint8Array): Address {
  */
 export function deserializeAttestationData(
   dataType: DataType,
-  data: Uint8Array
+  data: Uint8Array,
 ): FeedbackData | ValidationData | ReputationScoreData {
   switch (dataType) {
     case DataType.Feedback:

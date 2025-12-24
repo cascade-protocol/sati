@@ -46,10 +46,7 @@ function setupLiteSVM(): LiteSVM {
   const programPath = process.cwd().endsWith("sdk")
     ? "../target/deploy/sati.so"
     : "./target/deploy/sati.so";
-  svm.addProgramFromFile(
-    new PublicKey(SATI_PROGRAM_ADDRESS),
-    programPath,
-  );
+  svm.addProgramFromFile(new PublicKey(SATI_PROGRAM_ADDRESS), programPath);
   return svm;
 }
 
@@ -309,9 +306,7 @@ describe("SDK: LiteSVM Integration", () => {
   });
 
   test("program is loaded and executable", () => {
-    const programAccount = svm.getAccount(
-      new PublicKey(SATI_PROGRAM_ADDRESS),
-    );
+    const programAccount = svm.getAccount(new PublicKey(SATI_PROGRAM_ADDRESS));
     expect(programAccount).not.toBeNull();
     expect(programAccount?.executable).toBe(true);
   });

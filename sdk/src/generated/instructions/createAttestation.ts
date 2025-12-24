@@ -41,10 +41,18 @@ import {
 import { SATI_PROGRAM_ADDRESS } from "../programs";
 import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
 import {
+  getPackedAddressTreeInfoDecoder,
+  getPackedAddressTreeInfoEncoder,
   getSignatureDataDecoder,
   getSignatureDataEncoder,
+  getValidityProofDecoder,
+  getValidityProofEncoder,
+  type PackedAddressTreeInfo,
+  type PackedAddressTreeInfoArgs,
   type SignatureData,
   type SignatureDataArgs,
+  type ValidityProof,
+  type ValidityProofArgs,
 } from "../types";
 
 export const CREATE_ATTESTATION_DISCRIMINATOR = new Uint8Array([
@@ -100,10 +108,10 @@ export type CreateAttestationInstructionData = {
   signatures: Array<SignatureData>;
   /** Output state tree index for the new compressed account */
   outputStateTreeIndex: number;
-  /** Serialized Light Protocol proof bytes (CompressedProof) */
-  proofBytes: ReadonlyUint8Array;
-  /** Serialized address tree info bytes (PackedAddressTreeInfo) */
-  addressTreeInfoBytes: ReadonlyUint8Array;
+  /** Light Protocol validity proof (None for new address creation) */
+  proof: ValidityProof;
+  /** Light Protocol address tree info */
+  addressTreeInfo: PackedAddressTreeInfo;
 };
 
 export type CreateAttestationInstructionDataArgs = {
@@ -115,10 +123,10 @@ export type CreateAttestationInstructionDataArgs = {
   signatures: Array<SignatureDataArgs>;
   /** Output state tree index for the new compressed account */
   outputStateTreeIndex: number;
-  /** Serialized Light Protocol proof bytes (CompressedProof) */
-  proofBytes: ReadonlyUint8Array;
-  /** Serialized address tree info bytes (PackedAddressTreeInfo) */
-  addressTreeInfoBytes: ReadonlyUint8Array;
+  /** Light Protocol validity proof (None for new address creation) */
+  proof: ValidityProofArgs;
+  /** Light Protocol address tree info */
+  addressTreeInfo: PackedAddressTreeInfoArgs;
 };
 
 export function getCreateAttestationInstructionDataEncoder(): Encoder<CreateAttestationInstructionDataArgs> {
@@ -129,11 +137,8 @@ export function getCreateAttestationInstructionDataEncoder(): Encoder<CreateAtte
       ["data", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
       ["signatures", getArrayEncoder(getSignatureDataEncoder())],
       ["outputStateTreeIndex", getU8Encoder()],
-      ["proofBytes", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
-      [
-        "addressTreeInfoBytes",
-        addEncoderSizePrefix(getBytesEncoder(), getU32Encoder()),
-      ],
+      ["proof", getValidityProofEncoder()],
+      ["addressTreeInfo", getPackedAddressTreeInfoEncoder()],
     ]),
     (value) => ({ ...value, discriminator: CREATE_ATTESTATION_DISCRIMINATOR }),
   );
@@ -146,11 +151,8 @@ export function getCreateAttestationInstructionDataDecoder(): Decoder<CreateAtte
     ["data", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
     ["signatures", getArrayDecoder(getSignatureDataDecoder())],
     ["outputStateTreeIndex", getU8Decoder()],
-    ["proofBytes", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
-    [
-      "addressTreeInfoBytes",
-      addDecoderSizePrefix(getBytesDecoder(), getU32Decoder()),
-    ],
+    ["proof", getValidityProofDecoder()],
+    ["addressTreeInfo", getPackedAddressTreeInfoDecoder()],
   ]);
 }
 
@@ -183,8 +185,8 @@ export type CreateAttestationAsyncInput<
   data: CreateAttestationInstructionDataArgs["data"];
   signatures: CreateAttestationInstructionDataArgs["signatures"];
   outputStateTreeIndex: CreateAttestationInstructionDataArgs["outputStateTreeIndex"];
-  proofBytes: CreateAttestationInstructionDataArgs["proofBytes"];
-  addressTreeInfoBytes: CreateAttestationInstructionDataArgs["addressTreeInfoBytes"];
+  proof: CreateAttestationInstructionDataArgs["proof"];
+  addressTreeInfo: CreateAttestationInstructionDataArgs["addressTreeInfo"];
 };
 
 export async function getCreateAttestationInstructionAsync<
@@ -296,8 +298,8 @@ export type CreateAttestationInput<
   data: CreateAttestationInstructionDataArgs["data"];
   signatures: CreateAttestationInstructionDataArgs["signatures"];
   outputStateTreeIndex: CreateAttestationInstructionDataArgs["outputStateTreeIndex"];
-  proofBytes: CreateAttestationInstructionDataArgs["proofBytes"];
-  addressTreeInfoBytes: CreateAttestationInstructionDataArgs["addressTreeInfoBytes"];
+  proof: CreateAttestationInstructionDataArgs["proof"];
+  addressTreeInfo: CreateAttestationInstructionDataArgs["addressTreeInfo"];
 };
 
 export function getCreateAttestationInstruction<

@@ -39,10 +39,16 @@ function randomBytes(length: number): Uint8Array {
 
 describe("Domain Separators", () => {
   test("domain separators have correct prefixes", () => {
-    expect(new TextDecoder().decode(DOMAINS.INTERACTION)).toBe("SATI:interaction:v1");
+    expect(new TextDecoder().decode(DOMAINS.INTERACTION)).toBe(
+      "SATI:interaction:v1",
+    );
     expect(new TextDecoder().decode(DOMAINS.FEEDBACK)).toBe("SATI:feedback:v1");
-    expect(new TextDecoder().decode(DOMAINS.VALIDATION)).toBe("SATI:validation:v1");
-    expect(new TextDecoder().decode(DOMAINS.REPUTATION)).toBe("SATI:reputation:v1");
+    expect(new TextDecoder().decode(DOMAINS.VALIDATION)).toBe(
+      "SATI:validation:v1",
+    );
+    expect(new TextDecoder().decode(DOMAINS.REPUTATION)).toBe(
+      "SATI:reputation:v1",
+    );
   });
 
   test("domain separators are unique", () => {
@@ -70,7 +76,12 @@ describe("computeInteractionHash", () => {
     const tokenAccount = randomAddress();
     const dataHash = randomBytes(32);
 
-    const hash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    const hash = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
 
     expect(hash).toBeInstanceOf(Uint8Array);
     expect(hash.length).toBe(32);
@@ -82,8 +93,18 @@ describe("computeInteractionHash", () => {
     const tokenAccount = randomAddress();
     const dataHash = randomBytes(32);
 
-    const hash1 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-    const hash2 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    const hash1 = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
+    const hash2 = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
 
     expect(hash1).toEqual(hash2);
   });
@@ -95,8 +116,18 @@ describe("computeInteractionHash", () => {
     const dataHash1 = randomBytes(32);
     const dataHash2 = randomBytes(32);
 
-    const hash1 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash1);
-    const hash2 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash2);
+    const hash1 = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash1,
+    );
+    const hash2 = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash2,
+    );
 
     expect(hash1).not.toEqual(hash2);
   });
@@ -107,7 +138,12 @@ describe("computeInteractionHash", () => {
     const dataHash = randomBytes(32);
 
     expect(() =>
-      computeInteractionHash(sasSchema, randomBytes(16), tokenAccount, dataHash)
+      computeInteractionHash(
+        sasSchema,
+        randomBytes(16),
+        tokenAccount,
+        dataHash,
+      ),
     ).toThrow("taskRef must be 32 bytes");
   });
 
@@ -117,7 +153,7 @@ describe("computeInteractionHash", () => {
     const tokenAccount = randomAddress();
 
     expect(() =>
-      computeInteractionHash(sasSchema, taskRef, tokenAccount, randomBytes(16))
+      computeInteractionHash(sasSchema, taskRef, tokenAccount, randomBytes(16)),
     ).toThrow("dataHash must be 32 bytes");
   });
 });
@@ -145,8 +181,18 @@ describe("computeFeedbackHash", () => {
     const tokenAccount = randomAddress();
     const outcome = Outcome.Neutral;
 
-    const hash1 = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
-    const hash2 = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+    const hash1 = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      outcome,
+    );
+    const hash2 = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      outcome,
+    );
 
     expect(hash1).toEqual(hash2);
   });
@@ -156,9 +202,24 @@ describe("computeFeedbackHash", () => {
     const taskRef = randomBytes(32);
     const tokenAccount = randomAddress();
 
-    const hashPositive = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
-    const hashNeutral = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Neutral);
-    const hashNegative = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Negative);
+    const hashPositive = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      Outcome.Positive,
+    );
+    const hashNeutral = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      Outcome.Neutral,
+    );
+    const hashNegative = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      Outcome.Negative,
+    );
 
     expect(hashPositive).not.toEqual(hashNeutral);
     expect(hashNeutral).not.toEqual(hashNegative);
@@ -170,7 +231,12 @@ describe("computeFeedbackHash", () => {
     const tokenAccount = randomAddress();
 
     expect(() =>
-      computeFeedbackHash(sasSchema, randomBytes(16), tokenAccount, Outcome.Positive)
+      computeFeedbackHash(
+        sasSchema,
+        randomBytes(16),
+        tokenAccount,
+        Outcome.Positive,
+      ),
     ).toThrow("taskRef must be 32 bytes");
   });
 
@@ -180,7 +246,7 @@ describe("computeFeedbackHash", () => {
     const tokenAccount = randomAddress();
 
     expect(() =>
-      computeFeedbackHash(sasSchema, taskRef, tokenAccount, 3)
+      computeFeedbackHash(sasSchema, taskRef, tokenAccount, 3),
     ).toThrow("outcome must be 0, 1, or 2");
   });
 });
@@ -196,7 +262,12 @@ describe("computeValidationHash", () => {
     const tokenAccount = randomAddress();
     const response = 85;
 
-    const hash = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
+    const hash = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      response,
+    );
 
     expect(hash).toBeInstanceOf(Uint8Array);
     expect(hash.length).toBe(32);
@@ -208,8 +279,18 @@ describe("computeValidationHash", () => {
     const tokenAccount = randomAddress();
     const response = 50;
 
-    const hash1 = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
-    const hash2 = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
+    const hash1 = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      response,
+    );
+    const hash2 = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      response,
+    );
 
     expect(hash1).toEqual(hash2);
   });
@@ -221,7 +302,12 @@ describe("computeValidationHash", () => {
 
     const hash0 = computeValidationHash(sasSchema, taskRef, tokenAccount, 0);
     const hash50 = computeValidationHash(sasSchema, taskRef, tokenAccount, 50);
-    const hash100 = computeValidationHash(sasSchema, taskRef, tokenAccount, 100);
+    const hash100 = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      100,
+    );
 
     expect(hash0).not.toEqual(hash50);
     expect(hash50).not.toEqual(hash100);
@@ -234,7 +320,7 @@ describe("computeValidationHash", () => {
     const tokenAccount = randomAddress();
 
     expect(() =>
-      computeValidationHash(sasSchema, taskRef, tokenAccount, 101)
+      computeValidationHash(sasSchema, taskRef, tokenAccount, 101),
     ).toThrow("response must be 0-100");
   });
 });
@@ -250,7 +336,12 @@ describe("computeReputationHash", () => {
     const provider = randomAddress();
     const score = 75;
 
-    const hash = computeReputationHash(sasSchema, tokenAccount, provider, score);
+    const hash = computeReputationHash(
+      sasSchema,
+      tokenAccount,
+      provider,
+      score,
+    );
 
     expect(hash).toBeInstanceOf(Uint8Array);
     expect(hash.length).toBe(32);
@@ -262,8 +353,18 @@ describe("computeReputationHash", () => {
     const provider = randomAddress();
     const score = 90;
 
-    const hash1 = computeReputationHash(sasSchema, tokenAccount, provider, score);
-    const hash2 = computeReputationHash(sasSchema, tokenAccount, provider, score);
+    const hash1 = computeReputationHash(
+      sasSchema,
+      tokenAccount,
+      provider,
+      score,
+    );
+    const hash2 = computeReputationHash(
+      sasSchema,
+      tokenAccount,
+      provider,
+      score,
+    );
 
     expect(hash1).toEqual(hash2);
   });
@@ -274,7 +375,7 @@ describe("computeReputationHash", () => {
     const provider = randomAddress();
 
     expect(() =>
-      computeReputationHash(sasSchema, tokenAccount, provider, 101)
+      computeReputationHash(sasSchema, tokenAccount, provider, 101),
     ).toThrow("score must be 0-100");
   });
 });
@@ -290,7 +391,12 @@ describe("computeAttestationNonce", () => {
     const tokenAccount = randomAddress();
     const counterparty = randomAddress();
 
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty,
+    );
 
     expect(nonce).toBeInstanceOf(Uint8Array);
     expect(nonce.length).toBe(32);
@@ -302,8 +408,18 @@ describe("computeAttestationNonce", () => {
     const tokenAccount = randomAddress();
     const counterparty = randomAddress();
 
-    const nonce1 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
-    const nonce2 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce1 = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty,
+    );
+    const nonce2 = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty,
+    );
 
     expect(nonce1).toEqual(nonce2);
   });
@@ -315,8 +431,18 @@ describe("computeAttestationNonce", () => {
     const counterparty1 = randomAddress();
     const counterparty2 = randomAddress();
 
-    const nonce1 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty1);
-    const nonce2 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty2);
+    const nonce1 = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty1,
+    );
+    const nonce2 = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty2,
+    );
 
     expect(nonce1).not.toEqual(nonce2);
   });
@@ -327,7 +453,12 @@ describe("computeAttestationNonce", () => {
     const counterparty = randomAddress();
 
     expect(() =>
-      computeAttestationNonce(randomBytes(16), sasSchema, tokenAccount, counterparty)
+      computeAttestationNonce(
+        randomBytes(16),
+        sasSchema,
+        tokenAccount,
+        counterparty,
+      ),
     ).toThrow("taskRef must be 32 bytes");
   });
 });
@@ -393,31 +524,31 @@ describe("Boundary Values", () => {
 
     test("accepts Outcome.Negative (0)", () => {
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Negative)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Negative),
       ).not.toThrow();
     });
 
     test("accepts Outcome.Neutral (1)", () => {
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Neutral)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Neutral),
       ).not.toThrow();
     });
 
     test("accepts Outcome.Positive (2)", () => {
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive),
       ).not.toThrow();
     });
 
     test("rejects outcome 3 (just above valid range)", () => {
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, 3)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, 3),
       ).toThrow("outcome must be 0, 1, or 2");
     });
 
     test("rejects outcome 255 (max u8)", () => {
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, 255)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, 255),
       ).toThrow("outcome must be 0, 1, or 2");
     });
   });
@@ -430,46 +561,46 @@ describe("Boundary Values", () => {
 
     test("accepts score 0 (minimum)", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, 0)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, 0),
       ).not.toThrow();
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, 0)
+        computeReputationHash(sasSchema, tokenAccount, provider, 0),
       ).not.toThrow();
     });
 
     test("accepts score 50 (midpoint)", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, 50)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, 50),
       ).not.toThrow();
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, 50)
+        computeReputationHash(sasSchema, tokenAccount, provider, 50),
       ).not.toThrow();
     });
 
     test("accepts score 100 (maximum)", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, 100)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, 100),
       ).not.toThrow();
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, 100)
+        computeReputationHash(sasSchema, tokenAccount, provider, 100),
       ).not.toThrow();
     });
 
     test("rejects score 101 (just above valid range)", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, 101)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, 101),
       ).toThrow("response must be 0-100");
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, 101)
+        computeReputationHash(sasSchema, tokenAccount, provider, 101),
       ).toThrow("score must be 0-100");
     });
 
     test("rejects score 255 (max u8)", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, 255)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, 255),
       ).toThrow("response must be 0-100");
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, 255)
+        computeReputationHash(sasSchema, tokenAccount, provider, 255),
       ).toThrow("score must be 0-100");
     });
   });
@@ -492,7 +623,7 @@ describe("TypeScript Enum Bypass Protection", () => {
 
       // Runtime validation should catch it
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, maliciousOutcome)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, maliciousOutcome),
       ).toThrow("outcome must be 0, 1, or 2");
     });
 
@@ -500,19 +631,19 @@ describe("TypeScript Enum Bypass Protection", () => {
       const veryNegative = -100 as Outcome;
 
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, veryNegative)
+        computeFeedbackHash(sasSchema, taskRef, tokenAccount, veryNegative),
       ).toThrow("outcome must be 0, 1, or 2");
     });
 
     test("rejects -1 as response score", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, -1)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, -1),
       ).toThrow("response must be 0-100");
     });
 
     test("rejects -50 as reputation score", () => {
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, -50)
+        computeReputationHash(sasSchema, tokenAccount, provider, -50),
       ).toThrow("score must be 0-100");
     });
   });
@@ -523,7 +654,12 @@ describe("TypeScript Enum Bypass Protection", () => {
       const fractionalOutcome = 1.5 as unknown as Outcome;
 
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, fractionalOutcome)
+        computeFeedbackHash(
+          sasSchema,
+          taskRef,
+          tokenAccount,
+          fractionalOutcome,
+        ),
       ).toThrow("outcome must be 0, 1, or 2");
     });
 
@@ -532,7 +668,12 @@ describe("TypeScript Enum Bypass Protection", () => {
       // The validation only checks finite and range 0-100
       const fractionalScore = 50.5;
 
-      const hash = computeValidationHash(sasSchema, taskRef, tokenAccount, fractionalScore);
+      const hash = computeValidationHash(
+        sasSchema,
+        taskRef,
+        tokenAccount,
+        fractionalScore,
+      );
       expect(hash.length).toBe(32);
     });
   });
@@ -540,19 +681,24 @@ describe("TypeScript Enum Bypass Protection", () => {
   describe("Type coercion edge cases", () => {
     test("rejects NaN as outcome", () => {
       expect(() =>
-        computeFeedbackHash(sasSchema, taskRef, tokenAccount, NaN as unknown as Outcome)
+        computeFeedbackHash(
+          sasSchema,
+          taskRef,
+          tokenAccount,
+          NaN as unknown as Outcome,
+        ),
       ).toThrow();
     });
 
     test("rejects Infinity as score", () => {
       expect(() =>
-        computeValidationHash(sasSchema, taskRef, tokenAccount, Infinity)
+        computeValidationHash(sasSchema, taskRef, tokenAccount, Infinity),
       ).toThrow();
     });
 
     test("rejects -Infinity as score", () => {
       expect(() =>
-        computeReputationHash(sasSchema, tokenAccount, provider, -Infinity)
+        computeReputationHash(sasSchema, tokenAccount, provider, -Infinity),
       ).toThrow();
     });
   });
@@ -569,23 +715,53 @@ describe("Cross-Domain Hash Isolation", () => {
   const dataHash = randomBytes(32);
 
   test("interaction hash differs from feedback hash for same agent/task", () => {
-    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
+    const interactionHash = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
+    const feedbackHash = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      Outcome.Positive,
+    );
 
     expect(interactionHash).not.toEqual(feedbackHash);
   });
 
   test("feedback hash differs from validation hash for same agent/task", () => {
-    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
-    const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, 100);
+    const feedbackHash = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      Outcome.Positive,
+    );
+    const validationHash = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      100,
+    );
 
     expect(feedbackHash).not.toEqual(validationHash);
   });
 
   test("validation hash differs from reputation hash for same agent", () => {
     const provider = randomAddress();
-    const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, 100);
-    const reputationHash = computeReputationHash(sasSchema, tokenAccount, provider, 100);
+    const validationHash = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      100,
+    );
+    const reputationHash = computeReputationHash(
+      sasSchema,
+      tokenAccount,
+      provider,
+      100,
+    );
 
     expect(validationHash).not.toEqual(reputationHash);
   });
@@ -594,8 +770,18 @@ describe("Cross-Domain Hash Isolation", () => {
     const schema1 = randomAddress();
     const schema2 = randomAddress();
 
-    const hash1 = computeInteractionHash(schema1, taskRef, tokenAccount, dataHash);
-    const hash2 = computeInteractionHash(schema2, taskRef, tokenAccount, dataHash);
+    const hash1 = computeInteractionHash(
+      schema1,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
+    const hash2 = computeInteractionHash(
+      schema2,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
 
     expect(hash1).not.toEqual(hash2);
   });

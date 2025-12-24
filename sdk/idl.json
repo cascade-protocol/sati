@@ -1326,8 +1326,8 @@
       "docs": [
         "Parameters for closing a compressed attestation",
         "",
-        "Light Protocol specific data (proof, account_meta) is passed as serialized bytes",
-        "and deserialized in the handler using Light SDK."
+        "Uses Light Protocol types directly for proof and account metadata,",
+        "following the recommended pattern from Light SDK."
       ],
       "type": {
         "kind": "struct",
@@ -1385,18 +1385,102 @@
             "type": "pubkey"
           },
           {
-            "name": "proof_bytes",
+            "name": "proof",
             "docs": [
-              "Serialized Light Protocol proof bytes"
+              "Light Protocol validity proof"
             ],
-            "type": "bytes"
+            "type": {
+              "defined": {
+                "name": "ValidityProof"
+              }
+            }
           },
           {
-            "name": "account_meta_bytes",
+            "name": "account_meta",
             "docs": [
-              "Serialized compressed account metadata bytes"
+              "Light Protocol compressed account metadata"
             ],
-            "type": "bytes"
+            "type": {
+              "defined": {
+                "name": "CompressedAccountMeta"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompressedAccountMeta",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tree_info",
+            "docs": [
+              "Merkle tree context."
+            ],
+            "type": {
+              "defined": {
+                "name": "PackedStateTreeInfo"
+              }
+            }
+          },
+          {
+            "name": "address",
+            "docs": [
+              "Address."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "output_state_tree_index",
+            "docs": [
+              "Output merkle tree index."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompressedProof",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "a",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "b",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "c",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
@@ -1406,8 +1490,8 @@
       "docs": [
         "Parameters for creating a compressed attestation",
         "",
-        "Light Protocol specific data (proof, address_tree_info) is passed separately",
-        "via remaining_accounts and deserialized in the handler using Light SDK."
+        "Uses Light Protocol types directly for proof and address tree info,",
+        "following the recommended pattern from Light SDK."
       ],
       "type": {
         "kind": "struct",
@@ -1447,18 +1531,26 @@
             "type": "u8"
           },
           {
-            "name": "proof_bytes",
+            "name": "proof",
             "docs": [
-              "Serialized Light Protocol proof bytes (CompressedProof)"
+              "Light Protocol validity proof (None for new address creation)"
             ],
-            "type": "bytes"
+            "type": {
+              "defined": {
+                "name": "ValidityProof"
+              }
+            }
           },
           {
-            "name": "address_tree_info_bytes",
+            "name": "address_tree_info",
             "docs": [
-              "Serialized address tree info bytes (PackedAddressTreeInfo)"
+              "Light Protocol address tree info"
             ],
-            "type": "bytes"
+            "type": {
+              "defined": {
+                "name": "PackedAddressTreeInfo"
+              }
+            }
           }
         ]
       }
@@ -1524,6 +1616,54 @@
           {
             "name": "value",
             "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PackedAddressTreeInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "address_merkle_tree_pubkey_index",
+            "type": "u8"
+          },
+          {
+            "name": "address_queue_pubkey_index",
+            "type": "u8"
+          },
+          {
+            "name": "root_index",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PackedStateTreeInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "root_index",
+            "type": "u16"
+          },
+          {
+            "name": "prove_by_index",
+            "type": "bool"
+          },
+          {
+            "name": "merkle_tree_pubkey_index",
+            "type": "u8"
+          },
+          {
+            "name": "queue_pubkey_index",
+            "type": "u8"
+          },
+          {
+            "name": "leaf_index",
+            "type": "u32"
           }
         ]
       }
@@ -1765,6 +1905,21 @@
           },
           {
             "name": "Regular"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ValidityProof",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "option": {
+              "defined": {
+                "name": "CompressedProof"
+              }
+            }
           }
         ]
       }

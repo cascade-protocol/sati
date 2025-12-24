@@ -41,10 +41,9 @@
     "dev": "tsdown --watch",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test:unit": "vitest run tests/unit tests/integration",
     "test:e2e": "vitest run tests/e2e",
-    "test:watch": "vitest",
+    "test:watch": "vitest tests/unit tests/integration",
     "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist src/generated"
   },

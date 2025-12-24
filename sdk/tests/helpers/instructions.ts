@@ -7,7 +7,7 @@
 
 import {
   PublicKey,
-  TransactionInstruction,
+  type TransactionInstruction,
   Ed25519Program,
 } from "@solana/web3.js";
 import { type Address, getAddressEncoder } from "@solana/kit";
@@ -33,7 +33,7 @@ export interface Ed25519SignatureParams {
  * checking SYSVAR_INSTRUCTIONS for Ed25519 verification results.
  */
 export function buildEd25519Instruction(
-  params: Ed25519SignatureParams
+  params: Ed25519SignatureParams,
 ): TransactionInstruction {
   return Ed25519Program.createInstructionWithPublicKey({
     publicKey: params.publicKey.toBytes(),
@@ -50,7 +50,7 @@ export function buildEd25519Instruction(
  * 2. Counterparty's signature on feedback/validation hash
  */
 export function buildEd25519Instructions(
-  signatures: Ed25519SignatureParams[]
+  signatures: Ed25519SignatureParams[],
 ): TransactionInstruction[] {
   return signatures.map(buildEd25519Instruction);
 }
@@ -71,7 +71,7 @@ export function buildFeedbackEd25519Instructions(
   agentSig: Uint8Array,
   counterpartyPubkey: PublicKey,
   feedbackHash: Uint8Array,
-  counterpartySig: Uint8Array
+  counterpartySig: Uint8Array,
 ): TransactionInstruction[] {
   return [
     buildEd25519Instruction({

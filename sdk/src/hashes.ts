@@ -37,7 +37,7 @@ export function computeInteractionHash(
   sasSchema: Address,
   taskRef: Uint8Array,
   tokenAccount: Address,
-  dataHash: Uint8Array
+  dataHash: Uint8Array,
 ): Uint8Array {
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
@@ -47,7 +47,7 @@ export function computeInteractionHash(
   }
 
   const data = new Uint8Array(
-    DOMAIN_INTERACTION.length + 32 + 32 + 32 + 32 // domain + schema + taskRef + tokenAccount + dataHash
+    DOMAIN_INTERACTION.length + 32 + 32 + 32 + 32, // domain + schema + taskRef + tokenAccount + dataHash
   );
 
   let offset = 0;
@@ -78,7 +78,7 @@ export function computeFeedbackHash(
   sasSchema: Address,
   taskRef: Uint8Array,
   tokenAccount: Address,
-  outcome: number
+  outcome: number,
 ): Uint8Array {
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
@@ -88,7 +88,7 @@ export function computeFeedbackHash(
   }
 
   const data = new Uint8Array(
-    DOMAIN_FEEDBACK.length + 32 + 32 + 32 + 1 // domain + schema + taskRef + tokenAccount + outcome
+    DOMAIN_FEEDBACK.length + 32 + 32 + 32 + 1, // domain + schema + taskRef + tokenAccount + outcome
   );
 
   let offset = 0;
@@ -119,7 +119,7 @@ export function computeValidationHash(
   sasSchema: Address,
   taskRef: Uint8Array,
   tokenAccount: Address,
-  response: number
+  response: number,
 ): Uint8Array {
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
@@ -129,7 +129,7 @@ export function computeValidationHash(
   }
 
   const data = new Uint8Array(
-    DOMAIN_VALIDATION.length + 32 + 32 + 32 + 1 // domain + schema + taskRef + tokenAccount + response
+    DOMAIN_VALIDATION.length + 32 + 32 + 32 + 1, // domain + schema + taskRef + tokenAccount + response
   );
 
   let offset = 0;
@@ -160,14 +160,14 @@ export function computeReputationHash(
   sasSchema: Address,
   tokenAccount: Address,
   provider: Address,
-  score: number
+  score: number,
 ): Uint8Array {
   if (!Number.isFinite(score) || score < 0 || score > 100) {
     throw new Error("score must be 0-100");
   }
 
   const data = new Uint8Array(
-    DOMAIN_REPUTATION.length + 32 + 32 + 32 + 1 // domain + schema + tokenAccount + provider + score
+    DOMAIN_REPUTATION.length + 32 + 32 + 32 + 1, // domain + schema + tokenAccount + provider + score
   );
 
   let offset = 0;
@@ -198,7 +198,7 @@ export function computeAttestationNonce(
   taskRef: Uint8Array,
   sasSchema: Address,
   tokenAccount: Address,
-  counterparty: Address
+  counterparty: Address,
 ): Uint8Array {
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
@@ -228,7 +228,7 @@ export function computeAttestationNonce(
  */
 export function computeReputationNonce(
   provider: Address,
-  tokenAccount: Address
+  tokenAccount: Address,
 ): Uint8Array {
   const data = new Uint8Array(32 + 32); // provider + tokenAccount
 

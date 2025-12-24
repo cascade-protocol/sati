@@ -38,9 +38,7 @@ export function getConnection(rpcUrl?: string): Connection {
 /**
  * Check if test validator is running and healthy
  */
-export async function isTestValidatorReady(
-  rpcUrl?: string
-): Promise<boolean> {
+export async function isTestValidatorReady(rpcUrl?: string): Promise<boolean> {
   try {
     const response = await fetch(rpcUrl || DEFAULT_CONFIG.rpcUrl, {
       method: "POST",
@@ -67,7 +65,7 @@ export async function isTestValidatorReady(
  */
 export async function newAccountWithLamports(
   connection: Connection,
-  lamports: number = LAMPORTS_PER_SOL
+  lamports: number = LAMPORTS_PER_SOL,
 ): Promise<Keypair> {
   const keypair = Keypair.generate();
 
@@ -92,7 +90,9 @@ export function getTestKeypair(seed: number): Keypair {
 /**
  * Create a KeyPairSigner from a Keypair (for @solana/kit compatibility)
  */
-export async function keypairToSigner(keypair: Keypair): Promise<KeyPairSigner> {
+export async function keypairToSigner(
+  keypair: Keypair,
+): Promise<KeyPairSigner> {
   return createKeyPairSignerFromBytes(keypair.secretKey);
 }
 
@@ -115,10 +115,10 @@ export function sleep(ms: number): Promise<void> {
  */
 export async function waitForIndexer(
   connection: Connection,
-  delayMs: number = 1000
+  delayMs: number = 1000,
 ): Promise<void> {
   // Get current slot
-  const slot = await connection.getSlot();
+  const _slot = await connection.getSlot();
 
   // Wait for indexer to catch up
   await sleep(delayMs);
@@ -134,7 +134,7 @@ export async function waitForIndexer(
 export async function retry<T>(
   fn: () => Promise<T>,
   maxAttempts: number = 5,
-  delayMs: number = 500
+  delayMs: number = 500,
 ): Promise<T> {
   let lastError: Error | undefined;
 

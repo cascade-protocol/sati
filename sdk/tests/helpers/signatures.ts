@@ -7,13 +7,13 @@
 
 import nacl from "tweetnacl";
 import { type Address, address, getAddressEncoder } from "@solana/kit";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair, type PublicKey } from "@solana/web3.js";
 import {
   computeInteractionHash,
   computeFeedbackHash,
   computeValidationHash,
   computeReputationHash,
-  Outcome,
+  type Outcome,
 } from "../../src/hashes";
 
 // =============================================================================
@@ -40,7 +40,7 @@ export interface TestKeypair {
  */
 export function signMessage(
   message: Uint8Array,
-  secretKey: Uint8Array
+  secretKey: Uint8Array,
 ): Uint8Array {
   return nacl.sign.detached(message, secretKey);
 }
@@ -51,7 +51,7 @@ export function signMessage(
 export function verifySignature(
   message: Uint8Array,
   signature: Uint8Array,
-  publicKey: Uint8Array
+  publicKey: Uint8Array,
 ): boolean {
   return nacl.sign.detached.verify(message, signature, publicKey);
 }
@@ -94,14 +94,14 @@ export function createFeedbackSignatures(
   agentKeypair: TestKeypair,
   counterpartyKeypair: TestKeypair,
   dataHash: Uint8Array,
-  outcome: Outcome
+  outcome: Outcome,
 ): SignatureData[] {
   // Agent signs interaction hash (blind - doesn't know outcome)
   const interactionHash = computeInteractionHash(
     sasSchema,
     taskRef,
     agentKeypair.address,
-    dataHash
+    dataHash,
   );
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
@@ -110,9 +110,12 @@ export function createFeedbackSignatures(
     sasSchema,
     taskRef,
     agentKeypair.address,
-    outcome
+    outcome,
   );
-  const counterpartySig = signMessage(feedbackHash, counterpartyKeypair.secretKey);
+  const counterpartySig = signMessage(
+    feedbackHash,
+    counterpartyKeypair.secretKey,
+  );
 
   return [
     { pubkey: agentKeypair.address, sig: agentSig },
@@ -130,7 +133,7 @@ export function verifyFeedbackSignatures(
   tokenAccount: Address,
   dataHash: Uint8Array,
   outcome: Outcome,
-  signatures: SignatureData[]
+  signatures: SignatureData[],
 ): { valid: boolean; agentValid: boolean; counterpartyValid: boolean } {
   if (signatures.length !== 2) {
     return { valid: false, agentValid: false, counterpartyValid: false };
@@ -140,14 +143,14 @@ export function verifyFeedbackSignatures(
     sasSchema,
     taskRef,
     tokenAccount,
-    dataHash
+    dataHash,
   );
 
   const feedbackHash = computeFeedbackHash(
     sasSchema,
     taskRef,
     tokenAccount,
-    outcome
+    outcome,
   );
 
   const encoder = getAddressEncoder();
@@ -155,13 +158,13 @@ export function verifyFeedbackSignatures(
   const agentValid = verifySignature(
     interactionHash,
     signatures[0].sig,
-    new Uint8Array(encoder.encode(signatures[0].pubkey))
+    new Uint8Array(encoder.encode(signatures[0].pubkey)),
   );
 
   const counterpartyValid = verifySignature(
     feedbackHash,
     signatures[1].sig,
-    new Uint8Array(encoder.encode(signatures[1].pubkey))
+    new Uint8Array(encoder.encode(signatures[1].pubkey)),
   );
 
   return {
@@ -187,14 +190,14 @@ export function createValidationSignatures(
   agentKeypair: TestKeypair,
   validatorKeypair: TestKeypair,
   dataHash: Uint8Array,
-  response: number
+  response: number,
 ): SignatureData[] {
   // Agent signs interaction hash (blind)
   const interactionHash = computeInteractionHash(
     sasSchema,
     taskRef,
     agentKeypair.address,
-    dataHash
+    dataHash,
   );
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
@@ -203,7 +206,7 @@ export function createValidationSignatures(
     sasSchema,
     taskRef,
     agentKeypair.address,
-    response
+    response,
   );
   const validatorSig = signMessage(validationHash, validatorKeypair.secretKey);
 
@@ -226,13 +229,13 @@ export function createReputationSignature(
   sasSchema: Address,
   tokenAccount: Address,
   providerKeypair: TestKeypair,
-  score: number
+  score: number,
 ): SignatureData[] {
   const reputationHash = computeReputationHash(
     sasSchema,
     tokenAccount,
     providerKeypair.address,
-    score
+    score,
   );
 
   const providerSig = signMessage(reputationHash, providerKeypair.secretKey);

@@ -16,23 +16,24 @@
  * Run: pnpm test:e2e
  */
 
-import { describe, test, expect, beforeAll, afterAll } from "vitest";
-import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { address, createKeyPairSignerFromBytes, type KeyPairSigner } from "@solana/kit";
+import { describe, test, expect, beforeAll } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  address,
+  createKeyPairSignerFromBytes,
+  type KeyPairSigner,
+} from "@solana/kit";
 import { SATI } from "../../src";
 import {
   computeInteractionHash,
-  computeFeedbackHash,
   computeValidationHash,
   computeReputationHash,
   Outcome,
 } from "../../src/hashes";
-import { DataType, ContentType, ValidationType, SignatureMode, StorageType } from "../../src/schemas";
 import { findAssociatedTokenAddress } from "../../src/helpers";
 
 // Import real signature helpers
 import {
-  signMessage,
   createTestKeypair,
   createFeedbackSignatures,
   createValidationSignatures,
@@ -45,41 +46,9 @@ import {
 // Test Configuration
 // =============================================================================
 
-const LOCAL_RPC_URL = "http://127.0.0.1:8899";
 const TEST_TIMEOUT = 60000; // 60s for network operations
 
-/**
- * Check if test validator is running and SATI program is deployed
- */
-async function isTestEnvironmentReady(): Promise<boolean> {
-  try {
-    const response = await fetch(LOCAL_RPC_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getHealth",
-      }),
-      signal: AbortSignal.timeout(2000),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-// =============================================================================
-// Test Utilities
-// =============================================================================
-
-function randomBytes(length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return bytes;
-}
-
-async function createTestSigner(): Promise<KeyPairSigner> {
+async function _createTestSigner(): Promise<KeyPairSigner> {
   const keypair = Keypair.generate();
   return createKeyPairSignerFromBytes(keypair.secretKey);
 }
@@ -87,7 +56,10 @@ async function createTestSigner(): Promise<KeyPairSigner> {
 /**
  * Convert KeyPairSigner to TestKeypair for signature helpers
  */
-function signerToTestKeypair(signer: KeyPairSigner, secretKey: Uint8Array): TestKeypair {
+function _signerToTestKeypair(
+  signer: KeyPairSigner,
+  secretKey: Uint8Array,
+): TestKeypair {
   return {
     publicKey: new PublicKey(signer.address),
     secretKey,
@@ -100,7 +72,6 @@ function signerToTestKeypair(signer: KeyPairSigner, secretKey: Uint8Array): Test
 // =============================================================================
 
 describe("E2E: Attestation Flow", () => {
-  let testEnvReady: boolean;
   let sati: SATI;
   let payer: KeyPairSigner;
   let agentOwner: KeyPairSigner;
@@ -113,12 +84,6 @@ describe("E2E: Attestation Flow", () => {
   let counterpartyKeypair: TestKeypair;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) {
-      console.log("⚠️  Test environment not available, E2E tests will be skipped");
-      return;
-    }
-
     // Initialize SDK
     sati = new SATI({ network: "localnet" });
 
@@ -131,7 +96,9 @@ describe("E2E: Attestation Flow", () => {
     counterpartyKeypair = createTestKeypair(2);
 
     agentOwner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    counterparty = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
+    counterparty = await createKeyPairSignerFromBytes(
+      counterpartyKeypair.secretKey,
+    );
 
     // Generate random SAS schema address
     sasSchema = address(Keypair.generate().publicKey.toBase58());
@@ -145,7 +112,7 @@ describe("E2E: Attestation Flow", () => {
   // ---------------------------------------------------------------------------
 
   describe("Registry Operations", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "fetches registry stats",
       async () => {
         const stats = await sati.getRegistryStats();
@@ -153,10 +120,10 @@ describe("E2E: Attestation Flow", () => {
         expect(stats).toHaveProperty("groupMint");
         expect(stats).toHaveProperty("authority");
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "registers an agent (mints Token-2022 NFT)",
       async () => {
         const name = `TestAgent-${Date.now()}`;
@@ -177,7 +144,7 @@ describe("E2E: Attestation Flow", () => {
 
         agentMint = result.mint;
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 
@@ -186,7 +153,7 @@ describe("E2E: Attestation Flow", () => {
   // ---------------------------------------------------------------------------
 
   describe("Schema Configuration", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "registers schema config for Feedback",
       async () => {
         const result = await sati.registerSchemaConfig({
@@ -200,10 +167,10 @@ describe("E2E: Attestation Flow", () => {
 
         expect(result).toHaveProperty("signature");
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "fetches registered schema config",
       async () => {
         const config = await sati.getSchemaConfig(sasSchema);
@@ -215,7 +182,7 @@ describe("E2E: Attestation Flow", () => {
           expect(config.closeable).toBe(false);
         }
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 
@@ -224,7 +191,7 @@ describe("E2E: Attestation Flow", () => {
   // ---------------------------------------------------------------------------
 
   describe("Feedback Attestation", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "creates feedback with real Ed25519 signatures",
       async () => {
         // Skip if agent not registered
@@ -235,7 +202,10 @@ describe("E2E: Attestation Flow", () => {
         const outcome = Outcome.Positive;
 
         // Get agent's token account using findAssociatedTokenAddress
-        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+        const [tokenAccount] = await findAssociatedTokenAddress(
+          agentMint,
+          agentOwner.address,
+        );
 
         // Create real Ed25519 signatures using the helper
         // Agent signs interaction hash (blind - doesn't know outcome)
@@ -246,7 +216,7 @@ describe("E2E: Attestation Flow", () => {
           agentKeypair,
           counterpartyKeypair,
           dataHash,
-          outcome
+          outcome,
         );
 
         // Submit attestation with real signatures
@@ -273,10 +243,10 @@ describe("E2E: Attestation Flow", () => {
         expect(result).toHaveProperty("address");
         expect(result).toHaveProperty("signature");
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "rejects feedback with mismatched outcome in signature",
       async () => {
         if (!agentMint) return;
@@ -284,7 +254,10 @@ describe("E2E: Attestation Flow", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+        const [tokenAccount] = await findAssociatedTokenAddress(
+          agentMint,
+          agentOwner.address,
+        );
 
         // Sign for Positive outcome
         const signatures = createFeedbackSignatures(
@@ -293,7 +266,7 @@ describe("E2E: Attestation Flow", () => {
           agentKeypair,
           counterpartyKeypair,
           dataHash,
-          Outcome.Positive
+          Outcome.Positive,
         );
 
         // But submit with Negative outcome - should fail on-chain
@@ -314,10 +287,10 @@ describe("E2E: Attestation Flow", () => {
               pubkey: signatures[1].pubkey,
               signature: signatures[1].sig,
             },
-          })
+          }),
         ).rejects.toThrow(); // Should fail signature verification
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 
@@ -326,27 +299,33 @@ describe("E2E: Attestation Flow", () => {
   // ---------------------------------------------------------------------------
 
   describe("Attestation Queries", () => {
-    test.skipIf(() => !testEnvReady)(
+    test(
       "queries feedbacks by token account",
       async () => {
         if (!agentMint) return;
 
-        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+        const [tokenAccount] = await findAssociatedTokenAddress(
+          agentMint,
+          agentOwner.address,
+        );
 
         // listFeedbacks takes tokenAccount as first arg
         const result = await sati.listFeedbacks(tokenAccount);
 
         expect(Array.isArray(result)).toBe(true);
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
 
-    test.skipIf(() => !testEnvReady)(
+    test(
       "queries feedbacks by outcome filter",
       async () => {
         if (!agentMint) return;
 
-        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+        const [tokenAccount] = await findAssociatedTokenAddress(
+          agentMint,
+          agentOwner.address,
+        );
 
         const result = await sati.listFeedbacks(tokenAccount, {
           outcome: Outcome.Positive,
@@ -360,7 +339,7 @@ describe("E2E: Attestation Flow", () => {
           }
         }
       },
-      TEST_TIMEOUT
+      TEST_TIMEOUT,
     );
   });
 });
@@ -370,34 +349,32 @@ describe("E2E: Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Validation Attestation Flow", () => {
-  let testEnvReady: boolean;
-  let sati: SATI;
-  let payer: KeyPairSigner;
+  let _sati: SATI;
+  let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let validatorKeypair: TestKeypair;
-  let agentSigner: KeyPairSigner;
-  let validatorSigner: KeyPairSigner;
+  let _agentSigner: KeyPairSigner;
+  let _validatorSigner: KeyPairSigner;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) return;
-
-    sati = new SATI({ network: "localnet" });
+    _sati = new SATI({ network: "localnet" });
 
     const payerKp = Keypair.generate();
-    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+    _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
 
     agentKeypair = createTestKeypair(10);
     validatorKeypair = createTestKeypair(11);
 
-    agentSigner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    validatorSigner = await createKeyPairSignerFromBytes(validatorKeypair.secretKey);
+    _agentSigner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
+    _validatorSigner = await createKeyPairSignerFromBytes(
+      validatorKeypair.secretKey,
+    );
 
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "creates validation attestation with real signatures",
     async () => {
       const taskRef = randomBytes32();
@@ -417,7 +394,7 @@ describe("E2E: Validation Attestation Flow", () => {
         agentKeypair,
         validatorKeypair,
         dataHash,
-        response
+        response,
       );
 
       // Verify signatures were created correctly
@@ -432,7 +409,7 @@ describe("E2E: Validation Attestation Flow", () => {
         sasSchema,
         taskRef,
         tokenAccount,
-        response
+        response,
       );
 
       // Validator signature should verify against validation hash
@@ -440,14 +417,14 @@ describe("E2E: Validation Attestation Flow", () => {
       const isValid = verifySignature(
         validationHash,
         signatures[1].sig,
-        validatorKeypair.publicKey.toBytes()
+        validatorKeypair.publicKey.toBytes(),
       );
       expect(isValid).toBe(true);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "different response scores produce different validator signatures",
     async () => {
       const taskRef = randomBytes32();
@@ -459,7 +436,7 @@ describe("E2E: Validation Attestation Flow", () => {
         agentKeypair,
         validatorKeypair,
         dataHash,
-        50
+        50,
       );
 
       const sig100 = createValidationSignatures(
@@ -468,7 +445,7 @@ describe("E2E: Validation Attestation Flow", () => {
         agentKeypair,
         validatorKeypair,
         dataHash,
-        100
+        100,
       );
 
       // Agent signatures should be same (blind to response)
@@ -477,7 +454,7 @@ describe("E2E: Validation Attestation Flow", () => {
       // Validator signatures should differ (includes response)
       expect(sig50[1].sig).not.toEqual(sig100[1].sig);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 });
 
@@ -486,21 +463,17 @@ describe("E2E: Validation Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: ReputationScore Attestation Flow", () => {
-  let testEnvReady: boolean;
   let providerKeypair: TestKeypair;
   let agentKeypair: TestKeypair;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) return;
-
     providerKeypair = createTestKeypair(20);
     agentKeypair = createTestKeypair(21);
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "creates reputation signature (SingleSigner mode)",
     async () => {
       const score = 85;
@@ -510,7 +483,7 @@ describe("E2E: ReputationScore Attestation Flow", () => {
         sasSchema,
         agentKeypair.address,
         providerKeypair,
-        score
+        score,
       );
 
       // Only one signature (provider)
@@ -523,44 +496,44 @@ describe("E2E: ReputationScore Attestation Flow", () => {
         sasSchema,
         agentKeypair.address,
         providerKeypair.address,
-        score
+        score,
       );
 
       const { verifySignature } = await import("../helpers/signatures");
       const isValid = verifySignature(
         reputationHash,
         signatures[0].sig,
-        providerKeypair.publicKey.toBytes()
+        providerKeypair.publicKey.toBytes(),
       );
       expect(isValid).toBe(true);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "different scores produce different signatures",
     async () => {
       const sig50 = createReputationSignature(
         sasSchema,
         agentKeypair.address,
         providerKeypair,
-        50
+        50,
       );
 
       const sig90 = createReputationSignature(
         sasSchema,
         agentKeypair.address,
         providerKeypair,
-        90
+        90,
       );
 
       // Different scores should produce different signatures
       expect(sig50[0].sig).not.toEqual(sig90[0].sig);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "signature uniqueness per (provider, agent) pair",
     async () => {
       const agent1 = createTestKeypair(30);
@@ -571,20 +544,20 @@ describe("E2E: ReputationScore Attestation Flow", () => {
         sasSchema,
         agent1.address,
         providerKeypair,
-        score
+        score,
       );
 
       const sig2 = createReputationSignature(
         sasSchema,
         agent2.address,
         providerKeypair,
-        score
+        score,
       );
 
       // Same score but different agents should produce different signatures
       expect(sig1[0].sig).not.toEqual(sig2[0].sig);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 });
 
@@ -593,28 +566,24 @@ describe("E2E: ReputationScore Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Error Handling", () => {
-  let testEnvReady: boolean;
-  let sati: SATI;
-  let payer: KeyPairSigner;
+  let _sati: SATI;
+  let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    testEnvReady = await isTestEnvironmentReady();
-    if (!testEnvReady) return;
-
-    sati = new SATI({ network: "localnet" });
+    _sati = new SATI({ network: "localnet" });
 
     const payerKp = Keypair.generate();
-    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+    _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
 
     agentKeypair = createTestKeypair(40);
     counterpartyKeypair = createTestKeypair(41);
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "detects tampered signature",
     async () => {
       const taskRef = randomBytes32();
@@ -628,7 +597,7 @@ describe("E2E: Error Handling", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        outcome
+        outcome,
       );
 
       // Tamper with the signature
@@ -641,20 +610,20 @@ describe("E2E: Error Handling", () => {
         sasSchema,
         taskRef,
         agentKeypair.address,
-        dataHash
+        dataHash,
       );
 
       const isValid = verifySignature(
         interactionHash,
         tamperedSig,
-        agentKeypair.publicKey.toBytes()
+        agentKeypair.publicKey.toBytes(),
       );
       expect(isValid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "detects wrong signer",
     async () => {
       const taskRef = randomBytes32();
@@ -668,7 +637,7 @@ describe("E2E: Error Handling", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       // Try to verify with wrong public key
@@ -677,20 +646,20 @@ describe("E2E: Error Handling", () => {
         sasSchema,
         taskRef,
         agentKeypair.address,
-        dataHash
+        dataHash,
       );
 
       const isValid = verifySignature(
         interactionHash,
         signatures[0].sig,
-        wrongKeypair.publicKey.toBytes() // Wrong key!
+        wrongKeypair.publicKey.toBytes(), // Wrong key!
       );
       expect(isValid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "detects wrong message hash",
     async () => {
       const taskRef = randomBytes32();
@@ -702,7 +671,7 @@ describe("E2E: Error Handling", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       // Try to verify against different taskRef
@@ -711,25 +680,27 @@ describe("E2E: Error Handling", () => {
         sasSchema,
         wrongTaskRef, // Different!
         agentKeypair.address,
-        dataHash
+        dataHash,
       );
 
       const { verifySignature } = await import("../helpers/signatures");
       const isValid = verifySignature(
         wrongHash,
         signatures[0].sig,
-        agentKeypair.publicKey.toBytes()
+        agentKeypair.publicKey.toBytes(),
       );
       expect(isValid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "validates signature count for DualSignature mode",
     async () => {
       // DualSignature mode requires exactly 2 signatures
-      const { verifyFeedbackSignatures } = await import("../helpers/signatures");
+      const { verifyFeedbackSignatures } = await import(
+        "../helpers/signatures"
+      );
 
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
@@ -741,7 +712,7 @@ describe("E2E: Error Handling", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       // Verify with only one signature should fail
@@ -751,18 +722,20 @@ describe("E2E: Error Handling", () => {
         agentKeypair.address,
         dataHash,
         Outcome.Positive,
-        [signatures[0]] // Only one signature!
+        [signatures[0]], // Only one signature!
       );
 
       expect(result.valid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 
-  test.skipIf(() => !testEnvReady)(
+  test(
     "validates swapped signatures fail",
     async () => {
-      const { verifyFeedbackSignatures } = await import("../helpers/signatures");
+      const { verifyFeedbackSignatures } = await import(
+        "../helpers/signatures"
+      );
 
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
@@ -773,7 +746,7 @@ describe("E2E: Error Handling", () => {
         agentKeypair,
         counterpartyKeypair,
         dataHash,
-        Outcome.Positive
+        Outcome.Positive,
       );
 
       // Swap the signatures
@@ -785,11 +758,11 @@ describe("E2E: Error Handling", () => {
         agentKeypair.address,
         dataHash,
         Outcome.Positive,
-        swapped
+        swapped,
       );
 
       expect(result.valid).toBe(false);
     },
-    TEST_TIMEOUT
+    TEST_TIMEOUT,
   );
 });

@@ -28,7 +28,7 @@ function loadTestConfig(): SATISASConfig | null {
 }
 
 // Load keypair from standard Solana CLI path
-async function loadKeypair() {
+async function _loadKeypair() {
   const keypairPath = join(process.env.HOME || "~", ".config/solana/id.json");
   const keypairData = readFileSync(keypairPath, "utf-8");
   const secretKey = Uint8Array.from(JSON.parse(keypairData));
@@ -36,12 +36,12 @@ async function loadKeypair() {
 }
 
 describe("SAS Smoke Tests (Devnet)", () => {
-  let sati: SATI;
+  let _sati: SATI;
   let testConfig: SATISASConfig | null;
 
   beforeAll(() => {
     testConfig = loadTestConfig();
-    sati = new SATI({ network: "devnet" });
+    _sati = new SATI({ network: "devnet" });
   });
 
   describe("Test Schema Deployment", () => {

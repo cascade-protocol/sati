@@ -5,7 +5,7 @@
  * Focuses on registry state, member numbers, and authority controls.
  */
 
-import { describe, test, expect, beforeAll, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach } from "vitest";
 import { LiteSVM } from "litesvm";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { MintLayout } from "@solana/spl-token";
@@ -21,7 +21,6 @@ import {
 import {
   getSchemaConfigEncoder,
   getSchemaConfigDecoder,
-  getSchemaConfigSize,
   SCHEMA_CONFIG_DISCRIMINATOR,
 } from "../../src/generated/accounts/schemaConfig";
 import { SATI_PROGRAM_ADDRESS } from "../../src/generated/programs/sati";
@@ -31,14 +30,14 @@ import {
 } from "../../src/generated/types";
 
 // Import SDK helpers
-import { findRegistryConfigPda, findSchemaConfigPda } from "../../src/helpers";
+import { findSchemaConfigPda } from "../../src/helpers";
 
 // =============================================================================
 // Constants
 // =============================================================================
 
 const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
 );
 
 const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
@@ -64,8 +63,8 @@ function setupLiteSVM(): LiteSVM {
  */
 function deriveRegistryConfigPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("registry")],
-    new PublicKey(SATI_PROGRAM_ADDRESS)
+    [new TextEncoder().encode("registry")],
+    new PublicKey(SATI_PROGRAM_ADDRESS),
   );
 }
 
@@ -74,8 +73,8 @@ function deriveRegistryConfigPda(): [PublicKey, number] {
  */
 function deriveSchemaConfigPda(sasSchema: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("schema_config"), sasSchema.toBuffer()],
-    new PublicKey(SATI_PROGRAM_ADDRESS)
+    [new TextEncoder().encode("schema_config"), sasSchema.toBytes()],
+    new PublicKey(SATI_PROGRAM_ADDRESS),
   );
 }
 
@@ -86,7 +85,7 @@ function setupRegistryConfig(
   svm: LiteSVM,
   groupMint: PublicKey,
   authority: PublicKey,
-  totalAgents: bigint = 0n
+  totalAgents: bigint = 0n,
 ): PublicKey {
   const [registryConfigPda, bump] = deriveRegistryConfigPda();
 
@@ -116,7 +115,7 @@ function setupSchemaConfig(
   sasSchema: PublicKey,
   signatureMode: GeneratedSignatureMode = GeneratedSignatureMode.DualSignature,
   storageType: GeneratedStorageType = GeneratedStorageType.Compressed,
-  closeable: boolean = false
+  closeable: boolean = false,
 ): PublicKey {
   const [schemaConfigPda, bump] = deriveSchemaConfigPda(sasSchema);
 
@@ -145,9 +144,9 @@ function setupSchemaConfig(
 function setupGroupMint(
   svm: LiteSVM,
   mintPubkey: PublicKey,
-  mintAuthority: PublicKey
+  mintAuthority: PublicKey,
 ): void {
-  const mintData = Buffer.alloc(MintLayout.span);
+  const mintData = new Uint8Array(MintLayout.span);
   MintLayout.encode(
     {
       mintAuthorityOption: 1,
@@ -158,7 +157,7 @@ function setupGroupMint(
       freezeAuthorityOption: 0,
       freezeAuthority: PublicKey.default,
     },
-    mintData
+    mintData,
   );
 
   svm.setAccount(mintPubkey, {
@@ -174,10 +173,10 @@ function setupGroupMint(
 // =============================================================================
 
 describe("Registry Config Account", () => {
-  let svm: LiteSVM;
+  let _svm: LiteSVM;
 
   beforeEach(() => {
-    svm = setupLiteSVM();
+    _svm = setupLiteSVM();
   });
 
   test("discriminator is 8 bytes", () => {
@@ -229,7 +228,8 @@ describe("Registry Config Account", () => {
       bump: 255,
     });
 
-    const totalAgents = Buffer.from(data.slice(72, 80)).readBigUInt64LE();
+    const view = new DataView(new Uint8Array(data.slice(72, 80)).buffer);
+    const totalAgents = view.getBigUint64(0, true); // little-endian
     expect(totalAgents).toBe(0xdeadbeefn);
   });
 
@@ -413,7 +413,7 @@ describe("Schema Config Account", () => {
       svm,
       sasSchema,
       GeneratedSignatureMode.SingleSigner,
-      GeneratedStorageType.Regular
+      GeneratedStorageType.Regular,
     );
 
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
@@ -433,7 +433,7 @@ describe("Schema Config Account", () => {
       sasSchema,
       GeneratedSignatureMode.DualSignature,
       GeneratedStorageType.Compressed,
-      true
+      true,
     );
 
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
