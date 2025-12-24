@@ -58,29 +58,6 @@ describe("SAS Smoke Tests (Devnet)", () => {
       expect(testConfig.schemas.validationResponse).toBeDefined();
       expect(testConfig.schemas.certification).toBeDefined();
     });
-
-    test.skip("setupSASSchemas is idempotent (TODO: update for new unified program)", async () => {
-      // This test used old setupSASSchemas API which has been removed
-      // in the unified program refactor. SAS schemas are now managed
-      // externally via sas-lib.
-      expect(true).toBe(true);
-    }, 30000); // 30s timeout for network call
-  });
-
-  describe("Schema Verification", () => {
-    test.skip("can verify deployed schemas (TODO: update for new unified program)", async () => {
-      // This test used old setSASConfig/getSASConfig API which has been removed
-      // in the unified program refactor.
-      expect(true).toBe(true);
-    });
-  });
-
-  describe("PDA Derivation", () => {
-    test.skip("credential PDA is deterministic (TODO: update for new unified program)", async () => {
-      // This test used old setupSASSchemas API which has been removed
-      // in the unified program refactor.
-      expect(true).toBe(true);
-    }, 30000);
   });
 });
 

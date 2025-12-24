@@ -217,18 +217,3 @@ export function createBatchEd25519Instruction(
   };
 }
 
-/**
- * Create multiple Ed25519 verification instructions.
- *
- * For efficiency, multiple signatures can be verified in a single instruction.
- * However, for simplicity, this creates separate instructions which is
- * clearer for debugging and works with instruction introspection patterns.
- *
- * @param signatures - Array of signature verification parameters
- * @returns Array of Ed25519 verification instructions
- */
-export function createEd25519Instructions(
-  signatures: Ed25519SignatureParams[]
-): Instruction[] {
-  return signatures.map((sig) => createEd25519Instruction(sig));
-}
