@@ -26,4 +26,4 @@ upgradeable = true
 startup_wait = 10000
 
 [scripts]
-test = "pnpm vitest run tests/"
+test = "pnpm vitest run tests/smoke/"

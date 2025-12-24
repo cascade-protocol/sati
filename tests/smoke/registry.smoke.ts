@@ -26,7 +26,7 @@ import {
   getTokenMetadata,
 } from "@solana/spl-token";
 import { describe, test, expect, beforeAll } from "vitest";
-import type { SatiRegistry } from "../target/types/sati_registry";
+import type { Sati } from "../../target/types/sati";
 
 // =============================================================================
 // Configuration
@@ -53,12 +53,12 @@ function getConnection(cluster: Cluster): Connection {
 function getProgram(
   connection: Connection,
   wallet: anchor.Wallet,
-): Program<SatiRegistry> {
+): Program<Sati> {
   const provider = new anchor.AnchorProvider(connection, wallet, {
     commitment: "confirmed",
   });
   anchor.setProvider(provider);
-  return anchor.workspace.SatiRegistry as Program<SatiRegistry>;
+  return anchor.workspace.Sati as Program<Sati>;
 }
 
 // =============================================================================
@@ -78,7 +78,7 @@ describe("sati-registry: smoke tests", () => {
   const cluster = getCluster();
   let connection: Connection;
   let wallet: anchor.Wallet;
-  let program: Program<SatiRegistry>;
+  let program: Program<Sati>;
   let registryConfig: PublicKey;
   let groupMint: PublicKey;
 

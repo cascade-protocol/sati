@@ -101,8 +101,6 @@ import type {
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
-import bs58 from "bs58";
-
 // Re-export types
 export { Outcome } from "./hashes";
 export {
@@ -353,9 +351,11 @@ export class SATI {
       .send();
 
     // Add compute budget instruction for Light Protocol operations
-    const computeBudgetIx = getSetComputeUnitLimitInstruction({ units: computeUnits });
+    const computeBudgetIx = getSetComputeUnitLimitInstruction({
+      units: computeUnits,
+    });
 
-    let tx = pipe(
+    const baseTx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) =>
@@ -365,7 +365,10 @@ export class SATI {
     );
 
     // Compress transaction using address lookup table if provided
-    if (lookupTableAddress) {
+    const finalTx = await (async () => {
+      if (!lookupTableAddress) {
+        return baseTx;
+      }
       const lookupTableAccount = await fetchAddressLookupTable(
         this.rpc,
         lookupTableAddress,
@@ -373,13 +376,13 @@ export class SATI {
       const addressesByLookupTable: AddressesByLookupTableAddress = {
         [lookupTableAddress]: lookupTableAccount.data.addresses,
       };
-      tx = compressTransactionMessageUsingAddressLookupTables(
-        tx,
+      return compressTransactionMessageUsingAddressLookupTables(
+        baseTx,
         addressesByLookupTable,
       );
-    }
+    })();
 
-    const signedTx = await signTransactionMessageWithSigners(tx);
+    const signedTx = await signTransactionMessageWithSigners(finalTx);
     await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
       commitment: "confirmed",
     });
@@ -752,9 +755,16 @@ export class SATI {
     //   ["attestation", sas_schema, token_account, nonce]
     // where nonce = compute_attestation_nonce(task_ref, sas_schema, token_account, counterparty)
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty,
+    );
     const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
-    const tokenAccountBytesForSeed = new Uint8Array(addressEncoder.encode(tokenAccount));
+    const tokenAccountBytesForSeed = new Uint8Array(
+      addressEncoder.encode(tokenAccount),
+    );
     const seeds = [
       new TextEncoder().encode("attestation"),
       sasSchemaBytes,
@@ -830,7 +840,12 @@ export class SATI {
       tokenAccount,
       dataHash,
     );
-    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+    const feedbackHash = computeFeedbackHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      outcome,
+    );
 
     // Create single Ed25519 instruction verifying both signatures (saves ~100 bytes)
     const ed25519Ix = createBatchEd25519Instruction([
@@ -933,7 +948,12 @@ export class SATI {
     //   ["attestation", sas_schema, token_account, nonce]
     // where nonce = compute_attestation_nonce(task_ref, sas_schema, token_account, counterparty)
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty,
+    );
     const seeds = [
       new TextEncoder().encode("attestation"),
       new Uint8Array(addressEncoder.encode(sasSchema)),

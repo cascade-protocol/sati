@@ -1,11 +1,14 @@
 // biome-ignore-all lint/style/noRestrictedGlobals: Buffer is required for @solana/web3.js PDA derivation and test data
 
 /**
- * SATI SDK Tests using LiteSVM
+ * SATI SDK Client Integration Tests using LiteSVM
  *
  * Tests the SDK client against a simulated Solana environment.
  * Uses Codama-generated encoders for account serialization.
  * Pre-seeds accounts rather than executing Token-2022 instructions.
+ *
+ * Category: Integration (uses simulated SVM)
+ * Run: pnpm vitest run tests/integration/client.test.ts
  */
 import { describe, test, expect, beforeAll } from "vitest";
 import { LiteSVM } from "litesvm";
@@ -19,11 +22,11 @@ import {
   getRegistryConfigDecoder,
   getRegistryConfigSize,
   REGISTRY_CONFIG_DISCRIMINATOR,
-} from "../src/generated/accounts/registryConfig";
-import { SATI_PROGRAM_ADDRESS } from "../src/generated/programs/sati";
+} from "../../src/generated/accounts/registryConfig";
+import { SATI_PROGRAM_ADDRESS } from "../../src/generated/programs/sati";
 
 // Import SDK helpers
-import { findRegistryConfigPda } from "../src/helpers";
+import { findRegistryConfigPda } from "../../src/helpers";
 
 // =============================================================================
 // Constants

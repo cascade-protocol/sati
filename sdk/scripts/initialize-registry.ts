@@ -55,7 +55,10 @@ import {
   getInitializeTokenGroupInstruction,
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
-import { getInitializeInstruction, SATI_PROGRAM_ADDRESS } from "../src/generated";
+import {
+  getInitializeInstruction,
+  SATI_PROGRAM_ADDRESS,
+} from "../src/generated";
 import { findRegistryConfigPda } from "../src/helpers";
 // Use @solana/spl-token for proper Token-2022 extension size calculation
 import { getMintLen, ExtensionType } from "@solana/spl-token";
@@ -268,7 +271,7 @@ async function main() {
   console.log("=".repeat(60));
 
   // Create Address Lookup Table for transaction compression
-  console.log("\n" + "=".repeat(60));
+  console.log(`\n${"=".repeat(60)}`);
   console.log("Creating Address Lookup Table...");
   console.log("=".repeat(60));
 
@@ -401,7 +404,7 @@ async function waitForLookupTableActive(
       const { value } = await rpc
         .getAccountInfo(lookupTableAddress, { encoding: "base64" })
         .send();
-      if (value && value.data) {
+      if (value?.data) {
         return;
       }
     } catch {

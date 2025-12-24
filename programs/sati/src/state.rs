@@ -198,3 +198,124 @@ pub struct CloseParams {
     /// Light Protocol compressed account metadata
     pub account_meta: CompressedAccountMeta,
 }
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_registry_config_size() {
+        // Verify SIZE constant matches actual serialized size
+        // 8 (discriminator) + 32 (group_mint) + 32 (authority) + 8 (total_agents) + 1 (bump) = 81
+        assert_eq!(RegistryConfig::SIZE, 81);
+    }
+
+    #[test]
+    fn test_registry_config_is_immutable() {
+        let mut config = RegistryConfig {
+            group_mint: Pubkey::new_unique(),
+            authority: Pubkey::new_unique(),
+            total_agents: 0,
+            bump: 255,
+        };
+
+        // Non-default authority = mutable
+        assert!(!config.is_immutable());
+
+        // Default authority = immutable (renounced)
+        config.authority = Pubkey::default();
+        assert!(config.is_immutable());
+    }
+
+    #[test]
+    fn test_signature_mode_values() {
+        // Verify enum variants are distinct and serializable
+        assert_ne!(SignatureMode::DualSignature, SignatureMode::SingleSigner);
+
+        // Verify DualSignature requires 2 signatures conceptually
+        let dual = SignatureMode::DualSignature;
+        let single = SignatureMode::SingleSigner;
+
+        // These should be Copy
+        let _dual_copy = dual;
+        let _single_copy = single;
+
+        // Verify Debug trait works
+        assert!(format!("{:?}", dual).contains("DualSignature"));
+        assert!(format!("{:?}", single).contains("SingleSigner"));
+    }
+
+    #[test]
+    fn test_storage_type_values() {
+        // Verify enum variants are distinct
+        assert_ne!(StorageType::Compressed, StorageType::Regular);
+
+        // Verify Copy and Debug
+        let compressed = StorageType::Compressed;
+        let regular = StorageType::Regular;
+
+        let _compressed_copy = compressed;
+        let _regular_copy = regular;
+
+        assert!(format!("{:?}", compressed).contains("Compressed"));
+        assert!(format!("{:?}", regular).contains("Regular"));
+    }
+
+    #[test]
+    fn test_compressed_attestation_default() {
+        let attestation = CompressedAttestation::default();
+
+        assert_eq!(attestation.sas_schema, [0u8; 32]);
+        assert_eq!(attestation.token_account, [0u8; 32]);
+        assert_eq!(attestation.data_type, 0);
+        assert!(attestation.data.is_empty());
+        assert_eq!(attestation.num_signatures, 0);
+        assert_eq!(attestation.signature1, [0u8; 64]);
+        assert_eq!(attestation.signature2, [0u8; 64]);
+    }
+
+    #[test]
+    fn test_data_type_constants() {
+        // Document expected data_type values
+        // 0 = Feedback (agent-counterparty blind feedback)
+        // 1 = Validation (third-party validation request/response)
+        // 2 = ReputationScore (uses Regular storage, not Compressed)
+
+        let feedback_type: u8 = 0;
+        let validation_type: u8 = 1;
+        let reputation_type: u8 = 2;
+
+        assert!(feedback_type < validation_type);
+        assert!(validation_type < reputation_type);
+    }
+
+    #[test]
+    fn test_signature_data_structure() {
+        let sig_data = SignatureData {
+            pubkey: Pubkey::new_unique(),
+            sig: [0xAB; 64],
+        };
+
+        // Verify signature is 64 bytes
+        assert_eq!(sig_data.sig.len(), 64);
+
+        // Verify pubkey is set
+        assert_ne!(sig_data.pubkey, Pubkey::default());
+    }
+
+    #[test]
+    fn test_metadata_entry_clone() {
+        let entry = MetadataEntry {
+            key: "test_key".to_string(),
+            value: "test_value".to_string(),
+        };
+
+        let cloned = entry.clone();
+        assert_eq!(cloned.key, "test_key");
+        assert_eq!(cloned.value, "test_value");
+    }
+}

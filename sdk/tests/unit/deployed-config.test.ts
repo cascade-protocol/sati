@@ -1,23 +1,21 @@
 /**
- * SAS Attestation Smoke Tests
+ * Deployed Config Unit Tests
  *
- * Tests SAS schema deployment and attestation flows against devnet.
- * Uses test schemas (v0) deployed via deploy-sas-schemas.ts --test
+ * Tests the deployed configuration loading and validation utilities.
+ * These are unit tests for config file parsing - no network required.
  *
- * Run: pnpm test sas-smoke
- * Prerequisites: Deploy test schemas first with `pnpm tsx scripts/deploy-sas-schemas.ts devnet --test`
+ * Run: pnpm vitest run tests/unit/deployed-config.test.ts
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { createKeyPairSignerFromBytes } from "@solana/kit";
-import { SATI } from "../src";
-import type { DeployedSASConfig, SATISASConfig } from "../src/types";
+import { SATI } from "../../src";
+import type { DeployedSASConfig, SATISASConfig } from "../../src/types";
 
 // Load devnet test config
 function loadTestConfig(): SATISASConfig | null {
-  const configPath = join(__dirname, "../src/deployed/devnet-test.json");
+  const configPath = join(__dirname, "../../src/deployed/devnet-test.json");
   if (!existsSync(configPath)) {
     return null;
   }
@@ -27,25 +25,15 @@ function loadTestConfig(): SATISASConfig | null {
   return config.config;
 }
 
-// Load keypair from standard Solana CLI path
-async function _loadKeypair() {
-  const keypairPath = join(process.env.HOME || "~", ".config/solana/id.json");
-  const keypairData = readFileSync(keypairPath, "utf-8");
-  const secretKey = Uint8Array.from(JSON.parse(keypairData));
-  return createKeyPairSignerFromBytes(secretKey);
-}
-
-describe("SAS Smoke Tests (Devnet)", () => {
-  let _sati: SATI;
+describe("Deployed Config Structure", () => {
   let testConfig: SATISASConfig | null;
 
   beforeAll(() => {
     testConfig = loadTestConfig();
-    _sati = new SATI({ network: "devnet" });
   });
 
-  describe("Test Schema Deployment", () => {
-    test("test schemas are deployed", () => {
+  describe("Test Schema Config", () => {
+    test("test schemas config has required fields", () => {
       expect(testConfig).not.toBeNull();
       if (!testConfig) return;
 
@@ -61,9 +49,9 @@ describe("SAS Smoke Tests (Devnet)", () => {
   });
 });
 
-describe("SAS Config Loading", () => {
+describe("Config Loading Utilities", () => {
   test("loadDeployedConfig returns null for missing networks", async () => {
-    const { loadDeployedConfig } = await import("../src/deployed");
+    const { loadDeployedConfig } = await import("../../src/deployed");
 
     // localnet should not have deployed config
     const config = loadDeployedConfig("localnet");
@@ -71,9 +59,15 @@ describe("SAS Config Loading", () => {
   });
 
   test("hasDeployedConfig correctly reports status", async () => {
-    const { hasDeployedConfig } = await import("../src/deployed");
+    const { hasDeployedConfig } = await import("../../src/deployed");
 
     // localnet should not have deployed config
     expect(hasDeployedConfig("localnet")).toBe(false);
+  });
+
+  test("SATI client initializes for all networks", () => {
+    expect(() => new SATI({ network: "mainnet" })).not.toThrow();
+    expect(() => new SATI({ network: "devnet" })).not.toThrow();
+    expect(() => new SATI({ network: "localnet" })).not.toThrow();
   });
 });

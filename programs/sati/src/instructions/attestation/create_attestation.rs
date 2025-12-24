@@ -3,8 +3,7 @@ use light_sdk::{
     account::LightAccount,
     address::v1::derive_address,
     cpi::{
-        v1::CpiAccounts,
-        v2::lowlevel::InstructionDataInvokeCpiWithReadOnly,
+        v1::CpiAccounts, v2::lowlevel::InstructionDataInvokeCpiWithReadOnly,
         InvokeLightSystemProgram, LightCpiInstruction,
     },
 };

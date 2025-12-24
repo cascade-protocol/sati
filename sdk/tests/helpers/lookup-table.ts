@@ -12,8 +12,7 @@ import {
   AddressLookupTableProgram,
   TransactionMessage,
   VersionedTransaction,
-  PublicKey,
-  Keypair,
+  type Keypair,
 } from "@solana/web3.js";
 import { address, type Address } from "@solana/kit";
 import type { SATI } from "../../src";

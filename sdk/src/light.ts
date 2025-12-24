@@ -411,7 +411,10 @@ export class LightClient {
 
     // Get output state tree (explicitly use V1 to avoid BatchedStateTree discriminator mismatch)
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
+    const outputStateTree = selectStateTreeInfo(
+      stateTreeInfos,
+      TreeType.StateV1,
+    ).tree;
     const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree);
 
     const { remainingAccounts } = packedAccounts.toAccountMetas();
@@ -549,12 +552,9 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Pack address tree accounts
-    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(
-      addressTree,
-    );
-    const addressQueuePubkeyIndex = packedAccounts.insertOrGet(
-      addressQueue,
-    );
+    const addressMerkleTreePubkeyIndex =
+      packedAccounts.insertOrGet(addressTree);
+    const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // Pack state tree accounts
     const merkleTreePubkeyIndex = packedAccounts.insertOrGet(treeInfo.tree);
@@ -622,7 +622,10 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
+    const outputStateTree = selectStateTreeInfo(
+      stateTreeInfos,
+      TreeType.StateV1,
+    ).tree;
     return packedAccounts.insertOrGet(outputStateTree);
   }
 
@@ -714,7 +717,10 @@ export class LightClient {
 
     // Output state tree (explicitly use V1 to avoid BatchedStateTree discriminator mismatch)
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
+    const outputStateTree = selectStateTreeInfo(
+      stateTreeInfos,
+      TreeType.StateV1,
+    ).tree;
     const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree);
 
     // 4. Get remaining accounts with proper offset
@@ -782,7 +788,9 @@ export class LightClient {
     addresses.push(stateTree.tree, stateTree.queue);
 
     // 7. Ed25519 program for signature verification
-    addresses.push(new PublicKey("Ed25519SigVerify111111111111111111111111111"));
+    addresses.push(
+      new PublicKey("Ed25519SigVerify111111111111111111111111111"),
+    );
 
     // 8. System program
     addresses.push(new PublicKey("11111111111111111111111111111111"));

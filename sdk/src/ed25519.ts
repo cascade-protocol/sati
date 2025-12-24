@@ -13,7 +13,7 @@ import { address, type Address, type Instruction } from "@solana/kit";
 
 // Ed25519 precompile program address
 export const ED25519_PROGRAM_ADDRESS: Address = address(
-  "Ed25519SigVerify111111111111111111111111111"
+  "Ed25519SigVerify111111111111111111111111111",
 );
 
 /**
@@ -53,7 +53,7 @@ const OFFSETS_SIZE = 14; // 7 x u16
  * @returns Instruction for Ed25519SigVerify program
  */
 export function createEd25519Instruction(
-  params: Ed25519SignatureParams
+  params: Ed25519SignatureParams,
 ): Instruction {
   const { publicKey, message, signature } = params;
 
@@ -137,7 +137,7 @@ export function createEd25519Instruction(
  * @returns Single Ed25519 instruction verifying all signatures
  */
 export function createBatchEd25519Instruction(
-  signatures: Ed25519SignatureParams[]
+  signatures: Ed25519SignatureParams[],
 ): Instruction {
   if (signatures.length === 0) {
     throw new Error("At least one signature is required");
@@ -216,4 +216,3 @@ export function createBatchEd25519Instruction(
     data,
   };
 }
-
