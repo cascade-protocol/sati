@@ -64,7 +64,8 @@ pub fn handler<'info>(
         SatiError::AttestationDataTooSmall
     );
 
-    let token_account_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 32..SAS_DATA_OFFSET + 64]
+    let token_account_bytes: [u8; 32] = attestation_data
+        [SAS_DATA_OFFSET + 32..SAS_DATA_OFFSET + 64]
         .try_into()
         .map_err(|_| SatiError::InvalidDataLayout)?;
     let counterparty_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 64..SAS_DATA_OFFSET + 96]

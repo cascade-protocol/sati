@@ -75,6 +75,7 @@ pub const DOMAIN_REPUTATION: &[u8] = b"SATI:reputation:v1";
 /// - credential: 32 bytes
 /// - schema: 32 bytes
 /// - data_len: 4 bytes (u32)
+///
 /// Total header size before data payload.
 pub const SAS_HEADER_SIZE: usize = 1 + 32 + 32 + 32 + 4; // 101 bytes
 

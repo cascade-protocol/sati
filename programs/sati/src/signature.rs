@@ -42,94 +42,80 @@ pub fn verify_ed25519_signatures(
     let mut index = 0;
 
     // Iterate through all instructions in the transaction
-    loop {
-        match load_instruction_at_checked(index, instructions_sysvar) {
-            Ok(instruction) => {
-                if instruction.program_id == ED25519_PROGRAM_ID {
-                    // Parse Ed25519 instruction format:
-                    // [0]: number of signatures
-                    // [1]: padding
-                    // [2..2+14*n]: offset structures (14 bytes each)
-                    // [remainder]: actual data (signatures, pubkeys, messages)
-                    let data = &instruction.data;
-                    require!(
-                        data.len() >= 2,
-                        SatiError::InvalidEd25519Instruction
-                    );
+    while let Ok(instruction) = load_instruction_at_checked(index, instructions_sysvar) {
+        if instruction.program_id == ED25519_PROGRAM_ID {
+            // Parse Ed25519 instruction format:
+            // [0]: number of signatures
+            // [1]: padding
+            // [2..2+14*n]: offset structures (14 bytes each)
+            // [remainder]: actual data (signatures, pubkeys, messages)
+            let data = &instruction.data;
+            require!(data.len() >= 2, SatiError::InvalidEd25519Instruction);
 
-                    let num_signatures = data[0] as usize;
-                    require!(
-                        num_signatures > 0,
-                        SatiError::InvalidEd25519Instruction
-                    );
+            let num_signatures = data[0] as usize;
+            require!(num_signatures > 0, SatiError::InvalidEd25519Instruction);
 
-                    let offsets_start = 2; // After num_signatures byte and padding
+            let offsets_start = 2; // After num_signatures byte and padding
 
-                    for i in 0..num_signatures {
-                        let offset_pos = offsets_start + (i * ED25519_OFFSETS_SIZE);
+            for i in 0..num_signatures {
+                let offset_pos = offsets_start + (i * ED25519_OFFSETS_SIZE);
+                require!(
+                    data.len() >= offset_pos + ED25519_OFFSETS_SIZE,
+                    SatiError::InvalidEd25519Instruction
+                );
+
+                // Parse offsets from the structure
+                let sig_offset = u16::from_le_bytes(
+                    data[offset_pos..offset_pos + 2].try_into().unwrap(),
+                ) as usize;
+                let pubkey_offset = u16::from_le_bytes(
+                    data[offset_pos + 4..offset_pos + 6].try_into().unwrap(),
+                ) as usize;
+                let msg_offset = u16::from_le_bytes(
+                    data[offset_pos + 8..offset_pos + 10].try_into().unwrap(),
+                ) as usize;
+                let msg_size = u16::from_le_bytes(
+                    data[offset_pos + 10..offset_pos + 12].try_into().unwrap(),
+                ) as usize;
+
+                // Extract and verify pubkey
+                require!(
+                    data.len() >= pubkey_offset + 32,
+                    SatiError::InvalidEd25519Instruction
+                );
+                let pubkey_bytes: [u8; 32] =
+                    data[pubkey_offset..pubkey_offset + 32].try_into().unwrap();
+                let pubkey = Pubkey::new_from_array(pubkey_bytes);
+
+                // Check if this pubkey matches any expected signature
+                for (j, expected) in expected_signatures.iter().enumerate() {
+                    if expected.pubkey == pubkey {
+                        // Verify message matches expected
                         require!(
-                            data.len() >= offset_pos + ED25519_OFFSETS_SIZE,
+                            data.len() >= msg_offset + msg_size,
                             SatiError::InvalidEd25519Instruction
                         );
-
-                        // Parse offsets from the structure
-                        let sig_offset = u16::from_le_bytes(
-                            data[offset_pos..offset_pos + 2].try_into().unwrap(),
-                        ) as usize;
-                        let pubkey_offset = u16::from_le_bytes(
-                            data[offset_pos + 4..offset_pos + 6].try_into().unwrap(),
-                        ) as usize;
-                        let msg_offset = u16::from_le_bytes(
-                            data[offset_pos + 8..offset_pos + 10].try_into().unwrap(),
-                        ) as usize;
-                        let msg_size = u16::from_le_bytes(
-                            data[offset_pos + 10..offset_pos + 12].try_into().unwrap(),
-                        ) as usize;
-
-                        // Extract and verify pubkey
+                        let msg = &data[msg_offset..msg_offset + msg_size];
                         require!(
-                            data.len() >= pubkey_offset + 32,
+                            msg == expected_messages[j].as_slice(),
+                            SatiError::MessageMismatch
+                        );
+
+                        // Verify signature matches
+                        require!(
+                            data.len() >= sig_offset + 64,
                             SatiError::InvalidEd25519Instruction
                         );
-                        let pubkey_bytes: [u8; 32] =
-                            data[pubkey_offset..pubkey_offset + 32].try_into().unwrap();
-                        let pubkey = Pubkey::new_from_array(pubkey_bytes);
+                        let sig: [u8; 64] =
+                            data[sig_offset..sig_offset + 64].try_into().unwrap();
+                        require!(sig == expected.sig, SatiError::SignatureMismatch);
 
-                        // Check if this pubkey matches any expected signature
-                        for (j, expected) in expected_signatures.iter().enumerate() {
-                            if expected.pubkey == pubkey {
-                                // Verify message matches expected
-                                require!(
-                                    data.len() >= msg_offset + msg_size,
-                                    SatiError::InvalidEd25519Instruction
-                                );
-                                let msg = &data[msg_offset..msg_offset + msg_size];
-                                require!(
-                                    msg == expected_messages[j].as_slice(),
-                                    SatiError::MessageMismatch
-                                );
-
-                                // Verify signature matches
-                                require!(
-                                    data.len() >= sig_offset + 64,
-                                    SatiError::InvalidEd25519Instruction
-                                );
-                                let sig: [u8; 64] =
-                                    data[sig_offset..sig_offset + 64].try_into().unwrap();
-                                require!(
-                                    sig == expected.sig,
-                                    SatiError::SignatureMismatch
-                                );
-
-                                verified_count += 1;
-                            }
-                        }
+                        verified_count += 1;
                     }
                 }
-                index += 1;
             }
-            Err(_) => break, // No more instructions
         }
+        index += 1;
     }
 
     // Ensure all expected signatures were found and verified

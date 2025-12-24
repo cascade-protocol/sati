@@ -99,6 +99,7 @@ pub struct CompressedAttestation {
     /// Attestation data type discriminator:
     /// - 0: Feedback (agent-counterparty blind feedback)
     /// - 1: Validation (third-party validation request/response)
+    ///
     /// Note: ReputationScore (type 2) uses Regular storage, not Compressed
     pub data_type: u8,
     /// Schema-conformant data bytes (96+ bytes, includes base layout)

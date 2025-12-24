@@ -45,3 +45,10 @@ mollusk-svm = "0.5"
 mollusk-svm-bencher = "0.5"
 mollusk-svm-programs-token = "0.5"
 solana-sdk.workspace = true
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-heap", "custom-panic", "no-idl", "no-log-ix-name"))',
+]

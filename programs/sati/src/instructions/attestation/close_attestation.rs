@@ -10,8 +10,8 @@ use light_sdk::{
 use crate::errors::SatiError;
 use crate::events::AttestationClosed;
 use crate::state::{CloseParams, CompressedAttestation, SchemaConfig, StorageType};
-use crate::LIGHT_CPI_SIGNER;
 use crate::ID;
+use crate::LIGHT_CPI_SIGNER;
 
 /// Accounts for close_attestation instruction (compressed storage)
 #[event_cpi]
@@ -29,7 +29,6 @@ pub struct CloseAttestation<'info> {
         constraint = schema_config.closeable @ SatiError::AttestationNotCloseable,
     )]
     pub schema_config: Account<'info, SchemaConfig>,
-
     // Light Protocol accounts are passed via remaining_accounts
 }
 

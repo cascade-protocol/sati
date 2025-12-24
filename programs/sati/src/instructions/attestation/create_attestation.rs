@@ -17,8 +17,8 @@ use crate::signature::{
     compute_validation_hash, verify_ed25519_signatures,
 };
 use crate::state::{CompressedAttestation, CreateParams, SchemaConfig, SignatureMode, StorageType};
-use crate::LIGHT_CPI_SIGNER;
 use crate::ID;
+use crate::LIGHT_CPI_SIGNER;
 
 /// Accounts for create_attestation instruction (compressed storage)
 #[event_cpi]
@@ -40,7 +40,6 @@ pub struct CreateAttestation<'info> {
     /// CHECK: Verified in handler via address check
     #[account(address = instructions_sysvar::ID)]
     pub instructions_sysvar: AccountInfo<'info>,
-
     // Light Protocol accounts are passed via remaining_accounts
     // and parsed by CpiAccounts::new()
 }
@@ -113,7 +112,8 @@ pub fn handler<'info>(
     validate_schema_fields(&params)?;
 
     // 7. Construct expected message hashes for signature verification
-    let expected_messages = build_expected_messages(&params, schema_config, &task_ref, &token_account_pubkey)?;
+    let expected_messages =
+        build_expected_messages(&params, schema_config, &task_ref, &token_account_pubkey)?;
 
     // 8. Verify Ed25519 signatures via instruction introspection
     verify_ed25519_signatures(
@@ -138,7 +138,8 @@ pub fn handler<'info>(
     );
 
     // 11. Get address tree pubkey from params
-    let address_tree_pubkey = params.address_tree_info
+    let address_tree_pubkey = params
+        .address_tree_info
         .get_tree_pubkey(&light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
@@ -165,11 +166,17 @@ pub fn handler<'info>(
     attestation.data_type = params.data_type;
     attestation.data = params.data.clone();
     attestation.num_signatures = params.signatures.len() as u8;
-    attestation.signature1 = params.signatures.first().map(|s| s.sig).unwrap_or([0u8; 64]);
+    attestation.signature1 = params
+        .signatures
+        .first()
+        .map(|s| s.sig)
+        .unwrap_or([0u8; 64]);
     attestation.signature2 = params.signatures.get(1).map(|s| s.sig).unwrap_or([0u8; 64]);
 
     // 12. Compute new address params from params
-    let new_address_params = params.address_tree_info.into_new_address_params_packed(address_seed);
+    let new_address_params = params
+        .address_tree_info
+        .into_new_address_params_packed(address_seed);
 
     // 13. CPI to Light System Program with proof from params
     LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, params.proof)
@@ -208,10 +215,7 @@ fn validate_schema_fields(params: &CreateParams) -> Result<()> {
                 require!(tag1_len <= MAX_TAG_LENGTH, SatiError::TagTooLong);
 
                 let tag2_start = 131 + tag1_len;
-                require!(
-                    params.data.len() > tag2_start,
-                    SatiError::InvalidDataLayout
-                );
+                require!(params.data.len() > tag2_start, SatiError::InvalidDataLayout);
                 let tag2_len = params.data[tag2_start] as usize;
                 require!(tag2_len <= MAX_TAG_LENGTH, SatiError::TagTooLong);
 
@@ -223,10 +227,7 @@ fn validate_schema_fields(params: &CreateParams) -> Result<()> {
                             .try_into()
                             .unwrap(),
                     ) as usize;
-                    require!(
-                        content_len <= MAX_CONTENT_SIZE,
-                        SatiError::ContentTooLarge
-                    );
+                    require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
                 }
             }
         }
@@ -241,13 +242,9 @@ fn validate_schema_fields(params: &CreateParams) -> Result<()> {
 
                 // Validate content size if present
                 if params.data.len() >= 135 {
-                    let content_len = u32::from_le_bytes(
-                        params.data[131..135].try_into().unwrap(),
-                    ) as usize;
-                    require!(
-                        content_len <= MAX_CONTENT_SIZE,
-                        SatiError::ContentTooLarge
-                    );
+                    let content_len =
+                        u32::from_le_bytes(params.data[131..135].try_into().unwrap()) as usize;
+                    require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
                 }
             }
         }

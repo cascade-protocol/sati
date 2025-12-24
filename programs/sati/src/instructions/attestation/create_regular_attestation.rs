@@ -5,7 +5,9 @@ use solana_program::sysvar::instructions as instructions_sysvar;
 use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
-use crate::signature::{compute_reputation_hash, compute_reputation_nonce, verify_ed25519_signatures};
+use crate::signature::{
+    compute_reputation_hash, compute_reputation_nonce, verify_ed25519_signatures,
+};
 use crate::state::{CreateRegularParams, SchemaConfig, StorageType};
 
 /// Accounts for create_regular_attestation instruction (SAS storage)
@@ -105,10 +107,7 @@ pub fn handler<'info>(
 
     // 6. Validate ReputationScore-specific fields
     // data_type must be 2
-    require!(
-        params.data_type == 2,
-        SatiError::InvalidDataType
-    );
+    require!(params.data_type == 2, SatiError::InvalidDataType);
 
     if params.data.len() >= 98 {
         let score = params.data[96];
@@ -119,12 +118,8 @@ pub fn handler<'info>(
 
         // Validate content size if present
         if params.data.len() >= 102 {
-            let content_len =
-                u32::from_le_bytes(params.data[98..102].try_into().unwrap()) as usize;
-            require!(
-                content_len <= MAX_CONTENT_SIZE,
-                SatiError::ContentTooLarge
-            );
+            let content_len = u32::from_le_bytes(params.data[98..102].try_into().unwrap()) as usize;
+            require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
         }
     }
 
