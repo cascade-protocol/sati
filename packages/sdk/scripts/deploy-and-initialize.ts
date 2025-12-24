@@ -22,6 +22,7 @@
  *
  * Options:
  *   --program-keypair <path>  - Path to program keypair (required for devnet/mainnet)
+ *   --group-keypair <path>    - Path to Token Group mint keypair (vanity address)
  *   --skip-deploy             - Skip program deployment, only initialize
  *   --confirm                 - Required for devnet/mainnet deployments
  *
@@ -108,6 +109,7 @@ function parseArgs() {
   let network: "localnet" | "devnet" | "mainnet" = "localnet";
   let keypairPath = path.join(os.homedir(), ".config", "solana", "id.json");
   let programKeypairPath: string | undefined;
+  let groupKeypairPath: string | undefined;
   let skipDeploy = false;
   let confirmed = false;
 
@@ -126,6 +128,15 @@ function parseArgs() {
         process.exit(1);
       }
       programKeypairPath = nextArg.startsWith("~")
+        ? nextArg.replace("~", os.homedir())
+        : nextArg;
+    } else if (arg === "--group-keypair") {
+      const nextArg = args[++i];
+      if (!nextArg) {
+        console.error("Error: --group-keypair requires a path argument");
+        process.exit(1);
+      }
+      groupKeypairPath = nextArg.startsWith("~")
         ? nextArg.replace("~", os.homedir())
         : nextArg;
     } else if (!arg.startsWith("--")) {
@@ -166,7 +177,13 @@ function parseArgs() {
     process.exit(1);
   }
 
-  return { network, keypairPath, programKeypairPath, skipDeploy };
+  return {
+    network,
+    keypairPath,
+    programKeypairPath,
+    groupKeypairPath,
+    skipDeploy,
+  };
 }
 
 // Load keypair from file
@@ -213,16 +230,26 @@ async function deriveRegistryPda(programId: Address): Promise<Address> {
   return pda;
 }
 
-// Get the program binary path (and default keypair for localnet)
-function getProgramPaths(): { binaryPath: string; defaultKeypairPath: string } {
+// Get the program binary path (and default keypairs)
+function getProgramPaths(): {
+  binaryPath: string;
+  defaultProgramKeypairPath: string;
+  defaultGroupKeypairPath: string;
+} {
   // Use process.cwd() for monorepo compatibility - run from packages/sdk
   const workspaceRoot = path.join(process.cwd(), "..", "..");
   const binaryPath = path.join(workspaceRoot, "target", "deploy", "sati.so");
-  const defaultKeypairPath = path.join(
+  const defaultProgramKeypairPath = path.join(
     workspaceRoot,
     "target",
     "deploy",
     "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json",
+  );
+  const defaultGroupKeypairPath = path.join(
+    workspaceRoot,
+    "target",
+    "deploy",
+    "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json",
   );
 
   if (!existsSync(binaryPath)) {
@@ -231,7 +258,7 @@ function getProgramPaths(): { binaryPath: string; defaultKeypairPath: string } {
     );
   }
 
-  return { binaryPath, defaultKeypairPath };
+  return { binaryPath, defaultProgramKeypairPath, defaultGroupKeypairPath };
 }
 
 // Deploy the program using solana CLI
@@ -284,18 +311,25 @@ async function main() {
     network,
     keypairPath: walletKeypairPath,
     programKeypairPath: providedProgramKeypair,
+    groupKeypairPath: providedGroupKeypair,
     skipDeploy,
   } = parseArgs();
 
   // Get program paths
-  const { binaryPath, defaultKeypairPath } = getProgramPaths();
+  const { binaryPath, defaultProgramKeypairPath, defaultGroupKeypairPath } =
+    getProgramPaths();
 
   // Determine program keypair path:
-  // - For localnet: use target/deploy/sati_registry-keypair.json
+  // - For localnet: use target/deploy/satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json
   // - For devnet/mainnet: use provided --program-keypair (required)
-  const programKeypairPath = providedProgramKeypair ?? defaultKeypairPath;
+  const programKeypairPath =
+    providedProgramKeypair ?? defaultProgramKeypairPath;
 
-  // Validate keypair exists
+  // Determine group keypair path:
+  // - Use provided --group-keypair or default vanity keypair
+  const groupKeypairPath = providedGroupKeypair ?? defaultGroupKeypairPath;
+
+  // Validate program keypair exists
   if (!existsSync(programKeypairPath)) {
     throw new Error(
       `Program keypair not found at ${programKeypairPath}. ` +
@@ -305,12 +339,18 @@ async function main() {
     );
   }
 
+  // Validate group keypair exists (or will generate new one)
+  const hasGroupKeypair = existsSync(groupKeypairPath);
+
   console.log("=".repeat(60));
   console.log("SATI Registry: Atomic Deploy and Initialize");
   console.log("=".repeat(60));
   console.log(`Network:         ${network.toUpperCase()}`);
   console.log(`Wallet Keypair:  ${walletKeypairPath}`);
   console.log(`Program Keypair: ${programKeypairPath}`);
+  console.log(
+    `Group Keypair:   ${hasGroupKeypair ? groupKeypairPath : "(will generate new)"}`,
+  );
   console.log(`Skip Deploy:     ${skipDeploy}`);
   if (network === "localnet") {
     console.log("\n[SAFE MODE] Running on localnet - no production risk");
@@ -370,9 +410,15 @@ async function main() {
   // PHASE 3: Initialize immediately
   console.log("\n--- PHASE 3: Initialize Registry ---");
 
-  // Generate group mint keypair
-  const groupMint = await generateKeyPairSigner();
-  console.log(`Group Mint: ${groupMint.address}`);
+  // Load or generate group mint keypair
+  let groupMint: KeyPairSigner;
+  if (hasGroupKeypair) {
+    groupMint = await loadKeypair(groupKeypairPath);
+    console.log(`Group Mint: ${groupMint.address} (from vanity keypair)`);
+  } else {
+    groupMint = await generateKeyPairSigner();
+    console.log(`Group Mint: ${groupMint.address} (newly generated)`);
+  }
 
   // Calculate mint account size
   // - Allocate only GroupPointer initially (InitializeGroup will reallocate for TokenGroup)
