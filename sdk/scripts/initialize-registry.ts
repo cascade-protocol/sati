@@ -20,6 +20,7 @@ import path from "node:path";
 import os from "node:os";
 import { readFileSync } from "node:fs";
 import {
+  address,
   createKeyPairSignerFromBytes,
   createSolanaRpc,
   createSolanaRpcSubscriptions,
@@ -34,11 +35,17 @@ import {
   sendAndConfirmTransactionFactory,
   prependTransactionMessageInstructions,
   type KeyPairSigner,
+  type Address,
 } from "@solana/kit";
 import {
   getSetComputeUnitLimitInstruction,
   getSetComputeUnitPriceInstruction,
 } from "@solana-program/compute-budget";
+import {
+  getCreateLookupTableInstructionAsync,
+  getExtendLookupTableInstruction,
+  findAddressLookupTablePda,
+} from "@solana-program/address-lookup-table";
 import {
   TOKEN_2022_PROGRAM_ADDRESS,
   getInitializeGroupPointerInstruction,
@@ -48,10 +55,15 @@ import {
   getInitializeTokenGroupInstruction,
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
-import { getInitializeInstruction } from "../src/generated";
+import { getInitializeInstruction, SATI_PROGRAM_ADDRESS } from "../src/generated";
 import { findRegistryConfigPda } from "../src/helpers";
 // Use @solana/spl-token for proper Token-2022 extension size calculation
 import { getMintLen, ExtensionType } from "@solana/spl-token";
+// Light Protocol addresses for ALT
+import {
+  defaultStaticAccounts,
+  getDefaultAddressTreeInfo,
+} from "@lightprotocol/stateless.js";
 
 // Network RPC endpoints
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -254,6 +266,152 @@ async function main() {
       : `https://explorer.solana.com/tx/${signature}?cluster=${network}`;
   console.log(`\nExplorer: ${explorerUrl}`);
   console.log("=".repeat(60));
+
+  // Create Address Lookup Table for transaction compression
+  console.log("\n" + "=".repeat(60));
+  console.log("Creating Address Lookup Table...");
+  console.log("=".repeat(60));
+
+  const lookupTableAddress = await createSatiLookupTable(
+    rpc,
+    rpcSubscriptions,
+    authority,
+  );
+
+  console.log(`\n${"=".repeat(60)}`);
+  console.log("✅ Lookup Table created successfully!");
+  console.log("=".repeat(60));
+  console.log(`Lookup Table: ${lookupTableAddress}`);
+  console.log("=".repeat(60));
+}
+
+/**
+ * Create an Address Lookup Table containing all addresses needed for
+ * SATI compressed attestation transactions.
+ *
+ * This reduces transaction size by ~300 bytes, enabling Light Protocol
+ * transactions to fit within Solana's 1232-byte limit.
+ */
+async function createSatiLookupTable(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>,
+  authority: KeyPairSigner,
+): Promise<Address> {
+  const sendAndConfirm = sendAndConfirmTransactionFactory({
+    rpc,
+    rpcSubscriptions,
+  });
+
+  // Collect all addresses needed for SATI transactions
+  const addresses: Address[] = [];
+
+  // 1. Light Protocol static accounts
+  const staticAccounts = defaultStaticAccounts();
+  for (const pk of staticAccounts) {
+    addresses.push(address(pk.toBase58()));
+  }
+
+  // 2. SATI program
+  addresses.push(SATI_PROGRAM_ADDRESS);
+
+  // 3. Address tree accounts (default shared trees)
+  const addressTreeInfo = getDefaultAddressTreeInfo();
+  addresses.push(address(addressTreeInfo.tree.toBase58()));
+  addresses.push(address(addressTreeInfo.queue.toBase58()));
+
+  // 4. Ed25519 program for signature verification
+  addresses.push(address("Ed25519SigVerify111111111111111111111111111"));
+
+  // 5. System program
+  addresses.push(address("11111111111111111111111111111111"));
+
+  // 6. Instructions sysvar
+  addresses.push(address("Sysvar1nstructions1111111111111111111111111"));
+
+  // Remove duplicates
+  const uniqueAddresses = [...new Set(addresses)];
+
+  console.log(`Including ${uniqueAddresses.length} addresses in lookup table`);
+
+  // Get current slot for lookup table creation
+  const { value: slot } = await rpc.getSlot().send();
+
+  // Create lookup table instruction
+  const createIx = await getCreateLookupTableInstructionAsync({
+    authority,
+    recentSlot: slot,
+  });
+
+  // Derive lookup table address
+  const [lookupTableAddress] = await findAddressLookupTablePda({
+    authority: authority.address,
+    recentSlot: slot,
+  });
+
+  // Extend lookup table with addresses (max 30 per instruction)
+  const extendInstructions = [];
+  for (let i = 0; i < uniqueAddresses.length; i += 30) {
+    const chunk = uniqueAddresses.slice(i, i + 30);
+    extendInstructions.push(
+      getExtendLookupTableInstruction({
+        address: lookupTableAddress,
+        authority,
+        payer: authority,
+        addresses: chunk,
+      }),
+    );
+  }
+
+  // Build and send transaction
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+  const tx = pipe(
+    createTransactionMessage({ version: 0 }),
+    (msg) => setTransactionMessageFeePayer(authority.address, msg),
+    (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+    (msg) =>
+      appendTransactionMessageInstructions(
+        [createIx, ...extendInstructions],
+        msg,
+      ),
+  );
+
+  const signedTx = await signTransactionMessageWithSigners(tx);
+  await sendAndConfirm(signedTx, { commitment: "confirmed" });
+
+  // Wait for lookup table to be active (needs 1 slot)
+  console.log("Waiting for lookup table to become active...");
+  await waitForLookupTableActive(rpc, lookupTableAddress);
+
+  return lookupTableAddress;
+}
+
+/**
+ * Wait for a lookup table to become active.
+ * Address lookup tables require one slot to become active after creation.
+ */
+async function waitForLookupTableActive(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  lookupTableAddress: Address,
+  maxAttempts = 10,
+  delayMs = 500,
+): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const { value } = await rpc
+        .getAccountInfo(lookupTableAddress, { encoding: "base64" })
+        .send();
+      if (value && value.data) {
+        return;
+      }
+    } catch {
+      // Table not ready yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  throw new Error(
+    `Lookup table ${lookupTableAddress} did not become active after ${maxAttempts} attempts`,
+  );
 }
 
 main().catch((error) => {

@@ -13,12 +13,21 @@
  * Run: pnpm test:e2e -- --grep "Feedback Lifecycle"
  */
 
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+} from "@solana/web3.js";
 import {
   address,
   createKeyPairSignerFromBytes,
   type KeyPairSigner,
+  type Address,
 } from "@solana/kit";
 import { SATI } from "../../src";
 import {
@@ -34,7 +43,6 @@ import {
   StorageType,
 } from "../../src/schemas";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
-import { findAssociatedTokenAddress } from "../../src/helpers";
 
 // Import test helpers
 import {
@@ -47,6 +55,7 @@ import {
   type TestKeypair,
   type SignatureData,
   waitForIndexer,
+  createSatiLookupTable,
 } from "../helpers";
 
 // =============================================================================
@@ -62,6 +71,7 @@ const TEST_TIMEOUT = 60000;
 describe("E2E: Full Feedback Lifecycle", () => {
   let sati: SATI;
   let payer: KeyPairSigner;
+  let authority: KeyPairSigner; // Registry authority (local wallet)
   let agentOwner: KeyPairSigner;
   let counterpartySigner: KeyPairSigner;
 
@@ -74,12 +84,27 @@ describe("E2E: Full Feedback Lifecycle", () => {
   let agentMint: ReturnType<typeof address>;
   let tokenAccount: ReturnType<typeof address>;
   let _createdFeedbackAddress: ReturnType<typeof address>;
+  let lookupTableAddress: Address;
 
   beforeAll(async () => {
     sati = new SATI({ network: "localnet" });
 
-    // Create payer keypair
+    // Create connection for airdrops
+    const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+
+    // Load local wallet as authority (matches registry initialization)
+    const walletPath = path.join(homedir(), ".config/solana/id.json");
+    const walletSecret = JSON.parse(readFileSync(walletPath, "utf-8"));
+    const authorityKp = Keypair.fromSecretKey(Uint8Array.from(walletSecret));
+    authority = await createKeyPairSignerFromBytes(authorityKp.secretKey);
+
+    // Create payer keypair and fund it
     const payerKp = Keypair.generate();
+    const airdropSig = await connection.requestAirdrop(
+      payerKp.publicKey,
+      10 * LAMPORTS_PER_SOL,
+    );
+    await connection.confirmTransaction(airdropSig, "confirmed");
     payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
 
     // Create agent and counterparty keypairs for Ed25519 signing
@@ -93,6 +118,12 @@ describe("E2E: Full Feedback Lifecycle", () => {
 
     // Generate SAS schema address
     sasSchema = address(Keypair.generate().publicKey.toBase58());
+
+    // Create lookup table for transaction compression
+    console.log("Creating lookup table for transaction compression...");
+    const { address: lutAddress } = await createSatiLookupTable(sati, payerKp);
+    lookupTableAddress = lutAddress;
+    console.log(`Lookup table created: ${lookupTableAddress}`);
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -109,10 +140,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
 
         const result = await sati.registerAgent({
           payer,
-          owner: agentOwner,
+          owner: agentOwner.address,
           name,
           symbol,
-          metadataUri,
+          uri: metadataUri,
         });
 
         expect(result).toHaveProperty("mint");
@@ -132,18 +163,15 @@ describe("E2E: Full Feedback Lifecycle", () => {
     );
 
     test(
-      "gets agent token account",
+      "sets agent identity for attestations",
       async () => {
         if (!agentMint) return;
 
-        // Use findAssociatedTokenAddress from helpers
-        const [taAddress] = await findAssociatedTokenAddress(
-          agentMint,
-          agentOwner.address,
-        );
-        expect(taAddress).toBeDefined();
-
-        tokenAccount = taAddress;
+        // The tokenAccount in attestations is the agent's wallet address (identity),
+        // NOT the ATA that holds the NFT. The agent signs with their wallet keypair,
+        // so the signature pubkey must match the tokenAccount field.
+        tokenAccount = agentOwner.address;
+        expect(tokenAccount).toBeDefined();
       },
       TEST_TIMEOUT,
     );
@@ -159,7 +187,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         const result = await sati.registerSchemaConfig({
           payer,
-          authority: payer,
+          authority,
           sasSchema,
           signatureMode: SignatureMode.DualSignature,
           storageType: StorageType.Compressed,
@@ -235,6 +263,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
             pubkey: signatures[1].pubkey,
             signature: signatures[1].sig,
           },
+          lookupTableAddress,
         });
 
         expect(result).toHaveProperty("address");
@@ -289,6 +318,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
               pubkey: agentKeypair.address, // Same as agent!
               signature: selfSig,
             },
+            lookupTableAddress,
           }),
         ).rejects.toThrow(); // SelfAttestationNotAllowed
       },

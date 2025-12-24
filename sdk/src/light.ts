@@ -13,12 +13,17 @@ import {
   type Rpc,
   bn,
   type CompressedAccountWithMerkleContext,
-  getDefaultAddressTreeInfo,
   deriveAddress,
   deriveAddressSeed,
   PackedAccounts,
   SystemAccountMetaConfig,
   selectStateTreeInfo,
+  TreeType,
+  defaultStaticAccounts,
+  type ValidityProofWithContext,
+  // V1 address tree constants (exported as strings)
+  addressTree as ADDRESS_TREE_V1,
+  addressQueue as ADDRESS_QUEUE_V1,
 } from "@lightprotocol/stateless.js";
 import type { Address } from "@solana/kit";
 import { getAddressEncoder } from "@solana/kit";
@@ -34,19 +39,37 @@ import {
   type Outcome,
 } from "./schemas.js";
 import { SATI_PROGRAM_ADDRESS } from "./generated/programs/sati.js";
+import bs58 from "bs58";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
 /**
- * Browser-compatible base64 encoding for Uint8Array
+ * Get V1 address tree info for mainnet compatibility.
+ *
+ * Uses the exported V1 address tree constants instead of the deprecated
+ * `defaultTestStateTreeAccounts()` function. V1 is required because V2
+ * is not yet available on mainnet.
+ *
+ * @returns V1 address tree and queue as PublicKey objects
  */
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  const binString = Array.from(bytes, (byte) =>
-    String.fromCodePoint(byte),
-  ).join("");
-  return btoa(binString);
+function getV1AddressTreeInfo(): {
+  addressTree: PublicKey;
+  addressQueue: PublicKey;
+} {
+  return {
+    addressTree: new PublicKey(ADDRESS_TREE_V1),
+    addressQueue: new PublicKey(ADDRESS_QUEUE_V1),
+  };
+}
+
+/**
+ * Browser-compatible base58 encoding for Uint8Array
+ * (Photon expects base58-encoded bytes in memcmp filters)
+ */
+function uint8ArrayToBase58(bytes: Uint8Array): string {
+  return bs58.encode(bytes);
 }
 
 // ============================================================================
@@ -221,9 +244,8 @@ export class LightClient {
     addressTree: PublicKey;
     addressQueue: PublicKey;
   }> {
-    const addressTreeInfo = getDefaultAddressTreeInfo();
-    const addressTree = addressTreeInfo.tree;
-    const addressQueue = addressTreeInfo.queue;
+    // Use V1 address trees for mainnet compatibility
+    const { addressTree, addressQueue } = getV1AddressTreeInfo();
 
     const seed = deriveAddressSeed(
       seeds.map((s) => new Uint8Array(s)),
@@ -356,9 +378,8 @@ export class LightClient {
    * @returns Proof, packed tree info, and remaining accounts for the transaction
    */
   async getCreationProof(address: PublicKey): Promise<CreationProofResult> {
-    const addressTreeInfo = getDefaultAddressTreeInfo();
-    const addressTree = addressTreeInfo.tree;
-    const addressQueue = addressTreeInfo.queue;
+    // Use V1 address trees for mainnet compatibility
+    const { addressTree, addressQueue } = getV1AddressTreeInfo();
 
     // Get validity proof for new address (proves it doesn't exist)
     const proofResult = await this.rpc.getValidityProofV0(
@@ -388,9 +409,9 @@ export class LightClient {
       packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
-    // Get output state tree
+    // Get output state tree (explicitly use V1 to avoid BatchedStateTree discriminator mismatch)
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(stateTreeInfos).tree;
+    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
     const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree);
 
     const { remainingAccounts } = packedAccounts.toAccountMetas();
@@ -494,7 +515,8 @@ export class LightClient {
       isWritable: boolean;
     }>;
   }> {
-    const addressTreeInfo = getDefaultAddressTreeInfo();
+    // Use V1 address trees for mainnet compatibility
+    const { addressTree, addressQueue } = getV1AddressTreeInfo();
     const treeInfo = existingAccount.treeInfo;
 
     // Get combined proof (proves new address doesn't exist AND existing account exists)
@@ -509,8 +531,8 @@ export class LightClient {
       [
         {
           address: bn(newAddress.toBytes()),
-          tree: addressTreeInfo.tree,
-          queue: addressTreeInfo.queue,
+          tree: addressTree,
+          queue: addressQueue,
         },
       ],
     );
@@ -528,10 +550,10 @@ export class LightClient {
 
     // Pack address tree accounts
     const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(
-      addressTreeInfo.tree,
+      addressTree,
     );
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(
-      addressTreeInfo.queue,
+      addressQueue,
     );
 
     // Pack state tree accounts
@@ -570,17 +592,14 @@ export class LightClient {
   // ==========================================================================
 
   /**
-   * Get default address tree info for new account creation
+   * Get default address tree info for new account creation.
+   * Uses V1 address trees for mainnet compatibility.
    */
   getDefaultAddressTreeInfo(): {
     addressTree: PublicKey;
     addressQueue: PublicKey;
   } {
-    const trees = getDefaultAddressTreeInfo();
-    return {
-      addressTree: trees.tree,
-      addressQueue: trees.queue,
-    };
+    return getV1AddressTreeInfo();
   }
 
   /**
@@ -588,7 +607,7 @@ export class LightClient {
    */
   async getOutputStateTree(): Promise<PublicKey> {
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    return selectStateTreeInfo(stateTreeInfos).tree;
+    return selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
   }
 
   /**
@@ -603,7 +622,7 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(stateTreeInfos).tree;
+    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
     return packedAccounts.insertOrGet(outputStateTree);
   }
 
@@ -611,12 +630,15 @@ export class LightClient {
    * Get address tree info for creating new compressed accounts.
    * Returns packed indices suitable for instruction data.
    *
+   * For new address creation (proof = None), we use the default address tree
+   * and a zero root index. The program verifies address non-existence during
+   * the create instruction.
+   *
    * @returns Packed address tree info with indices
    */
   async getAddressTreeInfo(): Promise<PackedAddressTreeInfo> {
-    const addressTreeInfo = getDefaultAddressTreeInfo();
-    const addressTree = addressTreeInfo.tree;
-    const addressQueue = addressTreeInfo.queue;
+    // Use V1 address trees for mainnet compatibility
+    const { addressTree, addressQueue } = getV1AddressTreeInfo();
 
     // Build packed accounts to get indices
     const packedAccounts = new PackedAccounts();
@@ -627,23 +649,152 @@ export class LightClient {
       packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
-    // Get current root index from Photon
+    // For new address creation with proof = None, use default root index 0.
+    // The Light Protocol program handles address verification internally.
+    return {
+      addressMerkleTreePubkeyIndex,
+      addressQueuePubkeyIndex,
+      rootIndex: 0,
+    };
+  }
+
+  /**
+   * Prepare everything needed to create a new compressed account.
+   *
+   * This method:
+   * 1. Derives the compressed account address from seeds
+   * 2. Gets a validity proof proving the address doesn't exist
+   * 3. Packs all required accounts (system + tree accounts)
+   * 4. Returns everything needed for the create instruction
+   *
+   * @param seeds - Seeds for address derivation
+   * @returns Creation parameters with proof, indices, and remaining accounts
+   */
+  async prepareCreate(seeds: Uint8Array[]): Promise<{
+    address: PublicKey;
+    proof: ValidityProofWithContext;
+    addressTreeInfo: PackedAddressTreeInfo;
+    outputStateTreeIndex: number;
+    remainingAccounts: Array<{
+      pubkey: PublicKey;
+      isSigner: boolean;
+      isWritable: boolean;
+    }>;
+  }> {
+    // 1. Derive the address using V1 address trees for legacy derivation compatibility
+    const { addressTree, addressQueue } = getV1AddressTreeInfo();
+
+    const seed = deriveAddressSeed(
+      seeds.map((s) => new Uint8Array(s)),
+      this.programId,
+    );
+    const address = deriveAddress(seed, addressTree);
+
+    // 2. Get validity proof proving address doesn't exist
     const proofResult = await this.rpc.getValidityProofV0(
-      [],
+      [], // No existing hashes to prove
       [
         {
-          address: bn(new Uint8Array(32)), // Dummy address for root index
+          address: bn(address.toBytes()),
           tree: addressTree,
           queue: addressQueue,
         },
       ],
     );
 
+    // 3. Pack accounts
+    const packedAccounts = new PackedAccounts();
+    const systemAccountConfig = SystemAccountMetaConfig.new(this.programId);
+    packedAccounts.addSystemAccounts(systemAccountConfig);
+
+    // Address tree indices
+    const addressMerkleTreePubkeyIndex =
+      packedAccounts.insertOrGet(addressTree);
+    const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
+
+    // Output state tree (explicitly use V1 to avoid BatchedStateTree discriminator mismatch)
+    const stateTreeInfos = await this.rpc.getStateTreeInfos();
+    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
+    const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree);
+
+    // 4. Get remaining accounts with proper offset
+    const { remainingAccounts } = packedAccounts.toAccountMetas();
+
+    // NOTE: insertOrGet returns indices relative to the packed/tree accounts slice.
+    // The program's CpiAccounts.tree_accounts() slices past system accounts,
+    // so these indices are used directly without adding packedStart.
     return {
-      addressMerkleTreePubkeyIndex,
-      addressQueuePubkeyIndex,
-      rootIndex: proofResult.rootIndices[0] ?? 0,
+      address,
+      proof: proofResult,
+      addressTreeInfo: {
+        addressMerkleTreePubkeyIndex,
+        addressQueuePubkeyIndex,
+        rootIndex: proofResult.rootIndices[0] ?? 0,
+      },
+      outputStateTreeIndex,
+      remainingAccounts,
     };
+  }
+
+  // ==========================================================================
+  // Address Lookup Table Support
+  // ==========================================================================
+
+  /**
+   * Get all pubkeys that should be included in an Address Lookup Table
+   * for efficient transaction size.
+   *
+   * Light Protocol transactions include many system accounts that are
+   * constant across all operations. Using a lookup table reduces each
+   * 32-byte pubkey reference to a 1-byte index, saving ~31 bytes per account.
+   *
+   * @returns Array of PublicKeys to include in the lookup table
+   */
+  async getLookupTableAddresses(): Promise<PublicKey[]> {
+    const addresses: PublicKey[] = [];
+
+    // 1. Light System Program (the main entry point)
+    addresses.push(
+      new PublicKey("SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7"),
+    );
+
+    // 2. Light Protocol static accounts (registered PDA, noop, compression, CPI authority)
+    const staticAccounts = defaultStaticAccounts();
+    addresses.push(...staticAccounts);
+
+    // 3. SATI program
+    addresses.push(this.programId);
+
+    // 4. CPI signer PDA (derived from SATI program with seed 'cpi_authority')
+    const [cpiSigner] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("cpi_authority")],
+      this.programId,
+    );
+    addresses.push(cpiSigner);
+
+    // 5. Address tree accounts (V1 for mainnet compatibility)
+    const { addressTree, addressQueue } = getV1AddressTreeInfo();
+    addresses.push(addressTree, addressQueue);
+
+    // 6. State tree accounts (fetch current active V1 trees)
+    const stateTreeInfos = await this.rpc.getStateTreeInfos();
+    const stateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1);
+    addresses.push(stateTree.tree, stateTree.queue);
+
+    // 7. Ed25519 program for signature verification
+    addresses.push(new PublicKey("Ed25519SigVerify111111111111111111111111111"));
+
+    // 8. System program
+    addresses.push(new PublicKey("11111111111111111111111111111111"));
+
+    // Remove duplicates
+    const seen = new Set<string>();
+    return addresses.filter((addr) => {
+      const key = addr.toBase58();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   // ==========================================================================
@@ -726,7 +877,7 @@ export class LightClient {
       filters.push({
         memcmp: {
           offset: COMPRESSED_OFFSETS.SAS_SCHEMA,
-          bytes: uint8ArrayToBase64(addressToBytes(filter.sasSchema)),
+          bytes: uint8ArrayToBase58(addressToBytes(filter.sasSchema)),
         },
       });
     }
@@ -736,7 +887,7 @@ export class LightClient {
       filters.push({
         memcmp: {
           offset: COMPRESSED_OFFSETS.TOKEN_ACCOUNT,
-          bytes: uint8ArrayToBase64(addressToBytes(filter.tokenAccount)),
+          bytes: uint8ArrayToBase58(addressToBytes(filter.tokenAccount)),
         },
       });
     }
@@ -746,7 +897,7 @@ export class LightClient {
       filters.push({
         memcmp: {
           offset: COMPRESSED_OFFSETS.DATA_TYPE,
-          bytes: uint8ArrayToBase64(new Uint8Array([filter.dataType])),
+          bytes: uint8ArrayToBase58(new Uint8Array([filter.dataType])),
         },
       });
     }
@@ -890,10 +1041,13 @@ export {
   bn,
   deriveAddress,
   deriveAddressSeed,
-  getDefaultAddressTreeInfo,
   PackedAccounts,
   SystemAccountMetaConfig,
   selectStateTreeInfo,
+  TreeType,
   type Rpc,
   type CompressedAccountWithMerkleContext,
 };
+
+// Export V1 address tree constants for direct access
+export { ADDRESS_TREE_V1, ADDRESS_QUEUE_V1 };

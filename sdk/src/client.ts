@@ -24,10 +24,14 @@ import {
   setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstruction,
+  appendTransactionMessageInstructions,
+  compressTransactionMessageUsingAddressLookupTables,
   address,
   getSignatureFromTransaction,
+  getAddressEncoder,
   type Address,
   type KeyPairSigner,
+  type AddressesByLookupTableAddress,
 } from "@solana/kit";
 
 import {
@@ -36,6 +40,9 @@ import {
   getTransferInstruction,
   type Extension,
 } from "@solana-program/token-2022";
+
+import { fetchAddressLookupTable } from "@solana-program/address-lookup-table";
+import { getSetComputeUnitLimitInstruction } from "@solana-program/compute-budget";
 
 import {
   getRegisterAgentInstructionAsync,
@@ -91,6 +98,8 @@ import type {
   RegisterAgentResult,
   SATIClientOptions,
 } from "./types";
+
+import { createBatchEd25519Instruction } from "./ed25519";
 
 import bs58 from "bs58";
 
@@ -189,6 +198,8 @@ export interface CreateFeedbackParams {
   agentSignature: SignatureInput;
   /** Counterparty's signature (with outcome) */
   counterpartySignature: SignatureInput;
+  /** Optional address lookup table for transaction compression */
+  lookupTableAddress?: Address;
 }
 
 /**
@@ -219,6 +230,8 @@ export interface CreateValidationParams {
   agentSignature: SignatureInput;
   /** Validator's signature (with response) */
   validatorSignature: SignatureInput;
+  /** Optional address lookup table for transaction compression */
+  lookupTableAddress?: Address;
 }
 
 /**
@@ -308,10 +321,70 @@ export class SATI {
   }
 
   /**
+   * Light Protocol client accessor
+   */
+  get light(): LightClient {
+    return this.getLightClient();
+  }
+
+  /**
    * Set Light Protocol client
    */
   setLightClient(client: LightClient): void {
     this.lightClient = client;
+  }
+
+  /**
+   * Build, optionally compress, sign, and send a transaction.
+   *
+   * @param instructions - Instructions to include in the transaction
+   * @param payer - Transaction fee payer
+   * @param lookupTableAddress - Optional address lookup table for compression
+   * @returns Transaction signature
+   */
+  private async buildAndSendTransaction(
+    instructions: Parameters<typeof appendTransactionMessageInstructions>[0],
+    payer: KeyPairSigner,
+    lookupTableAddress?: Address,
+    computeUnits: number = 400_000,
+  ): Promise<string> {
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
+
+    // Add compute budget instruction for Light Protocol operations
+    const computeBudgetIx = getSetComputeUnitLimitInstruction({ units: computeUnits });
+
+    let tx = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(payer.address, msg),
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(computeBudgetIx, msg),
+      (msg) => appendTransactionMessageInstructions(instructions, msg),
+    );
+
+    // Compress transaction using address lookup table if provided
+    if (lookupTableAddress) {
+      const lookupTableAccount = await fetchAddressLookupTable(
+        this.rpc,
+        lookupTableAddress,
+      );
+      const addressesByLookupTable: AddressesByLookupTableAddress = {
+        [lookupTableAddress]: lookupTableAccount.data.addresses,
+      };
+      tx = compressTransactionMessageUsingAddressLookupTables(
+        tx,
+        addressesByLookupTable,
+      );
+    }
+
+    const signedTx = await signTransactionMessageWithSigners(tx);
+    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+      commitment: "confirmed",
+    });
+
+    return getSignatureFromTransaction(signedTx).toString();
   }
 
   // ============================================================
@@ -637,6 +710,7 @@ export class SATI {
       content = new Uint8Array(0),
       agentSignature,
       counterpartySignature,
+      lookupTableAddress,
     } = params;
 
     // Serialize feedback data
@@ -670,23 +744,55 @@ export class SATI {
     // Get schema config PDA
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    // Get Light Protocol proof and tree info
+    // Get Light Protocol proof and remaining accounts
     const light = this.getLightClient();
-    const outputStateTreeIndex = await light.getOutputStateTreeIndex();
-    const treeInfo = await light.getAddressTreeInfo();
 
-    // For new address creation, proof is None (null)
-    const proof: ValidityProofArgs = [null];
+    // Compute seeds for address derivation
+    // Must match program's derive_address seeds:
+    //   ["attestation", sas_schema, token_account, nonce]
+    // where nonce = compute_attestation_nonce(task_ref, sas_schema, token_account, counterparty)
+    const addressEncoder = getAddressEncoder();
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
+    const tokenAccountBytesForSeed = new Uint8Array(addressEncoder.encode(tokenAccount));
+    const seeds = [
+      new TextEncoder().encode("attestation"),
+      sasSchemaBytes,
+      tokenAccountBytesForSeed,
+      nonce,
+    ];
+
+    // Get validity proof and packed accounts for creating compressed account
+    const {
+      address: derivedAddress,
+      proof: proofResult,
+      addressTreeInfo: packedAddressTreeInfo,
+      outputStateTreeIndex,
+      remainingAccounts,
+    } = await light.prepareCreate(seeds);
+
+    // Convert Light Protocol proof format to instruction format
+    // The instruction expects Option<CompressedProof> where CompressedProof has { a, b, c }
+    const proof: ValidityProofArgs = proofResult.compressedProof
+      ? [
+          {
+            a: new Uint8Array(proofResult.compressedProof.a),
+            b: new Uint8Array(proofResult.compressedProof.b),
+            c: new Uint8Array(proofResult.compressedProof.c),
+          },
+        ]
+      : [null];
 
     // Address tree info from Light Protocol
     const addressTreeInfo: PackedAddressTreeInfoArgs = {
-      addressMerkleTreePubkeyIndex: treeInfo.addressMerkleTreePubkeyIndex,
-      addressQueuePubkeyIndex: treeInfo.addressQueuePubkeyIndex,
-      rootIndex: treeInfo.rootIndex,
+      addressMerkleTreePubkeyIndex:
+        packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
+      addressQueuePubkeyIndex: packedAddressTreeInfo.addressQueuePubkeyIndex,
+      rootIndex: packedAddressTreeInfo.rootIndex,
     };
 
-    // Build instruction
-    const createIx = await getCreateAttestationInstructionAsync({
+    // Build base instruction
+    const baseCreateIx = await getCreateAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
       program: SATI_PROGRAM_ADDRESS,
@@ -698,38 +804,61 @@ export class SATI {
       addressTreeInfo,
     });
 
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    // Append remaining accounts to the instruction
+    // The generated instruction is frozen, so we create a new object
+    const createIx = {
+      ...baseCreateIx,
+      accounts: [
+        ...baseCreateIx.accounts,
+        ...remainingAccounts.map((acc) => ({
+          address: address(acc.pubkey.toBase58()),
+          role: acc.isWritable
+            ? acc.isSigner
+              ? 3 // AccountRole.WRITABLE_SIGNER
+              : 1 // AccountRole.WRITABLE
+            : acc.isSigner
+              ? 2 // AccountRole.READONLY_SIGNER
+              : 0, // AccountRole.READONLY
+        })),
+      ],
+    };
 
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-
-    // Compute deterministic address
-    const nonce = computeAttestationNonce(
-      taskRef,
+    // Compute expected message hashes for Ed25519 verification
+    const interactionHash = computeInteractionHash(
       sasSchema,
+      taskRef,
       tokenAccount,
-      counterparty,
+      dataHash,
     );
-    const addressBytes = nonce; // Simplified - actual address derivation requires Light Protocol
+    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
 
+    // Create single Ed25519 instruction verifying both signatures (saves ~100 bytes)
+    const ed25519Ix = createBatchEd25519Instruction([
+      {
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: interactionHash,
+        signature: agentSignature.signature,
+      },
+      {
+        publicKey: new Uint8Array(
+          addressEncoder.encode(counterpartySignature.pubkey),
+        ),
+        message: feedbackHash,
+        signature: counterpartySignature.signature,
+      },
+    ]);
+
+    // Build and send transaction (Ed25519 instruction must come first)
+    const signature = await this.buildAndSendTransaction(
+      [ed25519Ix, createIx],
+      payer,
+      lookupTableAddress,
+    );
+
+    // Return the derived compressed account address
     return {
-      address: address(bs58.encode(addressBytes)),
-      signature: signature.toString(),
+      address: address(derivedAddress.toBase58()),
+      signature,
     };
   }
 
@@ -758,6 +887,7 @@ export class SATI {
       content = new Uint8Array(0),
       agentSignature,
       validatorSignature,
+      lookupTableAddress,
     } = params;
 
     // Validate response
@@ -795,23 +925,52 @@ export class SATI {
     // Get schema config PDA
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    // Get Light Protocol proof and tree info
+    // Get Light Protocol proof and remaining accounts
     const light = this.getLightClient();
-    const outputStateTreeIndex = await light.getOutputStateTreeIndex();
-    const treeInfo = await light.getAddressTreeInfo();
 
-    // For new address creation, proof is None (null)
-    const proof: ValidityProofArgs = [null];
+    // Compute seeds for address derivation
+    // Must match program's derive_address seeds:
+    //   ["attestation", sas_schema, token_account, nonce]
+    // where nonce = compute_attestation_nonce(task_ref, sas_schema, token_account, counterparty)
+    const addressEncoder = getAddressEncoder();
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const seeds = [
+      new TextEncoder().encode("attestation"),
+      new Uint8Array(addressEncoder.encode(sasSchema)),
+      new Uint8Array(addressEncoder.encode(tokenAccount)),
+      nonce,
+    ];
+
+    // Get validity proof and packed accounts for creating compressed account
+    const {
+      address: derivedAddress,
+      proof: proofResult,
+      addressTreeInfo: packedAddressTreeInfo,
+      outputStateTreeIndex,
+      remainingAccounts,
+    } = await light.prepareCreate(seeds);
+
+    // Convert Light Protocol proof format to instruction format
+    const proof: ValidityProofArgs = proofResult.compressedProof
+      ? [
+          {
+            a: new Uint8Array(proofResult.compressedProof.a),
+            b: new Uint8Array(proofResult.compressedProof.b),
+            c: new Uint8Array(proofResult.compressedProof.c),
+          },
+        ]
+      : [null];
 
     // Address tree info from Light Protocol
     const addressTreeInfo: PackedAddressTreeInfoArgs = {
-      addressMerkleTreePubkeyIndex: treeInfo.addressMerkleTreePubkeyIndex,
-      addressQueuePubkeyIndex: treeInfo.addressQueuePubkeyIndex,
-      rootIndex: treeInfo.rootIndex,
+      addressMerkleTreePubkeyIndex:
+        packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
+      addressQueuePubkeyIndex: packedAddressTreeInfo.addressQueuePubkeyIndex,
+      rootIndex: packedAddressTreeInfo.rootIndex,
     };
 
-    // Build instruction
-    const createIx = await getCreateAttestationInstructionAsync({
+    // Build base instruction
+    const baseCreateIx = await getCreateAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
       program: SATI_PROGRAM_ADDRESS,
@@ -823,37 +982,65 @@ export class SATI {
       addressTreeInfo,
     });
 
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    // Append remaining accounts to the instruction
+    const createIx = {
+      ...baseCreateIx,
+      accounts: [
+        ...baseCreateIx.accounts,
+        ...remainingAccounts.map((acc) => ({
+          address: address(acc.pubkey.toBase58()),
+          role: acc.isWritable
+            ? acc.isSigner
+              ? 3 // AccountRole.WRITABLE_SIGNER
+              : 1 // AccountRole.WRITABLE
+            : acc.isSigner
+              ? 2 // AccountRole.READONLY_SIGNER
+              : 0, // AccountRole.READONLY
+        })),
+      ],
+    };
 
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-
-    // Compute deterministic address
-    const nonce = computeAttestationNonce(
-      taskRef,
+    // Compute expected message hashes for Ed25519 verification
+    const interactionHash = computeInteractionHash(
       sasSchema,
+      taskRef,
       tokenAccount,
-      counterparty,
+      dataHash,
+    );
+    const validationHash = computeValidationHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      response,
     );
 
+    // Create single Ed25519 instruction verifying both signatures (saves ~100 bytes)
+    const ed25519Ix = createBatchEd25519Instruction([
+      {
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: interactionHash,
+        signature: agentSignature.signature,
+      },
+      {
+        publicKey: new Uint8Array(
+          addressEncoder.encode(validatorSignature.pubkey),
+        ),
+        message: validationHash,
+        signature: validatorSignature.signature,
+      },
+    ]);
+
+    // Build and send transaction (Ed25519 instruction must come first)
+    const signature = await this.buildAndSendTransaction(
+      [ed25519Ix, createIx],
+      payer,
+      lookupTableAddress,
+    );
+
+    // Return the derived compressed account address
     return {
-      address: address(bs58.encode(nonce)),
-      signature: signature.toString(),
+      address: address(derivedAddress.toBase58()),
+      signature,
     };
   }
 

@@ -72,12 +72,14 @@ export {
   type Rpc,
   createRpc,
   bn,
-  getDefaultAddressTreeInfo,
   PackedAccounts,
   SystemAccountMetaConfig,
   deriveAddress,
   deriveAddressSeed,
   selectStateTreeInfo,
+  // V1 address tree constants for mainnet compatibility
+  ADDRESS_TREE_V1,
+  ADDRESS_QUEUE_V1,
 } from "./light";
 
 // SAS integration helpers
@@ -85,6 +87,9 @@ export * from "./sas";
 
 // Utility helpers and PDA derivation
 export * from "./helpers";
+
+// Ed25519 signature verification instruction builder
+export * from "./ed25519";
 
 // Type definitions
 export * from "./types";

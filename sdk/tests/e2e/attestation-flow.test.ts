@@ -16,12 +16,21 @@
  * Run: pnpm test:e2e
  */
 
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+} from "@solana/web3.js";
 import {
   address,
   createKeyPairSignerFromBytes,
   type KeyPairSigner,
+  type Address,
 } from "@solana/kit";
 import { SATI } from "../../src";
 import {
@@ -30,7 +39,6 @@ import {
   computeReputationHash,
   Outcome,
 } from "../../src/hashes";
-import { findAssociatedTokenAddress } from "../../src/helpers";
 
 // Import real signature helpers
 import {
@@ -39,6 +47,7 @@ import {
   createValidationSignatures,
   createReputationSignature,
   randomBytes32,
+  createSatiLookupTable,
   type TestKeypair,
 } from "../helpers";
 
@@ -74,10 +83,12 @@ function _signerToTestKeypair(
 describe("E2E: Attestation Flow", () => {
   let sati: SATI;
   let payer: KeyPairSigner;
+  let authority: KeyPairSigner; // Registry authority (local wallet)
   let agentOwner: KeyPairSigner;
   let counterparty: KeyPairSigner;
   let sasSchema: ReturnType<typeof address>;
   let agentMint: ReturnType<typeof address>;
+  let lookupTableAddress: Address;
 
   // Keep raw keypairs for Ed25519 signing
   let agentKeypair: TestKeypair;
@@ -87,8 +98,22 @@ describe("E2E: Attestation Flow", () => {
     // Initialize SDK
     sati = new SATI({ network: "localnet" });
 
-    // Create test signers with deterministic seeds for reproducibility
+    // Create connection for airdrops
+    const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+
+    // Load local wallet as authority (matches registry initialization)
+    const walletPath = path.join(homedir(), ".config/solana/id.json");
+    const walletSecret = JSON.parse(readFileSync(walletPath, "utf-8"));
+    const authorityKp = Keypair.fromSecretKey(Uint8Array.from(walletSecret));
+    authority = await createKeyPairSignerFromBytes(authorityKp.secretKey);
+
+    // Create payer keypair and fund it
     const payerKp = Keypair.generate();
+    const airdropSig = await connection.requestAirdrop(
+      payerKp.publicKey,
+      10 * LAMPORTS_PER_SOL,
+    );
+    await connection.confirmTransaction(airdropSig, "confirmed");
     payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
 
     // Create keypairs that we keep for Ed25519 signing
@@ -103,8 +128,9 @@ describe("E2E: Attestation Flow", () => {
     // Generate random SAS schema address
     sasSchema = address(Keypair.generate().publicKey.toBase58());
 
-    // TODO: Airdrop SOL to test accounts when running against local validator
-    // This would require RPC connection to fund accounts
+    // Create lookup table for transaction compression
+    const { address: lutAddress } = await createSatiLookupTable(sati, payerKp);
+    lookupTableAddress = lutAddress;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -132,10 +158,10 @@ describe("E2E: Attestation Flow", () => {
 
         const result = await sati.registerAgent({
           payer,
-          owner: agentOwner,
+          owner: agentOwner.address,
           name,
           symbol,
-          metadataUri,
+          uri: metadataUri,
         });
 
         expect(result).toHaveProperty("mint");
@@ -158,7 +184,7 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         const result = await sati.registerSchemaConfig({
           payer,
-          authority: payer,
+          authority,
           sasSchema,
           signatureMode: 0, // DualSignature
           storageType: 0, // Compressed
@@ -201,11 +227,9 @@ describe("E2E: Attestation Flow", () => {
         const dataHash = randomBytes32();
         const outcome = Outcome.Positive;
 
-        // Get agent's token account using findAssociatedTokenAddress
-        const [tokenAccount] = await findAssociatedTokenAddress(
-          agentMint,
-          agentOwner.address,
-        );
+        // The tokenAccount in attestations is the agent's wallet address (identity),
+        // NOT the ATA that holds the NFT. This matches the signature pubkey.
+        const tokenAccount = agentOwner.address;
 
         // Create real Ed25519 signatures using the helper
         // Agent signs interaction hash (blind - doesn't know outcome)
@@ -238,6 +262,7 @@ describe("E2E: Attestation Flow", () => {
             pubkey: signatures[1].pubkey,
             signature: signatures[1].sig,
           },
+          lookupTableAddress,
         });
 
         expect(result).toHaveProperty("address");
@@ -254,10 +279,8 @@ describe("E2E: Attestation Flow", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const [tokenAccount] = await findAssociatedTokenAddress(
-          agentMint,
-          agentOwner.address,
-        );
+        // Use agent's wallet address as identity
+        const tokenAccount = agentOwner.address;
 
         // Sign for Positive outcome
         const signatures = createFeedbackSignatures(
@@ -287,6 +310,7 @@ describe("E2E: Attestation Flow", () => {
               pubkey: signatures[1].pubkey,
               signature: signatures[1].sig,
             },
+            lookupTableAddress,
           }),
         ).rejects.toThrow(); // Should fail signature verification
       },
@@ -304,10 +328,8 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         if (!agentMint) return;
 
-        const [tokenAccount] = await findAssociatedTokenAddress(
-          agentMint,
-          agentOwner.address,
-        );
+        // Use agent's wallet address as identity (matches attestation data)
+        const tokenAccount = agentOwner.address;
 
         // listFeedbacks takes tokenAccount as first arg
         const result = await sati.listFeedbacks(tokenAccount);
@@ -322,10 +344,8 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         if (!agentMint) return;
 
-        const [tokenAccount] = await findAssociatedTokenAddress(
-          agentMint,
-          agentOwner.address,
-        );
+        // Use agent's wallet address as identity
+        const tokenAccount = agentOwner.address;
 
         const result = await sati.listFeedbacks(tokenAccount, {
           outcome: Outcome.Positive,

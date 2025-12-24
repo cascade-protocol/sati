@@ -3,7 +3,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use light_sdk::instruction::{
     account_meta::CompressedAccountMeta, PackedAddressTreeInfo, ValidityProof,
 };
-use light_sdk::LightDiscriminator;
+use light_sdk::{LightDiscriminator, LightHasher};
 
 // ============================================================================
 // Registry State
@@ -88,27 +88,34 @@ pub struct SchemaConfig {
 
 /// Compressed attestation stored via Light Protocol.
 ///
-/// The account hash is computed by Light SDK using the LightDiscriminator trait,
-/// which uses a unique 8-byte discriminator followed by the Borsh-serialized data.
-#[derive(Clone, Debug, LightDiscriminator, BorshSerialize, BorshDeserialize)]
+/// The account hash is computed by Light SDK using the LightHasher trait.
+/// Fields marked with `#[hash]` are included in the Poseidon hash for account verification.
+#[derive(Clone, Debug, LightDiscriminator, LightHasher, BorshSerialize, BorshDeserialize)]
 pub struct CompressedAttestation {
     /// SAS schema address (indexed via memcmp at offset 8)
+    #[hash]
     pub sas_schema: [u8; 32],
     /// Agent token account being attested (indexed via memcmp at offset 40)
+    #[hash]
     pub token_account: [u8; 32],
     /// Attestation data type discriminator:
     /// - 0: Feedback (agent-counterparty blind feedback)
     /// - 1: Validation (third-party validation request/response)
     ///
     /// Note: ReputationScore (type 2) uses Regular storage, not Compressed
+    #[hash]
     pub data_type: u8,
     /// Schema-conformant data bytes (96+ bytes, includes base layout)
+    #[hash]
     pub data: Vec<u8>,
     /// Number of signatures stored
+    #[hash]
     pub num_signatures: u8,
     /// First signature (agent for DualSignature, provider for SingleSigner)
+    #[hash]
     pub signature1: [u8; 64],
     /// Second signature (counterparty for DualSignature, zeroed for SingleSigner)
+    #[hash]
     pub signature2: [u8; 64],
 }
 

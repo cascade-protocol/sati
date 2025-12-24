@@ -3,7 +3,8 @@ use light_sdk::{
     account::LightAccount,
     address::v1::derive_address,
     cpi::{
-        v1::{CpiAccounts, LightSystemProgramCpi},
+        v1::CpiAccounts,
+        v2::lowlevel::InstructionDataInvokeCpiWithReadOnly,
         InvokeLightSystemProgram, LightCpiInstruction,
     },
 };
@@ -176,10 +177,11 @@ pub fn handler<'info>(
     // 12. Compute new address params from params
     let new_address_params = params
         .address_tree_info
-        .into_new_address_params_packed(address_seed);
+        .into_new_address_params_assigned_packed(address_seed, Some(0));
 
     // 13. CPI to Light System Program with proof from params
-    LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, params.proof)
+    InstructionDataInvokeCpiWithReadOnly::new_cpi(LIGHT_CPI_SIGNER, params.proof)
+        .mode_v1()
         .with_light_account(attestation)?
         .with_new_addresses(&[new_address_params])
         .invoke(light_cpi_accounts)

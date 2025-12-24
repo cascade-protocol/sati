@@ -65,18 +65,18 @@ pub fn verify_ed25519_signatures(
                 );
 
                 // Parse offsets from the structure
-                let sig_offset = u16::from_le_bytes(
-                    data[offset_pos..offset_pos + 2].try_into().unwrap(),
-                ) as usize;
-                let pubkey_offset = u16::from_le_bytes(
-                    data[offset_pos + 4..offset_pos + 6].try_into().unwrap(),
-                ) as usize;
-                let msg_offset = u16::from_le_bytes(
-                    data[offset_pos + 8..offset_pos + 10].try_into().unwrap(),
-                ) as usize;
-                let msg_size = u16::from_le_bytes(
-                    data[offset_pos + 10..offset_pos + 12].try_into().unwrap(),
-                ) as usize;
+                let sig_offset =
+                    u16::from_le_bytes(data[offset_pos..offset_pos + 2].try_into().unwrap())
+                        as usize;
+                let pubkey_offset =
+                    u16::from_le_bytes(data[offset_pos + 4..offset_pos + 6].try_into().unwrap())
+                        as usize;
+                let msg_offset =
+                    u16::from_le_bytes(data[offset_pos + 8..offset_pos + 10].try_into().unwrap())
+                        as usize;
+                let msg_size =
+                    u16::from_le_bytes(data[offset_pos + 10..offset_pos + 12].try_into().unwrap())
+                        as usize;
 
                 // Extract and verify pubkey
                 require!(
@@ -106,8 +106,7 @@ pub fn verify_ed25519_signatures(
                             data.len() >= sig_offset + 64,
                             SatiError::InvalidEd25519Instruction
                         );
-                        let sig: [u8; 64] =
-                            data[sig_offset..sig_offset + 64].try_into().unwrap();
+                        let sig: [u8; 64] = data[sig_offset..sig_offset + 64].try_into().unwrap();
                         require!(sig == expected.sig, SatiError::SignatureMismatch);
 
                         verified_count += 1;

@@ -114,11 +114,15 @@ export function sleep(ms: number): Promise<void> {
  * accounts are queryable after creation.
  */
 export async function waitForIndexer(
-  connection: Connection,
+  connection?: Connection,
   delayMs: number = 1000,
 ): Promise<void> {
-  // Get current slot
-  const _slot = await connection.getSlot();
+  // Use provided connection or create default for localnet
+  const conn =
+    connection ?? new Connection("http://127.0.0.1:8899", "confirmed");
+
+  // Get current slot to verify connection
+  const _slot = await conn.getSlot();
 
   // Wait for indexer to catch up
   await sleep(delayMs);

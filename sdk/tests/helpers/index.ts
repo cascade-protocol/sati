@@ -88,3 +88,9 @@ export {
   DEFAULT_CONFIG,
   type TestRpcConfig,
 } from "./test-rpc";
+
+// Address Lookup Table helpers
+export {
+  createSatiLookupTable,
+  type CreateLookupTableResult,
+} from "./lookup-table";
