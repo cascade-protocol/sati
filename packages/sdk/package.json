@@ -35,7 +35,7 @@
     "types.ts"
   ],
   "scripts": {
-    "generate": "cp ../target/idl/sati.json ./idl.json && tsx scripts/generate-clients.ts",
+    "generate": "cp ../../target/idl/sati.json ./idl.json && tsx scripts/generate-clients.ts",
     "build": "pnpm generate && tsdown",
     "prepublishOnly": "pnpm build",
     "dev": "tsdown --watch",

@@ -92,7 +92,7 @@ export function toAddress(pubkey: PublicKey): Address {
 ## SDK Structure
 
 ```
-sdk/
+packages/sdk/
 ├── scripts/
 │   └── generate-clients.ts  # Codama generation script
 ├── src/
@@ -134,7 +134,7 @@ anchor test
 anchor test --skip-deploy -- tests/sati-registry.test.ts
 
 # Build and test SDK
-cd sdk && pnpm build && pnpm test
+cd packages/sdk && pnpm build && pnpm test
 ```
 
 ## Documentation

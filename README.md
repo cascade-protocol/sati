@@ -185,7 +185,7 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 ## Documentation
 
 - [Complete Specification](./docs/specification.md) - Full technical specification
-- [TypeScript SDK](./sdk/) - Developer SDK with generated client
+- [TypeScript SDK](./packages/sdk/) - Developer SDK with generated client
 - [Examples](./examples/) - Usage examples
 
 ---
