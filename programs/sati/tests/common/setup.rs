@@ -4,20 +4,23 @@ use std::path::PathBuf;
 
 // Light Protocol imports for compressed account testing
 pub use light_program_test::{
-    program_test::LightProgramTest,
     indexer::{TestIndexer, TestIndexerExtensions},
+    program_test::LightProgramTest,
     ProgramTestConfig,
     Rpc, // Trait for get_payer() and other RPC methods
 };
 
 /// SATI program ID (matches declare_id! in lib.rs)
-pub const SATI_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
+pub const SATI_PROGRAM_ID: Pubkey =
+    solana_sdk::pubkey!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 /// Token-2022 program ID
-pub const TOKEN_2022_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+pub const TOKEN_2022_PROGRAM_ID: Pubkey =
+    solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 /// Associated Token Account program ID
-pub const ATA_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+pub const ATA_PROGRAM_ID: Pubkey =
+    solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 /// Find the SATI program .so file
 fn find_program_file() -> PathBuf {
@@ -111,14 +114,18 @@ pub async fn setup_light_test_env() -> LightTestEnv {
     // Enable prover - requires localnet running
     config.with_prover = true;
 
-    let rpc = LightProgramTest::new(config)
-        .await
-        .expect("Failed to setup Light Protocol test environment. \
-                 Make sure to run `pnpm localnet` first.");
+    let rpc = LightProgramTest::new(config).await.expect(
+        "Failed to setup Light Protocol test environment. \
+                 Make sure to run `pnpm localnet` first.",
+    );
 
     let env = rpc.test_accounts.clone();
     let payer = rpc.get_payer().insecure_clone();
     let indexer = TestIndexer::init_from_acounts(&payer, &env, 0).await;
 
-    LightTestEnv { rpc, indexer, payer }
+    LightTestEnv {
+        rpc,
+        indexer,
+        payer,
+    }
 }

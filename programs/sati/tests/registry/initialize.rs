@@ -1,15 +1,11 @@
 //! Tests for the initialize instruction
 
-use solana_sdk::{
-    signature::Keypair,
-    signer::Signer,
-    transaction::Transaction,
-};
+use solana_sdk::{signature::Keypair, signer::Signer, transaction::Transaction};
 
 use crate::common::{
-    setup::{setup_litesvm, derive_registry_config_pda},
     accounts::{create_funded_keypair, create_mock_group_mint},
     instructions::build_initialize_ix,
+    setup::{derive_registry_config_pda, setup_litesvm},
 };
 
 /// Test successful registry initialization
@@ -38,11 +34,7 @@ fn test_initialize_success() {
     create_mock_group_mint(&mut svm, &group_mint, &registry_config);
 
     // Build and send initialize instruction
-    let ix = build_initialize_ix(
-        &authority.pubkey(),
-        &registry_config,
-        &group_mint.pubkey(),
-    );
+    let ix = build_initialize_ix(&authority.pubkey(), &registry_config, &group_mint.pubkey());
 
     let tx = Transaction::new_signed_with_payer(
         &[ix],
@@ -52,7 +44,11 @@ fn test_initialize_success() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_ok(), "Initialize should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Initialize should succeed: {:?}",
+        result.err()
+    );
 
     // Verify registry config was created
     let registry_account = svm.get_account(&registry_config);
@@ -63,11 +59,19 @@ fn test_initialize_success() {
 
     // Verify authority is set correctly (at offset 40 after discriminator + group_mint)
     let stored_authority = &account.data[40..72];
-    assert_eq!(stored_authority, authority.pubkey().as_ref(), "Authority should match");
+    assert_eq!(
+        stored_authority,
+        authority.pubkey().as_ref(),
+        "Authority should match"
+    );
 
     // Verify group_mint is set correctly (at offset 8 after discriminator)
     let stored_group_mint = &account.data[8..40];
-    assert_eq!(stored_group_mint, group_mint.pubkey().as_ref(), "Group mint should match");
+    assert_eq!(
+        stored_group_mint,
+        group_mint.pubkey().as_ref(),
+        "Group mint should match"
+    );
 
     // Verify total_agents is 0 (at offset 72)
     let total_agents = u64::from_le_bytes(account.data[72..80].try_into().unwrap());
@@ -88,14 +92,10 @@ fn test_initialize_already_initialized() {
     create_mock_group_mint(&mut svm, &group_mint, &registry_config);
 
     // First initialization should succeed
-    let ix = build_initialize_ix(
-        &authority.pubkey(),
-        &registry_config,
-        &group_mint.pubkey(),
-    );
+    let ix = build_initialize_ix(&authority.pubkey(), &registry_config, &group_mint.pubkey());
 
     let tx = Transaction::new_signed_with_payer(
-        &[ix.clone()],
+        std::slice::from_ref(&ix),
         Some(&authority.pubkey()),
         &[&authority],
         svm.latest_blockhash(),
@@ -113,7 +113,10 @@ fn test_initialize_already_initialized() {
     );
 
     let result2 = svm.send_transaction(tx2);
-    assert!(result2.is_err(), "Second initialize should fail (account already exists)");
+    assert!(
+        result2.is_err(),
+        "Second initialize should fail (account already exists)"
+    );
 
     println!("✅ test_initialize_already_initialized passed");
 }
@@ -136,13 +139,10 @@ fn test_initialize_invalid_group_mint_owner() {
         executable: false,
         rent_epoch: 0,
     };
-    svm.set_account(group_mint.pubkey(), invalid_account).unwrap();
+    svm.set_account(group_mint.pubkey(), invalid_account)
+        .unwrap();
 
-    let ix = build_initialize_ix(
-        &authority.pubkey(),
-        &registry_config,
-        &group_mint.pubkey(),
-    );
+    let ix = build_initialize_ix(&authority.pubkey(), &registry_config, &group_mint.pubkey());
 
     let tx = Transaction::new_signed_with_payer(
         &[ix],
@@ -152,7 +152,10 @@ fn test_initialize_invalid_group_mint_owner() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "Initialize should fail with invalid group mint owner");
+    assert!(
+        result.is_err(),
+        "Initialize should fail with invalid group mint owner"
+    );
 
     println!("✅ test_initialize_invalid_group_mint_owner passed");
 }

@@ -1,16 +1,11 @@
 //! Tests for the update_registry_authority instruction
 
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-    transaction::Transaction,
-};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
 
 use crate::common::{
-    setup::{setup_litesvm, derive_registry_config_pda},
-    accounts::{create_funded_keypair, create_mock_group_mint, create_initialized_registry},
+    accounts::{create_funded_keypair, create_initialized_registry, create_mock_group_mint},
     instructions::build_update_authority_ix,
+    setup::{derive_registry_config_pda, setup_litesvm},
 };
 
 /// Test successful authority transfer
@@ -47,12 +42,20 @@ fn test_transfer_authority() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_ok(), "Authority transfer should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Authority transfer should succeed: {:?}",
+        result.err()
+    );
 
     // Verify new authority is set
     let account = svm.get_account(&registry_config).unwrap();
     let stored_authority = &account.data[40..72];
-    assert_eq!(stored_authority, new_authority.pubkey().as_ref(), "Authority should be updated");
+    assert_eq!(
+        stored_authority,
+        new_authority.pubkey().as_ref(),
+        "Authority should be updated"
+    );
 
     println!("✅ test_transfer_authority passed");
 }
@@ -90,12 +93,20 @@ fn test_renounce_authority() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_ok(), "Renouncing authority should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Renouncing authority should succeed: {:?}",
+        result.err()
+    );
 
     // Verify authority is now default (Pubkey::default())
     let account = svm.get_account(&registry_config).unwrap();
     let stored_authority = &account.data[40..72];
-    assert_eq!(stored_authority, Pubkey::default().as_ref(), "Authority should be default (renounced)");
+    assert_eq!(
+        stored_authority,
+        Pubkey::default().as_ref(),
+        "Authority should be default (renounced)"
+    );
 
     println!("✅ test_renounce_authority passed");
 }

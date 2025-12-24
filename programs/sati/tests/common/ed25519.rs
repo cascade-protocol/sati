@@ -7,10 +7,7 @@
 
 use ed25519_dalek::{Keypair, Signer};
 use sha3::{Digest, Keccak256};
-use solana_sdk::{
-    instruction::Instruction,
-    pubkey::Pubkey,
-};
+use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 
 // Domain separators matching constants.rs
 const DOMAIN_INTERACTION: &[u8] = b"SATI:interaction:v1";
@@ -36,15 +33,11 @@ pub fn keypair_to_pubkey(keypair: &Keypair) -> Pubkey {
 /// Create an Ed25519 program instruction for signature verification
 ///
 /// The Ed25519 program instruction format:
-/// - [0]: number of signatures
-/// - [1]: padding
-/// - [2..2+14]: signature offset structure (for each signature)
-/// - [remainder]: signature (64) + pubkey (32) + message
-pub fn create_ed25519_ix(
-    pubkey: &Pubkey,
-    message: &[u8],
-    signature: &[u8; 64],
-) -> Instruction {
+/// - Byte 0: number of signatures
+/// - Byte 1: padding
+/// - Bytes 2..16: signature offset structure (for each signature)
+/// - Remainder: signature (64) + pubkey (32) + message
+pub fn create_ed25519_ix(pubkey: &Pubkey, message: &[u8], signature: &[u8; 64]) -> Instruction {
     // Build the Ed25519 instruction data
     // Offset structure: 7 u16 values = 14 bytes
     // - signature_offset (u16)

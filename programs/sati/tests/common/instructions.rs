@@ -17,8 +17,8 @@ use crate::common::setup::SATI_PROGRAM_ID;
 const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("11111111111111111111111111111111");
 
 // Re-export instruction and account types from the sati crate
-pub use sati::instruction;
 pub use sati::accounts;
+pub use sati::instruction;
 pub use sati::state::{SignatureMode, StorageType};
 
 /// Build initialize instruction using Anchor's generated types
@@ -43,6 +43,7 @@ pub fn build_initialize_ix(
 }
 
 /// Build register_schema_config instruction using Anchor's generated types
+#[allow(clippy::too_many_arguments)]
 pub fn build_register_schema_config_ix(
     payer: &Pubkey,
     registry_config: &Pubkey,
@@ -97,7 +98,7 @@ pub fn build_update_authority_ix(
 // Attestation Instructions (Compressed - Light Protocol)
 // ============================================================================
 
-pub use sati::state::{CreateParams, CloseParams, SignatureData, CompressedAttestation};
+pub use sati::state::{CloseParams, CompressedAttestation, CreateParams, SignatureData};
 
 /// Derive the Anchor event authority PDA for CPI events
 fn derive_event_authority() -> Pubkey {

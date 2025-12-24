@@ -1,16 +1,11 @@
 //! Tests for the register_schema_config instruction
 
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-    transaction::Transaction,
-};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
 
 use crate::common::{
-    setup::{setup_litesvm, derive_registry_config_pda, derive_schema_config_pda},
-    accounts::{create_funded_keypair, create_mock_group_mint, create_initialized_registry},
+    accounts::{create_funded_keypair, create_initialized_registry, create_mock_group_mint},
     instructions::{build_register_schema_config_ix, SignatureMode, StorageType},
+    setup::{derive_registry_config_pda, derive_schema_config_pda, setup_litesvm},
 };
 
 /// Test successful schema config registration
@@ -58,7 +53,11 @@ fn test_register_schema_config_success() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_ok(), "register_schema_config should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "register_schema_config should succeed: {:?}",
+        result.err()
+    );
 
     // Verify schema config was created
     let schema_account = svm.get_account(&schema_config);
@@ -69,10 +68,17 @@ fn test_register_schema_config_success() {
 
     // Verify fields (after 8-byte discriminator)
     let stored_sas_schema = &account.data[8..40];
-    assert_eq!(stored_sas_schema, sas_schema.as_ref(), "SAS schema should match");
+    assert_eq!(
+        stored_sas_schema,
+        sas_schema.as_ref(),
+        "SAS schema should match"
+    );
 
     let signature_mode = account.data[40];
-    assert_eq!(signature_mode, 0, "Signature mode should be DualSignature (0)");
+    assert_eq!(
+        signature_mode, 0,
+        "Signature mode should be DualSignature (0)"
+    );
 
     let storage_type = account.data[41];
     assert_eq!(storage_type, 0, "Storage type should be Compressed (0)");
@@ -123,10 +129,17 @@ fn test_register_schema_config_single_signer_regular() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_ok(), "register_schema_config with SingleSigner should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "register_schema_config with SingleSigner should succeed: {:?}",
+        result.err()
+    );
 
     let account = svm.get_account(&schema_config).unwrap();
-    assert_eq!(account.data[40], 1, "Signature mode should be SingleSigner (1)");
+    assert_eq!(
+        account.data[40], 1,
+        "Signature mode should be SingleSigner (1)"
+    );
     assert_eq!(account.data[41], 1, "Storage type should be Regular (1)");
     assert_eq!(account.data[42], 0, "Closeable should be false");
 
@@ -175,7 +188,10 @@ fn test_register_schema_config_wrong_authority() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "register_schema_config with wrong authority should fail");
+    assert!(
+        result.is_err(),
+        "register_schema_config with wrong authority should fail"
+    );
 
     println!("✅ test_register_schema_config_wrong_authority passed");
 }
@@ -222,7 +238,10 @@ fn test_register_schema_config_immutable_registry() {
     );
 
     let result = svm.send_transaction(tx);
-    assert!(result.is_err(), "register_schema_config on immutable registry should fail");
+    assert!(
+        result.is_err(),
+        "register_schema_config on immutable registry should fail"
+    );
 
     println!("✅ test_register_schema_config_immutable_registry passed");
 }

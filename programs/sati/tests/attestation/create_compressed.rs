@@ -18,12 +18,11 @@
 use solana_sdk::pubkey::Pubkey;
 
 use crate::common::{
-    setup::{setup_light_test_env, derive_schema_config_pda, LightTestEnv},
     ed25519::{
-        generate_ed25519_keypair, sign_message, keypair_to_pubkey,
-        create_multi_ed25519_ix, compute_interaction_hash, compute_feedback_hash,
-        compute_data_hash,
+        compute_data_hash, compute_feedback_hash, compute_interaction_hash,
+        create_multi_ed25519_ix, generate_ed25519_keypair, keypair_to_pubkey, sign_message,
     },
+    setup::{derive_schema_config_pda, setup_light_test_env, LightTestEnv},
 };
 
 /// Test successful create_attestation with DualSignature (Feedback)
@@ -35,12 +34,15 @@ use crate::common::{
 #[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_feedback_success() {
     // 1. Setup Light Protocol test environment with SATI program
-    let LightTestEnv { mut rpc, mut indexer, payer } = setup_light_test_env().await;
-    let env = rpc.test_accounts.clone();
+    let LightTestEnv {
+        rpc: _rpc,
+        indexer: _indexer,
+        payer: _payer,
+    } = setup_light_test_env().await;
 
     // 2. Create mock registry and schema config
     let sas_schema = Pubkey::new_unique();
-    let (schema_config_pda, _bump) = derive_schema_config_pda(&sas_schema);
+    let (_schema_config_pda, _bump) = derive_schema_config_pda(&sas_schema);
 
     // TODO: Set up initialized registry and schema config
     // This requires either mocking or running the actual instructions
@@ -56,11 +58,11 @@ async fn test_create_attestation_feedback_success() {
     let data_hash = compute_data_hash(b"test task data");
     let outcome: u8 = 2; // Positive feedback
 
-    let mut data = vec![0u8; 132];
-    data[0..32].copy_from_slice(&task_ref);           // task_ref
-    data[32..64].copy_from_slice(agent_pubkey.as_ref());  // token_account
+    let mut data = [0u8; 132];
+    data[0..32].copy_from_slice(&task_ref); // task_ref
+    data[32..64].copy_from_slice(agent_pubkey.as_ref()); // token_account
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref()); // counterparty
-    data[96..128].copy_from_slice(&data_hash);        // data_hash
+    data[96..128].copy_from_slice(&data_hash); // data_hash
     data[128] = 0; // content_type = 0 (None)
     data[129] = outcome; // outcome
     data[130] = 0; // tag1_len
@@ -68,15 +70,20 @@ async fn test_create_attestation_feedback_success() {
 
     // 5. Compute message hashes and sign
     let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &agent_pubkey, &data_hash);
-    let counterparty_message = compute_feedback_hash(&sas_schema, &task_ref, &agent_pubkey, outcome);
+    let counterparty_message =
+        compute_feedback_hash(&sas_schema, &task_ref, &agent_pubkey, outcome);
 
     let agent_sig = sign_message(&agent_keypair, &agent_message);
     let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_message);
 
     // 6. Create Ed25519 verification instruction
-    let ed25519_ix = create_multi_ed25519_ix(&[
+    let _ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &agent_message, &agent_sig),
-        (&counterparty_pubkey, &counterparty_message, &counterparty_sig),
+        (
+            &counterparty_pubkey,
+            &counterparty_message,
+            &counterparty_sig,
+        ),
     ]);
 
     // 7. Get validity proof for new address
@@ -172,7 +179,7 @@ mod tests {
         let counterparty = Pubkey::new_unique();
         let data_hash = [2u8; 32];
 
-        let mut data = vec![0u8; 132];
+        let mut data = [0u8; 132];
         data[0..32].copy_from_slice(&task_ref);
         data[32..64].copy_from_slice(agent.as_ref());
         data[64..96].copy_from_slice(counterparty.as_ref());

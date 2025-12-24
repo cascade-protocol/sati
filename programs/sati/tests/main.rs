@@ -23,8 +23,8 @@
 //! cargo test -p sati --test main test_initialize_success
 //! ```
 
+mod attestation;
 mod common;
 mod registry;
-mod attestation;
 
 pub use common::*;

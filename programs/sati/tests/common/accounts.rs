@@ -5,12 +5,7 @@
 //! - Only mock accounts when absolutely necessary (and compute discriminators correctly)
 
 use litesvm::LiteSVM;
-use solana_sdk::{
-    account::Account,
-    pubkey::Pubkey,
-    signature::Keypair,
-    signer::Signer,
-};
+use solana_sdk::{account::Account, pubkey::Pubkey, signature::Keypair, signer::Signer};
 
 use crate::common::setup::{SATI_PROGRAM_ID, TOKEN_2022_PROGRAM_ID};
 
@@ -59,12 +54,13 @@ pub fn create_mock_group_mint(
         rent_epoch: 0,
     };
 
-    svm.set_account(mint_keypair.pubkey(), account).expect("Failed to set group mint account");
+    svm.set_account(mint_keypair.pubkey(), account)
+        .expect("Failed to set group mint account");
 }
 
 /// Compute Anchor account discriminator: sha256("account:AccountName")[..8]
 fn compute_anchor_account_discriminator(account_name: &str) -> [u8; 8] {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(format!("account:{}", account_name));
     let result = hasher.finalize();
@@ -109,5 +105,6 @@ pub fn create_initialized_registry(
         rent_epoch: 0,
     };
 
-    svm.set_account(*registry_pda, account).expect("Failed to set registry config");
+    svm.set_account(*registry_pda, account)
+        .expect("Failed to set registry config");
 }
