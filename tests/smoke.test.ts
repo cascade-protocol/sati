@@ -65,7 +65,7 @@ function getProgram(
 // Constants
 // =============================================================================
 
-const PROGRAM_ID = new PublicKey("satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF");
+const PROGRAM_ID = new PublicKey("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 // Test agent metadata - using timestamp to ensure uniqueness
 const TEST_AGENT_PREFIX = "SmokeTest";

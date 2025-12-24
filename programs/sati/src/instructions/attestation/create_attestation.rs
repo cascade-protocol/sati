@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use borsh::BorshDeserialize;
 use light_sdk::{
     account::LightAccount,
     address::v1::derive_address,
@@ -6,6 +7,7 @@ use light_sdk::{
         v1::{CpiAccounts, LightSystemProgramCpi},
         InvokeLightSystemProgram, LightCpiInstruction,
     },
+    instruction::{PackedAddressTreeInfo, ValidityProof},
 };
 use solana_program::sysvar::instructions as instructions_sysvar;
 
@@ -137,9 +139,14 @@ pub fn handler<'info>(
         LIGHT_CPI_SIGNER,
     );
 
-    // 11. Get address tree info from instruction params
-    let address_tree_pubkey = params
-        .address_tree_info
+    // 11. Deserialize Light Protocol types from bytes
+    let address_tree_info = PackedAddressTreeInfo::try_from_slice(&params.address_tree_info_bytes)
+        .map_err(|_| SatiError::InvalidDataLayout)?;
+    let proof = ValidityProof::try_from_slice(&params.proof_bytes)
+        .map_err(|_| SatiError::InvalidDataLayout)?;
+
+    // 12. Get address tree pubkey from deserialized info
+    let address_tree_pubkey = address_tree_info
         .get_tree_pubkey(&light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
@@ -154,7 +161,7 @@ pub fn handler<'info>(
         &ID,
     );
 
-    // 12. Initialize compressed account with proper tree index
+    // 13. Initialize compressed account with proper tree index
     let mut attestation = LightAccount::<CompressedAttestation>::new_init(
         &ID,
         Some(address),
@@ -169,19 +176,17 @@ pub fn handler<'info>(
     attestation.signature1 = params.signatures.first().map(|s| s.sig).unwrap_or([0u8; 64]);
     attestation.signature2 = params.signatures.get(1).map(|s| s.sig).unwrap_or([0u8; 64]);
 
-    // 13. Compute new address params from instruction params
-    let new_address_params = params
-        .address_tree_info
-        .into_new_address_params_packed(address_seed);
+    // 14. Compute new address params from deserialized tree info
+    let new_address_params = address_tree_info.into_new_address_params_packed(address_seed);
 
-    // 14. CPI to Light System Program with proof from params
-    LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, params.proof.clone())
+    // 15. CPI to Light System Program with deserialized proof
+    LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, proof)
         .with_light_account(attestation)?
         .with_new_addresses(&[new_address_params])
         .invoke(light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
-    // 15. Emit event
+    // 16. Emit event
     emit_cpi!(AttestationCreated {
         sas_schema: schema_config.sas_schema,
         token_account: token_account_pubkey,

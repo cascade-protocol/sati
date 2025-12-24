@@ -1,16 +1,550 @@
 {
-  "address": "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF",
+  "address": "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
   "metadata": {
-    "name": "sati_registry",
+    "name": "sati",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Minimal agent identity registry for Solana - ERC-8004 compatible"
+    "description": "SATI - Solana Agent Trust Infrastructure",
+    "repository": "https://github.com/cascade-protocol/sati"
   },
   "instructions": [
     {
+      "name": "close_attestation",
+      "docs": [
+        "Close a compressed attestation.",
+        "Only allowed if schema config has closeable=true."
+      ],
+      "discriminator": [
+        249,
+        84,
+        133,
+        23,
+        48,
+        175,
+        252,
+        221
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "docs": [
+            "Signer must be the counterparty (provider for ReputationScore)"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "schema_config",
+          "docs": [
+            "Schema config PDA"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  99,
+                  104,
+                  101,
+                  109,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "schema_config.sas_schema",
+                "account": "SchemaConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "CloseParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "close_regular_attestation",
+      "docs": [
+        "Close a regular (SAS) attestation.",
+        "Only allowed if schema config has closeable=true."
+      ],
+      "discriminator": [
+        243,
+        10,
+        146,
+        163,
+        169,
+        75,
+        64,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Payer receives rent back"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "signer",
+          "docs": [
+            "Signer must be the counterparty (provider for ReputationScore)"
+          ],
+          "signer": true
+        },
+        {
+          "name": "schema_config",
+          "docs": [
+            "Schema config PDA"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  99,
+                  104,
+                  101,
+                  109,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "schema_config.sas_schema",
+                "account": "SchemaConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sati_pda",
+          "docs": [
+            "SATI Attestation Program PDA - authorized signer on SAS credential"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  97,
+                  116,
+                  105,
+                  95,
+                  97,
+                  116,
+                  116,
+                  101,
+                  115,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sati_credential",
+          "docs": [
+            "SATI SAS credential account"
+          ]
+        },
+        {
+          "name": "attestation",
+          "docs": [
+            "Attestation account to be closed"
+          ],
+          "writable": true
+        },
+        {
+          "name": "sas_program",
+          "docs": [
+            "SAS program"
+          ],
+          "address": "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_attestation",
+      "docs": [
+        "Create a compressed attestation via Light Protocol.",
+        "Verifies Ed25519 signatures via instruction introspection."
+      ],
+      "discriminator": [
+        49,
+        24,
+        67,
+        80,
+        12,
+        249,
+        96,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Payer for transaction fees"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "schema_config",
+          "docs": [
+            "Schema config PDA"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  99,
+                  104,
+                  101,
+                  109,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "schema_config.sas_schema",
+                "account": "SchemaConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions_sysvar",
+          "docs": [
+            "Instructions sysvar for Ed25519 signature verification"
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "CreateParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_regular_attestation",
+      "docs": [
+        "Create a regular attestation via SAS.",
+        "Used for ReputationScore which requires on-chain queryability."
+      ],
+      "discriminator": [
+        69,
+        6,
+        28,
+        228,
+        190,
+        240,
+        142,
+        79
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Payer for account creation"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "schema_config",
+          "docs": [
+            "Schema config PDA"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  99,
+                  104,
+                  101,
+                  109,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "schema_config.sas_schema",
+                "account": "SchemaConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sati_pda",
+          "docs": [
+            "SATI Attestation Program PDA - authorized signer on SAS credential"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  97,
+                  116,
+                  105,
+                  95,
+                  97,
+                  116,
+                  116,
+                  101,
+                  115,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "sati_credential",
+          "docs": [
+            "SATI SAS credential account"
+          ]
+        },
+        {
+          "name": "sas_schema",
+          "docs": [
+            "SAS schema account"
+          ]
+        },
+        {
+          "name": "attestation",
+          "docs": [
+            "Attestation PDA to be created"
+          ],
+          "writable": true
+        },
+        {
+          "name": "instructions_sysvar",
+          "docs": [
+            "Instructions sysvar for Ed25519 signature verification"
+          ],
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "sas_program",
+          "docs": [
+            "SAS program"
+          ],
+          "address": "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "CreateRegularParams"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "initialize",
       "docs": [
-        "One-time setup to create the registry and TokenGroup"
+        "Initialize the SATI registry.",
+        "Validates a pre-initialized TokenGroup mint and stores registry configuration."
       ],
       "discriminator": [
         175,
@@ -72,8 +606,8 @@
     {
       "name": "register_agent",
       "docs": [
-        "Canonical entry point for agent registration",
-        "Creates Token-2022 NFT with metadata + group membership atomically"
+        "Register a new agent in the SATI registry.",
+        "Creates a Token-2022 NFT with TokenMetadata and TokenGroupMember extensions."
       ],
       "discriminator": [
         135,
@@ -191,9 +725,133 @@
       ]
     },
     {
+      "name": "register_schema_config",
+      "docs": [
+        "Register a schema configuration. Authority only.",
+        "Creates a SchemaConfig PDA that determines signature mode and storage type."
+      ],
+      "discriminator": [
+        21,
+        131,
+        188,
+        124,
+        189,
+        202,
+        70,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Payer for account creation"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "registry_config",
+          "docs": [
+            "Registry config - validates authority and checks mutability"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "Authority that can register schemas (validated against registry_config)"
+          ],
+          "signer": true,
+          "relations": [
+            "registry_config"
+          ]
+        },
+        {
+          "name": "schema_config",
+          "docs": [
+            "Schema config PDA to be created"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  99,
+                  104,
+                  101,
+                  109,
+                  97,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "sas_schema"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "sas_schema",
+          "type": "pubkey"
+        },
+        {
+          "name": "signature_mode",
+          "type": {
+            "defined": {
+              "name": "SignatureMode"
+            }
+          }
+        },
+        {
+          "name": "storage_type",
+          "type": {
+            "defined": {
+              "name": "StorageType"
+            }
+          }
+        },
+        {
+          "name": "closeable",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "update_registry_authority",
       "docs": [
-        "Transfer or renounce registry authority"
+        "Update or renounce registry authority.",
+        "Pass None to renounce (makes registry immutable)."
       ],
       "discriminator": [
         36,
@@ -264,6 +922,19 @@
         243,
         156
       ]
+    },
+    {
+      "name": "SchemaConfig",
+      "discriminator": [
+        211,
+        19,
+        105,
+        220,
+        186,
+        61,
+        182,
+        47
+      ]
     }
   ],
   "events": [
@@ -278,6 +949,32 @@
         100,
         189,
         85
+      ]
+    },
+    {
+      "name": "AttestationClosed",
+      "discriminator": [
+        126,
+        45,
+        96,
+        171,
+        16,
+        201,
+        11,
+        78
+      ]
+    },
+    {
+      "name": "AttestationCreated",
+      "discriminator": [
+        217,
+        170,
+        19,
+        203,
+        128,
+        51,
+        29,
+        163
       ]
     },
     {
@@ -304,6 +1001,19 @@
         38,
         100,
         177
+      ]
+    },
+    {
+      "name": "SchemaConfigRegistered",
+      "discriminator": [
+        215,
+        26,
+        249,
+        141,
+        102,
+        102,
+        52,
+        34
       ]
     }
   ],
@@ -362,6 +1072,131 @@
       "code": 6010,
       "name": "MintAuthorityNotRenounced",
       "msg": "Failed to renounce mint authority - supply guarantee violated"
+    },
+    {
+      "code": 6011,
+      "name": "SchemaConfigNotFound",
+      "msg": "Schema config not found"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidSignatureCount",
+      "msg": "Invalid signature count for signature mode"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidSignature",
+      "msg": "Invalid Ed25519 signature"
+    },
+    {
+      "code": 6014,
+      "name": "StorageTypeNotSupported",
+      "msg": "Storage type not supported for this operation"
+    },
+    {
+      "code": 6015,
+      "name": "StorageTypeMismatch",
+      "msg": "Storage type mismatch"
+    },
+    {
+      "code": 6016,
+      "name": "AttestationDataTooSmall",
+      "msg": "Attestation data too small (minimum 96 bytes for base layout)"
+    },
+    {
+      "code": 6017,
+      "name": "AttestationDataTooLarge",
+      "msg": "Attestation data exceeds maximum size"
+    },
+    {
+      "code": 6018,
+      "name": "ContentTooLarge",
+      "msg": "Content exceeds maximum size (512 bytes)"
+    },
+    {
+      "code": 6019,
+      "name": "SignatureMismatch",
+      "msg": "Signature pubkey does not match expected account"
+    },
+    {
+      "code": 6020,
+      "name": "SelfAttestationNotAllowed",
+      "msg": "Self-attestation is not allowed (token_account == counterparty)"
+    },
+    {
+      "code": 6021,
+      "name": "UnauthorizedClose",
+      "msg": "Unauthorized to close attestation"
+    },
+    {
+      "code": 6022,
+      "name": "AttestationNotCloseable",
+      "msg": "Attestation cannot be closed for this schema"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidOutcome",
+      "msg": "Invalid outcome value (must be 0-2)"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidContentType",
+      "msg": "Invalid content type (must be 0-4)"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidDataType",
+      "msg": "Invalid data type"
+    },
+    {
+      "code": 6026,
+      "name": "InvalidScore",
+      "msg": "Invalid score value (must be 0-100)"
+    },
+    {
+      "code": 6027,
+      "name": "InvalidResponse",
+      "msg": "Invalid validation response (must be 0-100)"
+    },
+    {
+      "code": 6028,
+      "name": "TagTooLong",
+      "msg": "Tag string exceeds maximum length (32 chars)"
+    },
+    {
+      "code": 6029,
+      "name": "InvalidDataLayout",
+      "msg": "Invalid data layout"
+    },
+    {
+      "code": 6030,
+      "name": "LightCpiInvocationFailed",
+      "msg": "Light Protocol CPI invocation failed"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidEd25519Instruction",
+      "msg": "Invalid Ed25519 instruction format"
+    },
+    {
+      "code": 6032,
+      "name": "MissingSignatures",
+      "msg": "Missing required Ed25519 signatures in transaction"
+    },
+    {
+      "code": 6033,
+      "name": "MessageMismatch",
+      "msg": "Message hash mismatch - signature was for different data"
+    },
+    {
+      "code": 6034,
+      "name": "InvalidInstructionsSysvar",
+      "msg": "Invalid instructions sysvar"
+    },
+    {
+      "code": 6035,
+      "name": "DuplicateSigners",
+      "msg": "Duplicate signers not allowed for dual signature mode"
     }
   ],
   "types": [
@@ -393,6 +1228,282 @@
           {
             "name": "non_transferable",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AttestationClosed",
+      "docs": [
+        "Emitted when an attestation is closed"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sas_schema",
+            "docs": [
+              "SAS schema address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_account",
+            "docs": [
+              "Agent that was attested"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "address",
+            "docs": [
+              "Attestation address that was closed"
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AttestationCreated",
+      "docs": [
+        "Emitted when an attestation is created (compressed or regular)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sas_schema",
+            "docs": [
+              "SAS schema address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_account",
+            "docs": [
+              "Agent being attested"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "counterparty",
+            "docs": [
+              "Counterparty (client for Feedback, validator for Validation, provider for ReputationScore)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "data_type",
+            "docs": [
+              "Schema data type (0=Feedback, 1=Validation, 2=ReputationScore)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "storage_type",
+            "docs": [
+              "Storage type used"
+            ],
+            "type": {
+              "defined": {
+                "name": "StorageType"
+              }
+            }
+          },
+          {
+            "name": "address",
+            "docs": [
+              "Attestation address (Light address for compressed, PDA for regular)"
+            ],
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CloseParams",
+      "docs": [
+        "Parameters for closing a compressed attestation",
+        "",
+        "Light Protocol specific data (proof, account_meta) is passed as serialized bytes",
+        "and deserialized in the handler using Light SDK."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_type",
+            "docs": [
+              "Data type of the attestation being closed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "current_data",
+            "docs": [
+              "Current attestation data (for hash verification)"
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "num_signatures",
+            "docs": [
+              "Number of signatures in the attestation"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "signature1",
+            "docs": [
+              "First signature (required)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "signature2",
+            "docs": [
+              "Second signature (zeroed for SingleSigner mode)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "address",
+            "docs": [
+              "The compressed account address being closed (for event emission)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_bytes",
+            "docs": [
+              "Serialized Light Protocol proof bytes"
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "account_meta_bytes",
+            "docs": [
+              "Serialized compressed account metadata bytes"
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateParams",
+      "docs": [
+        "Parameters for creating a compressed attestation",
+        "",
+        "Light Protocol specific data (proof, address_tree_info) is passed separately",
+        "via remaining_accounts and deserialized in the handler using Light SDK."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_type",
+            "docs": [
+              "Data type: 0=Feedback, 1=Validation"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "data",
+            "docs": [
+              "Schema-conformant data bytes (96+ bytes)"
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "signatures",
+            "docs": [
+              "Ed25519 signatures with public keys"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "SignatureData"
+                }
+              }
+            }
+          },
+          {
+            "name": "output_state_tree_index",
+            "docs": [
+              "Output state tree index for the new compressed account"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "proof_bytes",
+            "docs": [
+              "Serialized Light Protocol proof bytes (CompressedProof)"
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "address_tree_info_bytes",
+            "docs": [
+              "Serialized address tree info bytes (PackedAddressTreeInfo)"
+            ],
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateRegularParams",
+      "docs": [
+        "Parameters for creating a regular (SAS) attestation"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "data_type",
+            "docs": [
+              "Data type: 2=ReputationScore"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "data",
+            "docs": [
+              "Schema-conformant data bytes"
+            ],
+            "type": "bytes"
+          },
+          {
+            "name": "signatures",
+            "docs": [
+              "Single signature (provider)"
+            ],
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "SignatureData"
+                }
+              }
+            }
+          },
+          {
+            "name": "expiry",
+            "docs": [
+              "Expiry timestamp (0 = never expires)"
+            ],
+            "type": "i64"
           }
         ]
       }
@@ -488,6 +1599,172 @@
           {
             "name": "group_mint",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SchemaConfig",
+      "docs": [
+        "Schema configuration for a registered attestation type.",
+        "PDA seeds: [\"schema_config\", sas_schema]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "sas_schema",
+            "docs": [
+              "SAS schema address this config applies to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "signature_mode",
+            "docs": [
+              "Signature verification mode"
+            ],
+            "type": {
+              "defined": {
+                "name": "SignatureMode"
+              }
+            }
+          },
+          {
+            "name": "storage_type",
+            "docs": [
+              "Storage backend type"
+            ],
+            "type": {
+              "defined": {
+                "name": "StorageType"
+              }
+            }
+          },
+          {
+            "name": "closeable",
+            "docs": [
+              "Whether attestations can be closed/nullified"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SchemaConfigRegistered",
+      "docs": [
+        "Emitted when a schema config is registered"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "schema",
+            "docs": [
+              "SAS schema address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "signature_mode",
+            "docs": [
+              "Signature mode (DualSignature or SingleSigner)"
+            ],
+            "type": {
+              "defined": {
+                "name": "SignatureMode"
+              }
+            }
+          },
+          {
+            "name": "storage_type",
+            "docs": [
+              "Storage type (Compressed or Regular)"
+            ],
+            "type": {
+              "defined": {
+                "name": "StorageType"
+              }
+            }
+          },
+          {
+            "name": "closeable",
+            "docs": [
+              "Whether attestations can be closed"
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SignatureData",
+      "docs": [
+        "Ed25519 signature with associated public key"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pubkey",
+            "docs": [
+              "Public key that signed"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "sig",
+            "docs": [
+              "64-byte Ed25519 signature"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "SignatureMode",
+      "docs": [
+        "Signature mode determines how many signatures are required"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "DualSignature"
+          },
+          {
+            "name": "SingleSigner"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StorageType",
+      "docs": [
+        "Storage type determines where attestations are stored"
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Compressed"
+          },
+          {
+            "name": "Regular"
           }
         ]
       }

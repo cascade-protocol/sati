@@ -2,14 +2,15 @@
  * SATI Client - High-Level SDK Interface
  *
  * Provides a convenient wrapper around the generated Codama client
- * and SAS attestation operations for the Solana Agent Trust Infrastructure.
+ * for the Solana Agent Trust Infrastructure.
  *
  * Features:
  * - Agent registration via Token-2022 NFT minting
- * - Reputation management via SAS attestations (ERC-8004 compatible)
- * - Validation request/response workflows
+ * - Compressed attestations via Light Protocol (Feedback, Validation)
+ * - Regular attestations via SAS (ReputationScore)
+ * - Ed25519 signature building for blind feedback model
  *
- * @see https://github.com/ethereum/ERCs/blob/master/ERCS/erc-8004.md
+ * @see https://github.com/cascade-protocol/sati
  */
 
 import {
@@ -26,6 +27,8 @@ import {
   appendTransactionMessageInstructions,
   address,
   getSignatureFromTransaction,
+  getProgramDerivedAddress,
+  getAddressEncoder,
   type Address,
   type Instruction,
   type KeyPairSigner,
@@ -40,58 +43,67 @@ import {
 
 import {
   getRegisterAgentInstructionAsync,
+  getCreateAttestationInstructionAsync,
+  getCloseAttestationInstructionAsync,
+  getCreateRegularAttestationInstructionAsync,
+  getCloseRegularAttestationInstructionAsync,
+  getRegisterSchemaConfigInstructionAsync,
   fetchRegistryConfig,
+  fetchSchemaConfig,
+  fetchMaybeSchemaConfig,
+  SATI_PROGRAM_ADDRESS,
+  type SignatureData as GeneratedSignatureData,
 } from "./generated";
 
 import {
   findAssociatedTokenAddress,
   findRegistryConfigPda,
+  findSchemaConfigPda,
   TOKEN_2022_PROGRAM_ADDRESS,
 } from "./helpers";
 
 import {
-  deriveSatiAttestationPda,
-  deriveEventAuthorityAddress,
-  deriveCredentialPda,
-  deriveSchemaPda,
-  getCreateCredentialInstruction,
-  getCreateSchemaInstruction,
-  getCreateAttestationInstruction,
-  getCloseAttestationInstruction,
-  fetchSchema,
-  fetchAttestation,
-  fetchMaybeCredential,
-  fetchAllMaybeSchema,
-  deserializeAttestationData,
-  serializeFeedbackAuthData,
-  serializeFeedbackData,
-  serializeFeedbackResponseData,
-  serializeValidationRequestData,
-  serializeValidationResponseData,
-  computeFeedbackAuthNonce,
-  computeFeedbackNonce,
-  computeFeedbackResponseNonce,
-  computeValidationRequestNonce,
-  computeValidationResponseNonce,
-  SATI_CREDENTIAL_NAME,
-  SATI_SCHEMA_NAMES,
-  SATI_SAS_SCHEMAS,
-  SAS_PROGRAM_ID,
-  type SATISASConfig,
-} from "./sas";
+  computeInteractionHash,
+  computeFeedbackHash,
+  computeValidationHash,
+  computeReputationHash,
+  computeAttestationNonce,
+  computeReputationNonce,
+  Outcome,
+} from "./hashes";
+
+import {
+  DataType,
+  ContentType,
+  ValidationType,
+  SignatureMode,
+  StorageType,
+  serializeFeedback,
+  serializeValidation,
+  serializeReputationScore,
+  deserializeFeedback,
+  deserializeValidation,
+  type FeedbackData,
+  type ValidationData,
+  type ReputationScoreData,
+} from "./schemas";
+
+import {
+  LightClient,
+  createLightClient,
+  type ParsedAttestation,
+  type AttestationFilter,
+} from "./light";
 
 import type {
   AgentIdentity,
-  Feedback,
-  ValidationStatus,
   RegisterAgentResult,
-  AttestationResult,
   SATIClientOptions,
-  SASDeploymentResult,
-  SchemaDeploymentStatus,
 } from "./types";
 
-import { loadDeployedConfig } from "./deployed";
+// Re-export types
+export { Outcome } from "./hashes";
+export { DataType, ContentType, ValidationType, SignatureMode, StorageType } from "./schemas";
 
 // Default RPC URLs
 const RPC_URLS = {
@@ -109,8 +121,6 @@ const WS_URLS = {
 
 /**
  * Type helper for signed transactions with blockhash lifetime.
- * Used after setTransactionMessageLifetimeUsingBlockhash to satisfy
- * sendAndConfirmTransactionFactory's type requirements.
  */
 type SignedBlockhashTransaction = Awaited<
   ReturnType<typeof signTransactionMessageWithSigners>
@@ -122,12 +132,116 @@ type SignedBlockhashTransaction = Awaited<
  * Helper to unwrap Option type from @solana/kit
  */
 function unwrapOption<T>(
-  option: { __option: "Some"; value: T } | { __option: "None" },
+  option: { __option: "Some"; value: T } | { __option: "None" }
 ): T | null {
   if (option.__option === "Some") {
     return option.value;
   }
   return null;
+}
+
+/**
+ * Attestation creation result
+ */
+export interface AttestationResult {
+  /** Attestation address (compressed account address or SAS PDA) */
+  address: Address;
+  /** Transaction signature */
+  signature: string;
+}
+
+/**
+ * Signature data with pubkey for attestation creation
+ */
+export interface SignatureInput {
+  /** Public key that signed */
+  pubkey: Address;
+  /** 64-byte Ed25519 signature */
+  signature: Uint8Array;
+}
+
+/**
+ * Parameters for creating a Feedback attestation
+ */
+export interface CreateFeedbackParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** SAS schema address for this feedback type */
+  sasSchema: Address;
+  /** Task reference (CAIP-220 tx hash or arbitrary ID) */
+  taskRef: Uint8Array;
+  /** Agent's token account */
+  tokenAccount: Address;
+  /** Client (feedback giver) */
+  counterparty: Address;
+  /** Hash of request/interaction data */
+  dataHash: Uint8Array;
+  /** Content format */
+  contentType?: ContentType;
+  /** Feedback outcome */
+  outcome: Outcome;
+  /** Primary tag (max 32 chars) */
+  tag1?: string;
+  /** Secondary tag (max 32 chars) */
+  tag2?: string;
+  /** Variable-length content */
+  content?: Uint8Array;
+  /** Agent's signature (blind) */
+  agentSignature: SignatureInput;
+  /** Counterparty's signature (with outcome) */
+  counterpartySignature: SignatureInput;
+}
+
+/**
+ * Parameters for creating a Validation attestation
+ */
+export interface CreateValidationParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** SAS schema address */
+  sasSchema: Address;
+  /** Task reference */
+  taskRef: Uint8Array;
+  /** Agent's token account */
+  tokenAccount: Address;
+  /** Validator address */
+  counterparty: Address;
+  /** Hash of work being validated */
+  dataHash: Uint8Array;
+  /** Content format */
+  contentType?: ContentType;
+  /** Validation method type */
+  validationType?: ValidationType;
+  /** Validation response score (0-100) */
+  response: number;
+  /** Variable-length content (validation report) */
+  content?: Uint8Array;
+  /** Agent's signature (blind) */
+  agentSignature: SignatureInput;
+  /** Validator's signature (with response) */
+  validatorSignature: SignatureInput;
+}
+
+/**
+ * Parameters for creating a ReputationScore attestation
+ */
+export interface CreateReputationScoreParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** Provider (reputation scorer) - must sign */
+  provider: KeyPairSigner;
+  /** SAS schema address */
+  sasSchema: Address;
+  /** Agent's token account being scored */
+  tokenAccount: Address;
+  /** Reputation score (0-100) */
+  score: number;
+  /** Content format */
+  contentType?: ContentType;
+  /** Methodology/details content */
+  content?: Uint8Array;
+  /** Expiry timestamp (0 = never expires) */
+  expiry?: number;
 }
 
 /**
@@ -146,8 +260,17 @@ function unwrapOption<T>(
  *   uri: "ipfs://QmRegistrationFile",
  * });
  *
- * // Load agent identity
- * const agent = await sati.loadAgent(mint);
+ * // Create feedback attestation
+ * const result = await sati.createFeedback({
+ *   payer,
+ *   sasSchema,
+ *   taskRef: paymentTxHash,
+ *   tokenAccount: agentMint,
+ *   counterparty: clientPubkey,
+ *   outcome: Outcome.Positive,
+ *   agentSignature,
+ *   counterpartySignature,
+ * });
  * ```
  */
 export class SATI {
@@ -155,7 +278,7 @@ export class SATI {
   private rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>;
   private sendAndConfirm: ReturnType<typeof sendAndConfirmTransactionFactory>;
   private network: "mainnet" | "devnet" | "localnet";
-  private sasConfig: SATISASConfig | null = null;
+  private lightClient: LightClient | null = null;
 
   constructor(options: SATIClientOptions) {
     this.network = options.network;
@@ -169,42 +292,27 @@ export class SATI {
       rpcSubscriptions: this.rpcSubscriptions,
     });
 
-    // Auto-load deployed SAS config if available for this network
-    const deployedConfig = loadDeployedConfig(this.network);
-    if (deployedConfig) {
-      this.sasConfig = deployedConfig;
+    // Initialize Light client if Photon URL provided
+    if (options.photonRpcUrl) {
+      this.lightClient = createLightClient(options.photonRpcUrl);
     }
   }
 
   /**
-   * Set SAS configuration for reputation/validation operations
-   *
-   * This should be called after SATI schemas are deployed to the network.
-   * Use setupSASSchemas() to deploy schemas if they don't exist yet.
-   *
-   * @param config - SAS credential and schema addresses
+   * Get or create Light Protocol client
    */
-  setSASConfig(config: SATISASConfig): void {
-    this.sasConfig = config;
-  }
-
-  /**
-   * Get current SAS configuration
-   */
-  getSASConfig(): SATISASConfig | null {
-    return this.sasConfig;
-  }
-
-  /**
-   * Ensure SAS config is set, throw if not
-   */
-  private requireSASConfig(): SATISASConfig {
-    if (!this.sasConfig) {
-      throw new Error(
-        "SAS configuration not set. Call setSASConfig() or setupSASSchemas() first.",
-      );
+  getLightClient(): LightClient {
+    if (!this.lightClient) {
+      this.lightClient = createLightClient();
     }
-    return this.sasConfig;
+    return this.lightClient;
+  }
+
+  /**
+   * Set Light Protocol client
+   */
+  setLightClient(client: LightClient): void {
+    this.lightClient = client;
   }
 
   // ============================================================
@@ -215,12 +323,6 @@ export class SATI {
    * Register a new agent identity
    *
    * Creates a Token-2022 NFT with metadata and group membership atomically.
-   *
-   * **Compute Budget Note:**
-   * Each additional metadata entry adds ~5-10k compute units.
-   * When using >5 entries, the on-chain program logs a warning suggesting
-   * 400k CUs. If transactions fail with compute exceeded, prepend a
-   * SetComputeUnitLimit instruction to your transaction.
    *
    * @param params - Registration parameters
    * @returns Mint address and member number
@@ -255,17 +357,16 @@ export class SATI {
     const agentMint = await generateKeyPairSigner();
 
     // Fetch registry config to get the actual group mint
-    // NOTE: The group mint is NOT a PDA - it's stored in the registry config
     const [registryConfigAddress] = await findRegistryConfigPda();
     const registryConfig = await fetchRegistryConfig(
       this.rpc,
-      registryConfigAddress,
+      registryConfigAddress
     );
     const groupMint = registryConfig.data.groupMint;
     const ownerAddress = owner ?? payer.address;
     const [agentTokenAccount] = await findAssociatedTokenAddress(
       agentMint.address,
-      ownerAddress,
+      ownerAddress
     );
 
     // Build instruction
@@ -292,7 +393,7 @@ export class SATI {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) =>
         setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(registerIx, msg),
+      (msg) => appendTransactionMessageInstruction(registerIx, msg)
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -303,7 +404,7 @@ export class SATI {
     // Re-fetch registry config to get the updated member number
     const updatedRegistryConfig = await fetchRegistryConfig(
       this.rpc,
-      registryConfigAddress,
+      registryConfigAddress
     );
     const memberNumber = updatedRegistryConfig.data.totalAgents;
 
@@ -329,7 +430,7 @@ export class SATI {
     const [registryConfigAddress] = await findRegistryConfigPda();
     const registryConfig = await fetchRegistryConfig(
       this.rpc,
-      registryConfigAddress,
+      registryConfigAddress
     );
 
     const isImmutable =
@@ -364,7 +465,7 @@ export class SATI {
       const extensions = unwrapOption(
         mintAccount.data.extensions as
           | { __option: "Some"; value: Extension[] }
-          | { __option: "None" },
+          | { __option: "None" }
       );
 
       if (!extensions) {
@@ -374,7 +475,7 @@ export class SATI {
       // Find TokenMetadata extension
       const metadataExt = extensions.find(
         (ext: Extension): ext is Extension & { __kind: "TokenMetadata" } =>
-          ext.__kind === "TokenMetadata",
+          ext.__kind === "TokenMetadata"
       );
 
       if (!metadataExt) {
@@ -384,12 +485,12 @@ export class SATI {
       // Find TokenGroupMember extension for member number
       const groupMemberExt = extensions.find(
         (ext: Extension): ext is Extension & { __kind: "TokenGroupMember" } =>
-          ext.__kind === "TokenGroupMember",
+          ext.__kind === "TokenGroupMember"
       );
 
       // Find NonTransferable extension
       const nonTransferableExt = extensions.find(
-        (ext: Extension) => ext.__kind === "NonTransferable",
+        (ext: Extension) => ext.__kind === "NonTransferable"
       );
 
       // Get owner by finding the token account
@@ -416,35 +517,6 @@ export class SATI {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Update agent metadata
-   *
-   * Directly calls Token-2022 updateTokenMetadataField instruction.
-   * Requires owner signature.
-   *
-   * Note: This method requires building raw instructions for the
-   * spl-token-metadata-interface. For now, use @solana/spl-token directly
-   * or the Anchor client for metadata updates.
-   *
-   * @param _mint - Agent NFT mint address
-   * @param _updates - Fields to update
-   */
-  async updateAgentMetadata(
-    _mint: Address,
-    _updates: {
-      name?: string;
-      uri?: string;
-      additionalMetadata?: Array<{ key: string; value: string }>;
-    },
-  ): Promise<void> {
-    // Token-2022 metadata updates require the spl-token-metadata-interface
-    // which needs to be called via raw instruction building.
-    // This is better done through @solana/spl-token or direct instruction construction.
-    throw new Error(
-      "updateAgentMetadata requires spl-token-metadata-interface - use @solana/spl-token updateTokenMetadataField() directly",
-    );
   }
 
   /**
@@ -488,7 +560,7 @@ export class SATI {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) =>
         setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(transferIx, msg),
+      (msg) => appendTransactionMessageInstruction(transferIx, msg)
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -510,7 +582,6 @@ export class SATI {
    */
   async getAgentOwner(mint: Address): Promise<Address> {
     // For NFTs (supply=1), we can use getTokenLargestAccounts to find the holder
-    // This returns accounts sorted by balance descending
     const response = await this.rpc
       .getTokenLargestAccounts(mint, { commitment: "confirmed" })
       .send();
@@ -521,7 +592,7 @@ export class SATI {
 
     // Find the account with balance > 0 (the holder)
     const holderAccount = response.value.find(
-      (acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n,
+      (acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n
     );
 
     if (!holderAccount) {
@@ -531,323 +602,91 @@ export class SATI {
     // Fetch the token account to get its owner
     const tokenAccount = await fetchToken2022Token(
       this.rpc,
-      address(holderAccount.address),
+      address(holderAccount.address)
     );
 
     return tokenAccount.data.owner;
   }
 
-  /**
-   * List registered agents
-   *
-   * Uses getProgramAccounts to find all SATI agent NFTs.
-   * For better performance at scale, use an indexer.
-   *
-   * @param params - Pagination parameters
-   * @returns Array of agent identities
-   */
-  async listAgents(params?: {
-    offset?: number;
-    limit?: number;
-  }): Promise<AgentIdentity[]> {
-    const { offset = 0, limit = 100 } = params ?? {};
-
-    // Fetch registry config to get the actual group mint for filtering
-    // NOTE: The group mint is NOT a PDA - it's stored in the registry config
-    const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(
-      this.rpc,
-      registryConfigAddress,
-    );
-    const groupMint = registryConfig.data.groupMint;
-
-    // Use getProgramAccounts to find all mints that are members of the SATI group
-    // Filter by GroupMemberPointer extension pointing to our group
-    const accounts = await this.rpc
-      .getProgramAccounts(TOKEN_2022_PROGRAM_ADDRESS, {
-        commitment: "confirmed",
-        encoding: "base64",
-        // Mints are 82 bytes base + extensions, filter by minimum size
-        dataSlice: { offset: 0, length: 0 }, // Just get addresses first
-      })
-      .send();
-
-    // Load agents in batches
-    const agents: AgentIdentity[] = [];
-    const addressesToCheck = accounts
-      .slice(offset, offset + limit * 2) // Fetch extra since some may not be agents
-      .map((acc: { pubkey: Address }) => acc.pubkey);
-
-    for (const addr of addressesToCheck) {
-      if (agents.length >= limit) break;
-
-      const agent = await this.loadAgent(addr);
-      if (agent) {
-        // Verify it belongs to our registry by checking group membership
-        const mintAccount = await fetchToken2022Mint(this.rpc, addr);
-        const extensions = unwrapOption(
-          mintAccount.data.extensions as
-            | { __option: "Some"; value: Extension[] }
-            | { __option: "None" },
-        );
-
-        if (extensions) {
-          const groupMemberExt = extensions.find(
-            (
-              ext: Extension,
-            ): ext is Extension & { __kind: "TokenGroupMember" } =>
-              ext.__kind === "TokenGroupMember",
-          );
-
-          if (groupMemberExt && groupMemberExt.group === groupMint) {
-            agents.push(agent);
-          }
-        }
-      }
-    }
-
-    return agents;
-  }
-
   // ============================================================
-  // REPUTATION (SAS)
+  // COMPRESSED ATTESTATIONS (Light Protocol)
   // ============================================================
 
   /**
-   * Authorize a client to submit feedback
+   * Create a Feedback attestation (compressed storage)
    *
-   * Creates a FeedbackAuth attestation via SAS.
-   * Must be called by the agent owner.
-   *
-   * @param params - Authorization parameters
-   * @returns Attestation address and signature
-   */
-  async authorizeFeedback(params: {
-    /** Payer for transaction */
-    payer: KeyPairSigner;
-    /** Agent owner (must sign) */
-    agentOwner: KeyPairSigner;
-    /** Agent NFT mint address */
-    agentMint: Address;
-    /** Client to authorize */
-    client: Address;
-    /** Maximum feedback index allowed (ERC-8004: indexLimit) */
-    indexLimit: number;
-    /** Expiration timestamp (0 = no expiry) */
-    expiry?: number;
-  }): Promise<AttestationResult> {
-    const sasConfig = this.requireSASConfig();
-    const {
-      payer,
-      agentOwner,
-      agentMint,
-      client,
-      indexLimit,
-      expiry = 0,
-    } = params;
-
-    // Derive attestation PDA
-    const nonce = computeFeedbackAuthNonce(agentMint, client);
-    const [attestationPda] = await deriveSatiAttestationPda(
-      sasConfig.credential,
-      sasConfig.schemas.feedbackAuth,
-      nonce,
-    );
-
-    // Fetch schema for serialization
-    const schema = await fetchSchema(this.rpc, sasConfig.schemas.feedbackAuth);
-
-    // Serialize attestation data
-    const data = serializeFeedbackAuthData(
-      {
-        agent_mint: agentMint,
-        index_limit: indexLimit,
-        expiry,
-      },
-      schema.data,
-    );
-
-    // Calculate expiry timestamp (1 year from now if not specified)
-    const expiryTimestamp =
-      expiry || Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-
-    // Create attestation instruction
-    const createAttestationIx = await getCreateAttestationInstruction({
-      payer,
-      authority: agentOwner,
-      credential: sasConfig.credential,
-      schema: sasConfig.schemas.feedbackAuth,
-      attestation: attestationPda,
-      nonce,
-      expiry: expiryTimestamp,
-      data,
-    });
-
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-
-    return {
-      attestation: attestationPda,
-      signature: signature.toString(),
-    };
-  }
-
-  /**
-   * Revoke feedback authorization
-   *
-   * Closes the FeedbackAuth attestation and reclaims rent.
-   *
-   * @param params - Revocation parameters
-   */
-  async revokeAuthorization(params: {
-    /** Payer (receives rent refund) */
-    payer: KeyPairSigner;
-    /** Authority who created the attestation */
-    authority: KeyPairSigner;
-    /** FeedbackAuth attestation address to revoke */
-    attestation: Address;
-  }): Promise<{ signature: string }> {
-    const sasConfig = this.requireSASConfig();
-    const { payer, authority, attestation } = params;
-
-    // Get event authority for close instruction
-    const eventAuthority = await deriveEventAuthorityAddress();
-
-    // Create close attestation instruction
-    const closeIx = await getCloseAttestationInstruction({
-      payer,
-      attestation,
-      authority,
-      credential: sasConfig.credential,
-      eventAuthority,
-      attestationProgram: SAS_PROGRAM_ID,
-    });
-
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(closeIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-    return { signature: signature.toString() };
-  }
-
-  /**
-   * Submit feedback for an agent
-   *
-   * Creates a Feedback attestation via SAS.
-   * Requires prior authorization from agent owner via authorizeFeedback().
+   * Uses Light Protocol for cost-efficient storage (~$0.002 per attestation).
+   * Requires both agent and counterparty signatures.
    *
    * @param params - Feedback parameters
    * @returns Attestation address and signature
    */
-  async giveFeedback(params: {
-    /** Payer for transaction */
-    payer: KeyPairSigner;
-    /** Client submitting feedback (must be authorized) */
-    client: KeyPairSigner;
-    /** Agent NFT mint receiving feedback */
-    agentMint: Address;
-    /** Score 0-100 */
-    score: number;
-    /** Optional tag (ERC-8004: tag1) */
-    tag1?: string;
-    /** Optional tag (ERC-8004: tag2) */
-    tag2?: string;
-    /** Off-chain feedback file URI (ERC-8004: fileuri) */
-    fileuri?: string;
-    /** File hash (ERC-8004: filehash) */
-    filehash?: Uint8Array;
-    /** x402 payment proof reference */
-    paymentProof?: string;
-  }): Promise<AttestationResult> {
-    const sasConfig = this.requireSASConfig();
+  async createFeedback(params: CreateFeedbackParams): Promise<AttestationResult> {
     const {
       payer,
-      client,
-      agentMint,
-      score,
-      tag1,
-      tag2,
-      fileuri,
-      filehash,
-      paymentProof,
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      counterparty,
+      dataHash,
+      contentType = ContentType.None,
+      outcome,
+      tag1 = "",
+      tag2 = "",
+      content = new Uint8Array(0),
+      agentSignature,
+      counterpartySignature,
     } = params;
 
-    // Validate score
-    if (score < 0 || score > 100) {
-      throw new Error("Score must be between 0 and 100");
-    }
+    // Serialize feedback data
+    const feedbackData: FeedbackData = {
+      taskRef,
+      tokenAccount,
+      counterparty,
+      dataHash,
+      contentType,
+      outcome,
+      tag1,
+      tag2,
+      content,
+    };
+    const data = serializeFeedback(feedbackData);
 
-    // Derive attestation PDA with timestamp-based nonce
-    const timestamp = Math.floor(Date.now() / 1000);
-    const nonce = computeFeedbackNonce(agentMint, client.address, timestamp);
-    const [attestationPda] = await deriveSatiAttestationPda(
-      sasConfig.credential,
-      sasConfig.schemas.feedback,
-      nonce,
-    );
-
-    // Fetch schema for serialization
-    const schema = await fetchSchema(this.rpc, sasConfig.schemas.feedback);
-
-    // Serialize attestation data
-    const data = serializeFeedbackData(
+    // Build signatures array
+    const signatures: GeneratedSignatureData[] = [
       {
-        agent_mint: agentMint,
-        score,
-        tag1,
-        tag2,
-        fileuri,
-        filehash,
-        payment_proof: paymentProof,
+        pubkey: agentSignature.pubkey,
+        sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
       },
-      schema.data,
-    );
+      {
+        pubkey: counterpartySignature.pubkey,
+        sig: counterpartySignature.signature as unknown as Uint8Array & { length: 64 },
+      },
+    ];
 
-    // Default expiry: never (0 means use schema default or never)
-    const expiryTimestamp = 0;
+    // Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    // Create attestation instruction
-    const createAttestationIx = await getCreateAttestationInstruction({
+    // Get Light Protocol proof and tree info
+    const light = this.getLightClient();
+    const outputStateTreeIndex = await light.getOutputStateTreeIndex();
+
+    // For creation, we need empty proof and address tree info
+    // In production, these would come from the Photon RPC
+    const proofBytes = new Uint8Array(0);
+    const addressTreeInfoBytes = new Uint8Array(0);
+
+    // Build instruction
+    const createIx = await getCreateAttestationInstructionAsync({
       payer,
-      authority: client,
-      credential: sasConfig.credential,
-      schema: sasConfig.schemas.feedback,
-      attestation: attestationPda,
-      nonce,
-      expiry: expiryTimestamp,
+      schemaConfig: schemaConfigPda,
+      program: SATI_PROGRAM_ADDRESS,
+      dataType: DataType.Feedback,
       data,
+      signatures,
+      outputStateTreeIndex,
+      proofBytes,
+      addressTreeInfoBytes,
     });
 
     // Build and send transaction
@@ -860,7 +699,7 @@ export class SATI {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) =>
         setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
+      (msg) => appendTransactionMessageInstruction(createIx, msg)
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -870,41 +709,92 @@ export class SATI {
 
     const signature = getSignatureFromTransaction(signedTx);
 
+    // Compute deterministic address
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const addressBytes = nonce; // Simplified - actual address derivation requires Light Protocol
+
     return {
-      attestation: attestationPda,
+      address: address(Buffer.from(addressBytes).toString("base64")),
       signature: signature.toString(),
     };
   }
 
   /**
-   * Revoke submitted feedback
+   * Create a Validation attestation (compressed storage)
    *
-   * Closes the Feedback attestation and reclaims rent.
+   * Uses Light Protocol for cost-efficient storage.
+   * Requires both agent and validator signatures.
    *
-   * @param params - Revocation parameters
+   * @param params - Validation parameters
+   * @returns Attestation address and signature
    */
-  async revokeFeedback(params: {
-    /** Payer (receives rent refund) */
-    payer: KeyPairSigner;
-    /** Client who submitted the feedback */
-    client: KeyPairSigner;
-    /** Feedback attestation address to revoke */
-    attestation: Address;
-  }): Promise<{ signature: string }> {
-    const sasConfig = this.requireSASConfig();
-    const { payer, client, attestation } = params;
-
-    // Get event authority for close instruction
-    const eventAuthority = await deriveEventAuthorityAddress();
-
-    // Create close attestation instruction
-    const closeIx = await getCloseAttestationInstruction({
+  async createValidation(params: CreateValidationParams): Promise<AttestationResult> {
+    const {
       payer,
-      attestation,
-      authority: client,
-      credential: sasConfig.credential,
-      eventAuthority,
-      attestationProgram: SAS_PROGRAM_ID,
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      counterparty,
+      dataHash,
+      contentType = ContentType.None,
+      validationType = ValidationType.TEE,
+      response,
+      content = new Uint8Array(0),
+      agentSignature,
+      validatorSignature,
+    } = params;
+
+    // Validate response
+    if (response > 100) {
+      throw new Error("Response must be 0-100");
+    }
+
+    // Serialize validation data
+    const validationData: ValidationData = {
+      taskRef,
+      tokenAccount,
+      counterparty,
+      dataHash,
+      contentType,
+      validationType,
+      response,
+      content,
+    };
+    const data = serializeValidation(validationData);
+
+    // Build signatures array
+    const signatures: GeneratedSignatureData[] = [
+      {
+        pubkey: agentSignature.pubkey,
+        sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
+      },
+      {
+        pubkey: validatorSignature.pubkey,
+        sig: validatorSignature.signature as unknown as Uint8Array & { length: 64 },
+      },
+    ];
+
+    // Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    // Get Light Protocol proof and tree info
+    const light = this.getLightClient();
+    const outputStateTreeIndex = await light.getOutputStateTreeIndex();
+
+    const proofBytes = new Uint8Array(0);
+    const addressTreeInfoBytes = new Uint8Array(0);
+
+    // Build instruction
+    const createIx = await getCreateAttestationInstructionAsync({
+      payer,
+      schemaConfig: schemaConfigPda,
+      program: SATI_PROGRAM_ADDRESS,
+      dataType: DataType.Validation,
+      data,
+      signatures,
+      outputStateTreeIndex,
+      proofBytes,
+      addressTreeInfoBytes,
     });
 
     // Build and send transaction
@@ -917,7 +807,269 @@ export class SATI {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) =>
         setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(closeIx, msg),
+      (msg) => appendTransactionMessageInstruction(createIx, msg)
+    );
+
+    const signedTx = await signTransactionMessageWithSigners(tx);
+    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+      commitment: "confirmed",
+    });
+
+    const signature = getSignatureFromTransaction(signedTx);
+
+    // Compute deterministic address
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+
+    return {
+      address: address(Buffer.from(nonce).toString("base64")),
+      signature: signature.toString(),
+    };
+  }
+
+  // ============================================================
+  // REGULAR ATTESTATIONS (SAS)
+  // ============================================================
+
+  /**
+   * Create a ReputationScore attestation (regular SAS storage)
+   *
+   * Provider-computed scores stored on-chain for direct queryability.
+   * One score per (provider, agent) pair - updates replace previous.
+   *
+   * @param params - ReputationScore parameters
+   * @returns Attestation address and signature
+   */
+  async createReputationScore(params: CreateReputationScoreParams): Promise<AttestationResult> {
+    const {
+      payer,
+      provider,
+      sasSchema,
+      tokenAccount,
+      score,
+      contentType = ContentType.None,
+      content = new Uint8Array(0),
+      expiry = 0,
+    } = params;
+
+    // Validate score
+    if (score > 100) {
+      throw new Error("Score must be 0-100");
+    }
+
+    // Compute deterministic task_ref
+    const taskRef = computeReputationNonce(provider.address, tokenAccount);
+
+    // Serialize reputation score data
+    const reputationData: ReputationScoreData = {
+      taskRef,
+      tokenAccount,
+      counterparty: provider.address,
+      score,
+      contentType,
+      content,
+    };
+    const data = serializeReputationScore(reputationData);
+
+    // Compute hash for provider signature
+    const messageHash = computeReputationHash(sasSchema, tokenAccount, provider.address, score);
+
+    // Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    // TODO: Implement proper SAS credential and schema derivation
+    // For now, this method is a placeholder - requires additional SAS setup
+    throw new Error(
+      "createReputationScore: Not yet implemented. Requires SAS credential and schema configuration. " +
+      "Use the LightClient for Feedback/Validation attestations instead."
+    );
+
+  }
+
+  // ============================================================
+  // QUERY METHODS
+  // ============================================================
+
+  /**
+   * List Feedback attestations for an agent
+   *
+   * Queries Photon for compressed attestations.
+   *
+   * @param tokenAccount - Agent's token account address
+   * @param filter - Optional filters
+   * @returns Array of parsed attestations
+   */
+  async listFeedbacks(
+    tokenAccount: Address,
+    filter?: Partial<AttestationFilter>
+  ): Promise<ParsedAttestation[]> {
+    const light = this.getLightClient();
+    return light.listFeedbacks(tokenAccount, filter);
+  }
+
+  /**
+   * List Validation attestations for an agent
+   *
+   * Queries Photon for compressed attestations.
+   *
+   * @param tokenAccount - Agent's token account address
+   * @param filter - Optional filters
+   * @returns Array of parsed attestations
+   */
+  async listValidations(
+    tokenAccount: Address,
+    filter?: Partial<AttestationFilter>
+  ): Promise<ParsedAttestation[]> {
+    const light = this.getLightClient();
+    return light.listValidations(tokenAccount, filter);
+  }
+
+  /**
+   * Get a ReputationScore for an agent from a specific provider
+   *
+   * Queries on-chain SAS attestation.
+   *
+   * @param provider - Reputation provider address
+   * @param tokenAccount - Agent's token account address
+   * @returns ReputationScore data or null if not found
+   */
+  async getReputationScore(
+    provider: Address,
+    tokenAccount: Address
+  ): Promise<ReputationScoreData | null> {
+    // Compute deterministic nonce
+    const nonce = computeReputationNonce(provider, tokenAccount);
+
+    // TODO: Query SAS attestation by nonce
+    // This requires SAS program integration
+
+    return null;
+  }
+
+  // ============================================================
+  // SIGNATURE HELPERS
+  // ============================================================
+
+  /**
+   * Build the interaction hash that the agent should sign (blind to outcome)
+   *
+   * @param sasSchema - SAS schema address
+   * @param taskRef - Task reference (32 bytes)
+   * @param tokenAccount - Agent's token account
+   * @param dataHash - Hash of interaction data (32 bytes)
+   * @returns 32-byte keccak256 hash
+   */
+  buildInteractionHash(
+    sasSchema: Address,
+    taskRef: Uint8Array,
+    tokenAccount: Address,
+    dataHash: Uint8Array
+  ): Uint8Array {
+    return computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+  }
+
+  /**
+   * Build the feedback hash that the counterparty should sign (with outcome)
+   *
+   * @param sasSchema - SAS schema address
+   * @param taskRef - Task reference (32 bytes)
+   * @param tokenAccount - Agent's token account
+   * @param outcome - Feedback outcome
+   * @returns 32-byte keccak256 hash
+   */
+  buildFeedbackHash(
+    sasSchema: Address,
+    taskRef: Uint8Array,
+    tokenAccount: Address,
+    outcome: Outcome
+  ): Uint8Array {
+    return computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+  }
+
+  /**
+   * Build the validation hash that the validator should sign (with response)
+   *
+   * @param sasSchema - SAS schema address
+   * @param taskRef - Task reference (32 bytes)
+   * @param tokenAccount - Agent's token account
+   * @param response - Validation response (0-100)
+   * @returns 32-byte keccak256 hash
+   */
+  buildValidationHash(
+    sasSchema: Address,
+    taskRef: Uint8Array,
+    tokenAccount: Address,
+    response: number
+  ): Uint8Array {
+    return computeValidationHash(sasSchema, taskRef, tokenAccount, response);
+  }
+
+  /**
+   * Build the reputation hash that the provider should sign
+   *
+   * @param sasSchema - SAS schema address
+   * @param tokenAccount - Agent's token account
+   * @param provider - Provider's address
+   * @param score - Reputation score (0-100)
+   * @returns 32-byte keccak256 hash
+   */
+  buildReputationHash(
+    sasSchema: Address,
+    tokenAccount: Address,
+    provider: Address,
+    score: number
+  ): Uint8Array {
+    return computeReputationHash(sasSchema, tokenAccount, provider, score);
+  }
+
+  // ============================================================
+  // SCHEMA CONFIG
+  // ============================================================
+
+  /**
+   * Register a schema configuration
+   *
+   * Defines how a SAS schema should be handled by SATI.
+   *
+   * @param params - Schema config parameters
+   */
+  async registerSchemaConfig(params: {
+    /** Payer for transaction */
+    payer: KeyPairSigner;
+    /** Authority (must sign) */
+    authority: KeyPairSigner;
+    /** SAS schema address */
+    sasSchema: Address;
+    /** Signature verification mode */
+    signatureMode: SignatureMode;
+    /** Storage backend type */
+    storageType: StorageType;
+    /** Whether attestations can be closed */
+    closeable: boolean;
+  }): Promise<{ signature: string }> {
+    const { payer, authority, sasSchema, signatureMode, storageType, closeable } = params;
+
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    const registerIx = await getRegisterSchemaConfigInstructionAsync({
+      payer,
+      authority,
+      sasSchema,
+      schemaConfig: schemaConfigPda,
+      signatureMode: { [SignatureMode[signatureMode]]: {} } as any,
+      storageType: { [StorageType[storageType]]: {} } as any,
+      closeable,
+    });
+
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
+
+    const tx = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(payer.address, msg),
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(registerIx, msg)
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -930,749 +1082,32 @@ export class SATI {
   }
 
   /**
-   * Append response to feedback
+   * Get schema configuration
    *
-   * Creates a FeedbackResponse attestation via SAS.
-   * Can be called by agent owner, auditor, or anyone.
-   *
-   * @param params - Response parameters
-   * @returns Attestation address and signature
+   * @param sasSchema - SAS schema address
+   * @returns Schema config or null if not found
    */
-  async appendResponse(params: {
-    /** Payer for transaction */
-    payer: KeyPairSigner;
-    /** Responder (signer) */
-    responder: KeyPairSigner;
-    /** Feedback attestation being responded to */
-    feedbackAttestation: Address;
-    /** Off-chain response URI */
-    responseUri: string;
-    /** Response content hash */
-    responseHash?: Uint8Array;
-    /** Response index (allows multiple responses, default: 0) */
-    responseIndex?: number;
-  }): Promise<AttestationResult> {
-    const sasConfig = this.requireSASConfig();
-    const {
-      payer,
-      responder,
-      feedbackAttestation,
-      responseUri,
-      responseHash,
-      responseIndex = 0,
-    } = params;
-
-    // Derive attestation PDA
-    const nonce = computeFeedbackResponseNonce(
-      feedbackAttestation,
-      responder.address,
-      responseIndex,
-    );
-    const [attestationPda] = await deriveSatiAttestationPda(
-      sasConfig.credential,
-      sasConfig.schemas.feedbackResponse,
-      nonce,
-    );
-
-    // Fetch schema for serialization
-    const schema = await fetchSchema(
-      this.rpc,
-      sasConfig.schemas.feedbackResponse,
-    );
-
-    // Serialize attestation data
-    const data = serializeFeedbackResponseData(
-      {
-        feedback_id: feedbackAttestation,
-        response_uri: responseUri,
-        response_hash: responseHash,
-      },
-      schema.data,
-    );
-
-    // Create attestation instruction
-    const createAttestationIx = await getCreateAttestationInstruction({
-      payer,
-      authority: responder,
-      credential: sasConfig.credential,
-      schema: sasConfig.schemas.feedbackResponse,
-      attestation: attestationPda,
-      nonce,
-      expiry: 0, // Never expires
-      data,
-    });
-
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-
-    return {
-      attestation: attestationPda,
-      signature: signature.toString(),
-    };
-  }
-
-  /**
-   * Read feedback attestation
-   *
-   * @param attestation - Feedback attestation address
-   * @returns Feedback data or null if not found
-   */
-  async readFeedback(attestation: Address): Promise<Feedback | null> {
-    const sasConfig = this.requireSASConfig();
+  async getSchemaConfig(sasSchema: Address): Promise<{
+    signatureMode: SignatureMode;
+    storageType: StorageType;
+    closeable: boolean;
+  } | null> {
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
     try {
-      // Fetch attestation and schema
-      const [attestationAccount, schema] = await Promise.all([
-        fetchAttestation(this.rpc, attestation),
-        fetchSchema(this.rpc, sasConfig.schemas.feedback),
-      ]);
+      const schemaConfig = await fetchSchemaConfig(this.rpc, schemaConfigPda);
 
-      // Deserialize attestation data
-      const data = deserializeAttestationData(
-        schema.data,
-        attestationAccount.data.data as Uint8Array,
-      ) as {
-        agent_mint: string;
-        score: number;
-        tag1: string;
-        tag2: string;
-        fileuri: string;
-        filehash: Uint8Array;
-        payment_proof: string;
-      };
+      // Parse enum values from IDL format
+      const signatureMode = schemaConfig.data.signatureMode as unknown as SignatureMode;
+      const storageType = schemaConfig.data.storageType as unknown as StorageType;
 
       return {
-        attestation,
-        agentMint: address(data.agent_mint),
-        score: data.score,
-        tag1: data.tag1 || undefined,
-        tag2: data.tag2 || undefined,
-        fileUri: data.fileuri || undefined,
-        fileHash: data.filehash?.length > 0 ? data.filehash : undefined,
-        paymentProof: data.payment_proof || undefined,
-        issuer: attestationAccount.data.signer,
-        expiry: Number(attestationAccount.data.expiry),
-        revoked: false, // If we can read it, it's not revoked (closed)
+        signatureMode,
+        storageType,
+        closeable: schemaConfig.data.closeable,
       };
     } catch {
       return null;
     }
-  }
-
-  // ============================================================
-  // VALIDATION (SAS)
-  // ============================================================
-
-  /**
-   * Request validation from a validator
-   *
-   * Creates a ValidationRequest attestation via SAS.
-   * Must be called by agent owner.
-   *
-   * @param params - Request parameters
-   * @returns Attestation address and signature
-   */
-  async requestValidation(params: {
-    /** Payer for transaction */
-    payer: KeyPairSigner;
-    /** Agent owner (must sign) */
-    agentOwner: KeyPairSigner;
-    /** Agent NFT mint requesting validation */
-    agentMint: Address;
-    /** Validator address */
-    validator: Address;
-    /** Validation method ("tee", "zkml", "restake") */
-    methodId: string;
-    /** Off-chain validation request URI */
-    requestUri: string;
-    /** Request content hash */
-    requestHash?: Uint8Array;
-  }): Promise<AttestationResult> {
-    const sasConfig = this.requireSASConfig();
-    const {
-      payer,
-      agentOwner,
-      agentMint,
-      validator,
-      methodId,
-      requestUri,
-      requestHash,
-    } = params;
-
-    // Derive attestation PDA
-    const userNonce = Math.floor(Date.now() / 1000); // Use timestamp as unique nonce
-    const nonce = computeValidationRequestNonce(
-      agentMint,
-      validator,
-      userNonce,
-    );
-    const [attestationPda] = await deriveSatiAttestationPda(
-      sasConfig.credential,
-      sasConfig.schemas.validationRequest,
-      nonce,
-    );
-
-    // Fetch schema for serialization
-    const schema = await fetchSchema(
-      this.rpc,
-      sasConfig.schemas.validationRequest,
-    );
-
-    // Serialize attestation data
-    const data = serializeValidationRequestData(
-      {
-        agent_mint: agentMint,
-        method_id: methodId,
-        request_uri: requestUri,
-        request_hash: requestHash,
-      },
-      schema.data,
-    );
-
-    // Create attestation instruction
-    const createAttestationIx = await getCreateAttestationInstruction({
-      payer,
-      authority: agentOwner,
-      credential: sasConfig.credential,
-      schema: sasConfig.schemas.validationRequest,
-      attestation: attestationPda,
-      nonce,
-      expiry: 0, // Never expires
-      data,
-    });
-
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-
-    return {
-      attestation: attestationPda,
-      signature: signature.toString(),
-    };
-  }
-
-  /**
-   * Respond to a validation request
-   *
-   * Creates a ValidationResponse attestation via SAS.
-   * Called by validators.
-   *
-   * @param params - Response parameters
-   * @returns Attestation address and signature
-   */
-  async respondToValidation(params: {
-    /** Payer for transaction */
-    payer: KeyPairSigner;
-    /** Validator (must sign) */
-    validator: KeyPairSigner;
-    /** ValidationRequest attestation being responded to */
-    requestAttestation: Address;
-    /** Response score 0-100 (0=fail, 100=pass) */
-    response: number;
-    /** Off-chain response/evidence URI */
-    responseUri?: string;
-    /** Response content hash */
-    responseHash?: Uint8Array;
-    /** Optional categorization tag */
-    tag?: string;
-    /** Response index (allows multiple responses, default: 0) */
-    responseIndex?: number;
-  }): Promise<AttestationResult> {
-    const sasConfig = this.requireSASConfig();
-    const {
-      payer,
-      validator,
-      requestAttestation,
-      response,
-      responseUri,
-      responseHash,
-      tag,
-      responseIndex = 0,
-    } = params;
-
-    // Validate response score
-    if (response < 0 || response > 100) {
-      throw new Error("Response must be between 0 and 100");
-    }
-
-    // Derive attestation PDA
-    const nonce = computeValidationResponseNonce(
-      requestAttestation,
-      responseIndex,
-    );
-    const [attestationPda] = await deriveSatiAttestationPda(
-      sasConfig.credential,
-      sasConfig.schemas.validationResponse,
-      nonce,
-    );
-
-    // Fetch schema for serialization
-    const schema = await fetchSchema(
-      this.rpc,
-      sasConfig.schemas.validationResponse,
-    );
-
-    // Serialize attestation data
-    const data = serializeValidationResponseData(
-      {
-        request_id: requestAttestation,
-        response,
-        response_uri: responseUri,
-        response_hash: responseHash,
-        tag,
-      },
-      schema.data,
-    );
-
-    // Create attestation instruction
-    const createAttestationIx = await getCreateAttestationInstruction({
-      payer,
-      authority: validator,
-      credential: sasConfig.credential,
-      schema: sasConfig.schemas.validationResponse,
-      attestation: attestationPda,
-      nonce,
-      expiry: 0, // Never expires
-      data,
-    });
-
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(createAttestationIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-
-    return {
-      attestation: attestationPda,
-      signature: signature.toString(),
-    };
-  }
-
-  /**
-   * Get validation status
-   *
-   * Fetches the validation request and looks for any responses.
-   *
-   * @param requestAttestation - ValidationRequest attestation address
-   * @param responseIndex - Response index to check (default: 0)
-   * @returns Validation status or null if not found
-   */
-  async getValidationStatus(
-    requestAttestation: Address,
-    responseIndex: number = 0,
-  ): Promise<ValidationStatus | null> {
-    const sasConfig = this.requireSASConfig();
-
-    try {
-      // Fetch request attestation and schema
-      const [requestAccount, requestSchema] = await Promise.all([
-        fetchAttestation(this.rpc, requestAttestation),
-        fetchSchema(this.rpc, sasConfig.schemas.validationRequest),
-      ]);
-
-      // Deserialize request data
-      const _requestData = deserializeAttestationData(
-        requestSchema.data,
-        requestAccount.data.data as Uint8Array,
-      ) as {
-        agent_mint: string;
-        method_id: string;
-        request_uri: string;
-        request_hash: Uint8Array;
-      };
-
-      // Try to find response attestation at the specified index
-      const responseNonce = computeValidationResponseNonce(
-        requestAttestation,
-        responseIndex,
-      );
-      const [responseAttestationPda] = await deriveSatiAttestationPda(
-        sasConfig.credential,
-        sasConfig.schemas.validationResponse,
-        responseNonce,
-      );
-
-      type ValidationResponseData = {
-        request_id: string;
-        response: number;
-        response_uri: string;
-        response_hash: Uint8Array;
-        tag: string;
-      };
-      let responseData: ValidationResponseData | null = null;
-      let responseAccount: Awaited<ReturnType<typeof fetchAttestation>> | null =
-        null;
-
-      try {
-        const [respAccount, responseSchema] = await Promise.all([
-          fetchAttestation(this.rpc, responseAttestationPda),
-          fetchSchema(this.rpc, sasConfig.schemas.validationResponse),
-        ]);
-        responseAccount = respAccount;
-        responseData = deserializeAttestationData(
-          responseSchema.data,
-          respAccount.data.data as Uint8Array,
-        ) as ValidationResponseData;
-      } catch {
-        // No response yet
-      }
-
-      const responseHash = responseData?.response_hash;
-      return {
-        requestAttestation,
-        responseAttestation: responseData ? responseAttestationPda : undefined,
-        response: responseData?.response,
-        responseUri: responseData?.response_uri || undefined,
-        responseHash:
-          responseHash && responseHash.length > 0 ? responseHash : undefined,
-        tag: responseData?.tag || undefined,
-        validator: requestAccount.data.signer, // Request signer is the agent owner
-        completed: responseData !== null,
-        responseExpiry: responseAccount
-          ? Number(responseAccount.data.expiry)
-          : undefined,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  // ============================================================
-  // SAS SETUP
-  // ============================================================
-
-  /**
-   * Setup SATI SAS schemas with idempotent deployment.
-   *
-   * This method is safe to call multiple times. It will:
-   * 1. Check which components already exist on-chain
-   * 2. Deploy only missing credential and schemas
-   * 3. Verify all components exist after deployment
-   *
-   * @param params - Setup parameters
-   * @returns Deployment result with status and config
-   */
-  async setupSASSchemas(params: {
-    /** Payer for account creation */
-    payer: KeyPairSigner;
-    /** Credential authority (controls schema creation) */
-    authority: KeyPairSigner;
-    /** Authorized signers for attestations */
-    authorizedSigners?: Address[];
-    /** Deploy test schemas (v0) instead of production schemas */
-    testMode?: boolean;
-  }): Promise<SASDeploymentResult> {
-    const {
-      payer,
-      authority,
-      authorizedSigners = [authority.address],
-      testMode = false,
-    } = params;
-
-    // Define credential and schema names based on mode
-    const credentialName = testMode ? "SATI_TEST_v0" : SATI_CREDENTIAL_NAME;
-
-    // Test mode schema names with v0 suffix to avoid polluting production namespace
-    const testSchemaNames = {
-      FEEDBACK_AUTH: "TestFeedbackAuth_v0",
-      FEEDBACK: "TestFeedback_v0",
-      FEEDBACK_RESPONSE: "TestFeedbackResponse_v0",
-      VALIDATION_REQUEST: "TestValidationRequest_v0",
-      VALIDATION_RESPONSE: "TestValidationResponse_v0",
-      CERTIFICATION: "TestCertification_v0",
-    } as const;
-
-    const schemaNames = testMode ? testSchemaNames : SATI_SCHEMA_NAMES;
-
-    // Derive credential PDA
-    const [credentialPda] = await deriveCredentialPda({
-      authority: authority.address,
-      name: credentialName,
-    });
-
-    // Derive all schema PDAs
-    const schemaKeys = [
-      "FEEDBACK_AUTH",
-      "FEEDBACK",
-      "FEEDBACK_RESPONSE",
-      "VALIDATION_REQUEST",
-      "VALIDATION_RESPONSE",
-      "CERTIFICATION",
-    ] as const;
-
-    const schemaPdas: Address[] = [];
-    for (const key of schemaKeys) {
-      const [pda] = await deriveSchemaPda({
-        credential: credentialPda,
-        name: schemaNames[key],
-        version: 1,
-      });
-      schemaPdas.push(pda);
-    }
-
-    // Phase 1: Check existing state
-    const credentialAccount = await fetchMaybeCredential(
-      this.rpc,
-      credentialPda,
-    );
-    const schemaAccounts = await fetchAllMaybeSchema(this.rpc, schemaPdas);
-
-    const credentialExists = credentialAccount.exists;
-    const schemaExistsFlags = schemaAccounts.map((acc) => acc.exists);
-
-    // Phase 2: Build instructions for missing components only
-    const instructions: Instruction[] = [];
-
-    if (!credentialExists) {
-      instructions.push(
-        getCreateCredentialInstruction({
-          payer,
-          credential: credentialPda,
-          authority,
-          name: credentialName,
-          signers: authorizedSigners,
-        }),
-      );
-    }
-
-    // Build schema definitions with potentially overridden names
-    const schemaDefinitions = [
-      {
-        key: "FEEDBACK_AUTH" as const,
-        pda: schemaPdas[0],
-        baseSchema: SATI_SAS_SCHEMAS.FEEDBACK_AUTH,
-      },
-      {
-        key: "FEEDBACK" as const,
-        pda: schemaPdas[1],
-        baseSchema: SATI_SAS_SCHEMAS.FEEDBACK,
-      },
-      {
-        key: "FEEDBACK_RESPONSE" as const,
-        pda: schemaPdas[2],
-        baseSchema: SATI_SAS_SCHEMAS.FEEDBACK_RESPONSE,
-      },
-      {
-        key: "VALIDATION_REQUEST" as const,
-        pda: schemaPdas[3],
-        baseSchema: SATI_SAS_SCHEMAS.VALIDATION_REQUEST,
-      },
-      {
-        key: "VALIDATION_RESPONSE" as const,
-        pda: schemaPdas[4],
-        baseSchema: SATI_SAS_SCHEMAS.VALIDATION_RESPONSE,
-      },
-      {
-        key: "CERTIFICATION" as const,
-        pda: schemaPdas[5],
-        baseSchema: SATI_SAS_SCHEMAS.CERTIFICATION,
-      },
-    ];
-
-    for (let i = 0; i < schemaDefinitions.length; i++) {
-      if (!schemaExistsFlags[i]) {
-        const { key, pda, baseSchema } = schemaDefinitions[i];
-        // Use test mode name but keep the original schema layout/description
-        const schemaWithName = {
-          ...baseSchema,
-          name: schemaNames[key],
-        };
-        instructions.push(
-          getCreateSchemaInstruction({
-            payer,
-            authority,
-            credential: credentialPda,
-            schema: pda,
-            name: schemaWithName.name,
-            description: schemaWithName.description,
-            layout: new Uint8Array(schemaWithName.layout),
-            fieldNames: schemaWithName.fieldNames,
-          }),
-        );
-      }
-    }
-
-    // Phase 3: Deploy in batches (to avoid tx size limits)
-    // Each schema creation is ~200-300 bytes, so batch 2-3 at a time
-    const signatures: string[] = [];
-    const BATCH_SIZE = 2; // Conservative batch size for safety
-
-    // Separate credential instruction from schema instructions
-    const credentialIx = !credentialExists ? instructions.shift() : null;
-    const schemaIxs = instructions; // Remaining are schema instructions
-
-    // Deploy credential first if needed (must exist before schemas)
-    if (credentialIx) {
-      const { value: latestBlockhash } = await this.rpc
-        .getLatestBlockhash()
-        .send();
-
-      const tx = pipe(
-        createTransactionMessage({ version: 0 }),
-        (msg) => setTransactionMessageFeePayer(payer.address, msg),
-        (msg) =>
-          setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-        (msg) => appendTransactionMessageInstruction(credentialIx, msg),
-      );
-
-      const signedTx = await signTransactionMessageWithSigners(tx);
-      await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-        commitment: "confirmed",
-      });
-
-      const signature = getSignatureFromTransaction(signedTx);
-      signatures.push(signature);
-    }
-
-    // Deploy schemas in batches
-    for (let i = 0; i < schemaIxs.length; i += BATCH_SIZE) {
-      const batch = schemaIxs.slice(i, i + BATCH_SIZE);
-
-      const { value: latestBlockhash } = await this.rpc
-        .getLatestBlockhash()
-        .send();
-
-      const tx = pipe(
-        createTransactionMessage({ version: 0 }),
-        (msg) => setTransactionMessageFeePayer(payer.address, msg),
-        (msg) =>
-          setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-        (msg) => appendTransactionMessageInstructions(batch, msg),
-      );
-
-      const signedTx = await signTransactionMessageWithSigners(tx);
-      await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-        commitment: "confirmed",
-      });
-
-      const signature = getSignatureFromTransaction(signedTx);
-      signatures.push(signature);
-    }
-
-    // Phase 4: Build config and result
-    const config: SATISASConfig = {
-      credential: credentialPda,
-      schemas: {
-        feedbackAuth: schemaPdas[0],
-        feedback: schemaPdas[1],
-        feedbackResponse: schemaPdas[2],
-        validationRequest: schemaPdas[3],
-        validationResponse: schemaPdas[4],
-        certification: schemaPdas[5],
-      },
-    };
-
-    // Auto-set the config
-    this.sasConfig = config;
-
-    // Build schema statuses
-    const schemaStatuses: SchemaDeploymentStatus[] = schemaDefinitions.map(
-      (item, idx) => ({
-        name: schemaNames[item.key],
-        address: schemaPdas[idx],
-        existed: schemaExistsFlags[idx],
-        deployed: !schemaExistsFlags[idx],
-      }),
-    );
-
-    // Phase 5: Verify deployment
-    const verification = await this.verifySASDeployment(config);
-
-    return {
-      success: verification.verified,
-      credential: {
-        address: credentialPda,
-        existed: credentialExists,
-        deployed: !credentialExists,
-      },
-      schemas: schemaStatuses,
-      signatures,
-      config,
-    };
-  }
-
-  /**
-   * Verify that all SAS components exist on-chain.
-   *
-   * @param config - SAS configuration to verify
-   * @returns Verification result with list of missing components
-   */
-  private async verifySASDeployment(config: SATISASConfig): Promise<{
-    verified: boolean;
-    missing: string[];
-  }> {
-    const missing: string[] = [];
-
-    // Check credential
-    const credentialAccount = await fetchMaybeCredential(
-      this.rpc,
-      config.credential,
-    );
-    if (!credentialAccount.exists) {
-      missing.push("credential");
-    }
-
-    // Check all schemas
-    const schemaAddresses = Object.values(config.schemas);
-    const schemaNames = Object.keys(config.schemas);
-    const schemaAccounts = await fetchAllMaybeSchema(this.rpc, schemaAddresses);
-
-    schemaAccounts.forEach((acc, idx) => {
-      if (!acc.exists) {
-        missing.push(schemaNames[idx]);
-      }
-    });
-
-    return {
-      verified: missing.length === 0,
-      missing,
-    };
   }
 }

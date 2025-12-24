@@ -1,7 +1,8 @@
 use anchor_lang::prelude::*;
 
+use crate::errors::SatiError;
 use crate::events::SchemaConfigRegistered;
-use crate::state::{SchemaConfig, SignatureMode, StorageType};
+use crate::state::{RegistryConfig, SchemaConfig, SignatureMode, StorageType};
 
 /// Accounts for register_schema_config instruction
 #[derive(Accounts)]
@@ -11,7 +12,16 @@ pub struct RegisterSchemaConfig<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Authority that can register schemas (checked against registry)
+    /// Registry config - validates authority and checks mutability
+    #[account(
+        seeds = [b"registry"],
+        bump = registry_config.bump,
+        has_one = authority @ SatiError::InvalidAuthority,
+        constraint = !registry_config.is_immutable() @ SatiError::ImmutableAuthority,
+    )]
+    pub registry_config: Account<'info, RegistryConfig>,
+
+    /// Authority that can register schemas (validated against registry_config)
     pub authority: Signer<'info>,
 
     /// Schema config PDA to be created

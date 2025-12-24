@@ -36,7 +36,7 @@ import {
   type TransactionSigner,
   type WritableAccount,
 } from "@solana/kit";
-import { SATI_REGISTRY_PROGRAM_ADDRESS } from "../programs";
+import { SATI_PROGRAM_ADDRESS } from "../programs";
 import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
 
 export const UPDATE_REGISTRY_AUTHORITY_DISCRIMINATOR = new Uint8Array([
@@ -50,7 +50,7 @@ export function getUpdateRegistryAuthorityDiscriminatorBytes() {
 }
 
 export type UpdateRegistryAuthorityInstruction<
-  TProgram extends string = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountAuthority extends string | AccountMeta<string> = string,
   TAccountRegistryConfig extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -122,7 +122,7 @@ export type UpdateRegistryAuthorityAsyncInput<
 export async function getUpdateRegistryAuthorityInstructionAsync<
   TAccountAuthority extends string,
   TAccountRegistryConfig extends string,
-  TProgramAddress extends Address = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
   input: UpdateRegistryAuthorityAsyncInput<
     TAccountAuthority,
@@ -137,8 +137,7 @@ export async function getUpdateRegistryAuthorityInstructionAsync<
   >
 > {
   // Program address.
-  const programAddress =
-    config?.programAddress ?? SATI_REGISTRY_PROGRAM_ADDRESS;
+  const programAddress = config?.programAddress ?? SATI_PROGRAM_ADDRESS;
 
   // Original accounts.
   const originalAccounts = {
@@ -196,7 +195,7 @@ export type UpdateRegistryAuthorityInput<
 export function getUpdateRegistryAuthorityInstruction<
   TAccountAuthority extends string,
   TAccountRegistryConfig extends string,
-  TProgramAddress extends Address = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
   input: UpdateRegistryAuthorityInput<
     TAccountAuthority,
@@ -209,8 +208,7 @@ export function getUpdateRegistryAuthorityInstruction<
   TAccountRegistryConfig
 > {
   // Program address.
-  const programAddress =
-    config?.programAddress ?? SATI_REGISTRY_PROGRAM_ADDRESS;
+  const programAddress = config?.programAddress ?? SATI_PROGRAM_ADDRESS;
 
   // Original accounts.
   const originalAccounts = {
@@ -243,7 +241,7 @@ export function getUpdateRegistryAuthorityInstruction<
 }
 
 export type ParsedUpdateRegistryAuthorityInstruction<
-  TProgram extends string = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;

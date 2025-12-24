@@ -20,7 +20,7 @@ import {
   getRegistryConfigSize,
   REGISTRY_CONFIG_DISCRIMINATOR,
 } from "../src/generated/accounts/registryConfig";
-import { SATI_REGISTRY_PROGRAM_ADDRESS } from "../src/generated/programs/satiRegistry";
+import { SATI_PROGRAM_ADDRESS } from "../src/generated/programs/sati";
 
 // Import SDK helpers
 import { findRegistryConfigPda } from "../src/helpers";
@@ -44,10 +44,10 @@ function setupLiteSVM(): LiteSVM {
   const svm = new LiteSVM();
   // Path works from both sdk/ and root (anchor test runs from root)
   const programPath = process.cwd().endsWith("sdk")
-    ? "../target/deploy/sati_registry.so"
-    : "./target/deploy/sati_registry.so";
+    ? "../target/deploy/sati.so"
+    : "./target/deploy/sati.so";
   svm.addProgramFromFile(
-    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
+    new PublicKey(SATI_PROGRAM_ADDRESS),
     programPath,
   );
   return svm;
@@ -59,7 +59,7 @@ function setupLiteSVM(): LiteSVM {
 function deriveRegistryConfigPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("registry")],
-    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
+    new PublicKey(SATI_PROGRAM_ADDRESS),
   );
 }
 
@@ -69,7 +69,7 @@ function deriveRegistryConfigPda(): [PublicKey, number] {
 function deriveGroupMintPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("group_mint")],
-    new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
+    new PublicKey(SATI_PROGRAM_ADDRESS),
   );
 }
 
@@ -95,7 +95,7 @@ function setupRegistryConfig(
   svm.setAccount(registryConfigPda, {
     lamports: LAMPORTS_PER_SOL,
     data: Uint8Array.from(data),
-    owner: new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
+    owner: new PublicKey(SATI_PROGRAM_ADDRESS),
     executable: false,
   });
 
@@ -310,7 +310,7 @@ describe("SDK: LiteSVM Integration", () => {
 
   test("program is loaded and executable", () => {
     const programAccount = svm.getAccount(
-      new PublicKey(SATI_REGISTRY_PROGRAM_ADDRESS),
+      new PublicKey(SATI_PROGRAM_ADDRESS),
     );
     expect(programAccount).not.toBeNull();
     expect(programAccount?.executable).toBe(true);

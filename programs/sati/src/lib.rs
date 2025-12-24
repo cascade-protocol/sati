@@ -12,11 +12,11 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("satiATdRWeoNe7AiJDAp9GAMTzdNkutxNnN4LJVYGRd");
+declare_id!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 /// Light Protocol CPI signer for compressed account operations
 pub const LIGHT_CPI_SIGNER: CpiSigner =
-    derive_light_cpi_signer!("satiATdRWeoNe7AiJDAp9GAMTzdNkutxNnN4LJVYGRd");
+    derive_light_cpi_signer!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 security_txt! {
     name: "SATI",

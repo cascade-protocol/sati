@@ -149,6 +149,8 @@ export interface SATIClientOptions {
   rpcUrl?: string;
   /** Custom WebSocket URL for subscriptions (overrides network default) */
   wsUrl?: string;
+  /** Photon RPC URL for Light Protocol queries (required for compressed attestations) */
+  photonRpcUrl?: string;
 }
 
 // ============ SAS DEPLOYMENT TYPES ============

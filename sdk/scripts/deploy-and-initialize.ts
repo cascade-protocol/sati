@@ -79,7 +79,7 @@ import { getInitializeInstructionAsync } from "../src/generated";
 
 // Production program ID (used for devnet/mainnet)
 const PRODUCTION_PROGRAM_ID = address(
-  "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF",
+  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
 );
 
 // Network RPC endpoints
@@ -220,13 +220,13 @@ function getProgramPaths(): { binaryPath: string; defaultKeypairPath: string } {
     workspaceRoot,
     "target",
     "deploy",
-    "sati_registry.so",
+    "sati.so",
   );
   const defaultKeypairPath = path.join(
     workspaceRoot,
     "target",
     "deploy",
-    "sati_registry-keypair.json",
+    "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json",
   );
 
   if (!existsSync(binaryPath)) {

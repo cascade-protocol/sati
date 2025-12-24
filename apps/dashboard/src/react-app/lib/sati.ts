@@ -238,7 +238,7 @@ export function getSolscanUrl(
 // Constants for transaction parsing
 const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
-const SATI_PROGRAM = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF";
+const SATI_PROGRAM = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz";
 
 /**
  * List all agents registered in the SATI registry.

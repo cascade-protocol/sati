@@ -31,7 +31,7 @@ import {
   type WritableAccount,
   type WritableSignerAccount,
 } from "@solana/kit";
-import { SATI_REGISTRY_PROGRAM_ADDRESS } from "../programs";
+import { SATI_PROGRAM_ADDRESS } from "../programs";
 import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
 
 export const INITIALIZE_DISCRIMINATOR = new Uint8Array([
@@ -43,7 +43,7 @@ export function getInitializeDiscriminatorBytes() {
 }
 
 export type InitializeInstruction<
-  TProgram extends string = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountAuthority extends string | AccountMeta<string> = string,
   TAccountRegistryConfig extends string | AccountMeta<string> = string,
   TAccountGroupMint extends string | AccountMeta<string> = string,
@@ -118,7 +118,7 @@ export async function getInitializeInstructionAsync<
   TAccountRegistryConfig extends string,
   TAccountGroupMint extends string,
   TAccountSystemProgram extends string,
-  TProgramAddress extends Address = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
   input: InitializeAsyncInput<
     TAccountAuthority,
@@ -137,8 +137,7 @@ export async function getInitializeInstructionAsync<
   >
 > {
   // Program address.
-  const programAddress =
-    config?.programAddress ?? SATI_REGISTRY_PROGRAM_ADDRESS;
+  const programAddress = config?.programAddress ?? SATI_PROGRAM_ADDRESS;
 
   // Original accounts.
   const originalAccounts = {
@@ -207,7 +206,7 @@ export function getInitializeInstruction<
   TAccountRegistryConfig extends string,
   TAccountGroupMint extends string,
   TAccountSystemProgram extends string,
-  TProgramAddress extends Address = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
   input: InitializeInput<
     TAccountAuthority,
@@ -224,8 +223,7 @@ export function getInitializeInstruction<
   TAccountSystemProgram
 > {
   // Program address.
-  const programAddress =
-    config?.programAddress ?? SATI_REGISTRY_PROGRAM_ADDRESS;
+  const programAddress = config?.programAddress ?? SATI_PROGRAM_ADDRESS;
 
   // Original accounts.
   const originalAccounts = {
@@ -265,7 +263,7 @@ export function getInitializeInstruction<
 }
 
 export type ParsedInitializeInstruction<
-  TProgram extends string = typeof SATI_REGISTRY_PROGRAM_ADDRESS,
+  TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
   programAddress: Address<TProgram>;

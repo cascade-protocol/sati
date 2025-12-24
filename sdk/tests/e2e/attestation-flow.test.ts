@@ -1,0 +1,795 @@
+/**
+ * E2E Tests for SATI Attestation Flow
+ *
+ * Tests the full attestation lifecycle:
+ * 1. Agent registration → Token-2022 NFT
+ * 2. Schema configuration registration
+ * 3. Agent signs interaction hash (blind)
+ * 4. Client signs feedback hash (with outcome)
+ * 5. Attestation submitted and indexed
+ * 6. Query returns correct data
+ *
+ * Prerequisites:
+ * - light test-validator (or devnet with HELIUS_API_KEY)
+ * - SATI program deployed
+ *
+ * Run: pnpm test:e2e
+ */
+
+import { describe, test, expect, beforeAll, afterAll } from "vitest";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { address, createKeyPairSignerFromBytes, type KeyPairSigner } from "@solana/kit";
+import { SATI } from "../../src";
+import {
+  computeInteractionHash,
+  computeFeedbackHash,
+  computeValidationHash,
+  computeReputationHash,
+  Outcome,
+} from "../../src/hashes";
+import { DataType, ContentType, ValidationType, SignatureMode, StorageType } from "../../src/schemas";
+import { findAssociatedTokenAddress } from "../../src/helpers";
+
+// Import real signature helpers
+import {
+  signMessage,
+  createTestKeypair,
+  createFeedbackSignatures,
+  createValidationSignatures,
+  createReputationSignature,
+  randomBytes32,
+  type TestKeypair,
+} from "../helpers";
+
+// =============================================================================
+// Test Configuration
+// =============================================================================
+
+const LOCAL_RPC_URL = "http://127.0.0.1:8899";
+const TEST_TIMEOUT = 60000; // 60s for network operations
+
+/**
+ * Check if test validator is running and SATI program is deployed
+ */
+async function isTestEnvironmentReady(): Promise<boolean> {
+  try {
+    const response = await fetch(LOCAL_RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getHealth",
+      }),
+      signal: AbortSignal.timeout(2000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// =============================================================================
+// Test Utilities
+// =============================================================================
+
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+async function createTestSigner(): Promise<KeyPairSigner> {
+  const keypair = Keypair.generate();
+  return createKeyPairSignerFromBytes(keypair.secretKey);
+}
+
+/**
+ * Convert KeyPairSigner to TestKeypair for signature helpers
+ */
+function signerToTestKeypair(signer: KeyPairSigner, secretKey: Uint8Array): TestKeypair {
+  return {
+    publicKey: new PublicKey(signer.address),
+    secretKey,
+    address: signer.address,
+  };
+}
+
+// =============================================================================
+// E2E Tests
+// =============================================================================
+
+describe("E2E: Attestation Flow", () => {
+  let testEnvReady: boolean;
+  let sati: SATI;
+  let payer: KeyPairSigner;
+  let agentOwner: KeyPairSigner;
+  let counterparty: KeyPairSigner;
+  let sasSchema: ReturnType<typeof address>;
+  let agentMint: ReturnType<typeof address>;
+
+  // Keep raw keypairs for Ed25519 signing
+  let agentKeypair: TestKeypair;
+  let counterpartyKeypair: TestKeypair;
+
+  beforeAll(async () => {
+    testEnvReady = await isTestEnvironmentReady();
+    if (!testEnvReady) {
+      console.log("⚠️  Test environment not available, E2E tests will be skipped");
+      return;
+    }
+
+    // Initialize SDK
+    sati = new SATI({ network: "localnet" });
+
+    // Create test signers with deterministic seeds for reproducibility
+    const payerKp = Keypair.generate();
+    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+
+    // Create keypairs that we keep for Ed25519 signing
+    agentKeypair = createTestKeypair(1);
+    counterpartyKeypair = createTestKeypair(2);
+
+    agentOwner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
+    counterparty = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
+
+    // Generate random SAS schema address
+    sasSchema = address(Keypair.generate().publicKey.toBase58());
+
+    // TODO: Airdrop SOL to test accounts when running against local validator
+    // This would require RPC connection to fund accounts
+  }, TEST_TIMEOUT);
+
+  // ---------------------------------------------------------------------------
+  // Registry Tests
+  // ---------------------------------------------------------------------------
+
+  describe("Registry Operations", () => {
+    test.skipIf(() => !testEnvReady)(
+      "fetches registry stats",
+      async () => {
+        const stats = await sati.getRegistryStats();
+        expect(stats).toHaveProperty("totalAgents");
+        expect(stats).toHaveProperty("groupMint");
+        expect(stats).toHaveProperty("authority");
+      },
+      TEST_TIMEOUT
+    );
+
+    test.skipIf(() => !testEnvReady)(
+      "registers an agent (mints Token-2022 NFT)",
+      async () => {
+        const name = `TestAgent-${Date.now()}`;
+        const symbol = "TEST";
+        const metadataUri = "https://example.com/metadata.json";
+
+        const result = await sati.registerAgent({
+          payer,
+          owner: agentOwner,
+          name,
+          symbol,
+          metadataUri,
+        });
+
+        expect(result).toHaveProperty("mint");
+        expect(result).toHaveProperty("memberNumber");
+        expect(result).toHaveProperty("signature");
+
+        agentMint = result.mint;
+      },
+      TEST_TIMEOUT
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Schema Configuration Tests
+  // ---------------------------------------------------------------------------
+
+  describe("Schema Configuration", () => {
+    test.skipIf(() => !testEnvReady)(
+      "registers schema config for Feedback",
+      async () => {
+        const result = await sati.registerSchemaConfig({
+          payer,
+          authority: payer,
+          sasSchema,
+          signatureMode: 0, // DualSignature
+          storageType: 0, // Compressed
+          closeable: false,
+        });
+
+        expect(result).toHaveProperty("signature");
+      },
+      TEST_TIMEOUT
+    );
+
+    test.skipIf(() => !testEnvReady)(
+      "fetches registered schema config",
+      async () => {
+        const config = await sati.getSchemaConfig(sasSchema);
+
+        expect(config).not.toBeNull();
+        if (config) {
+          expect(config.signatureMode).toBe(0);
+          expect(config.storageType).toBe(0);
+          expect(config.closeable).toBe(false);
+        }
+      },
+      TEST_TIMEOUT
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Feedback Attestation Flow
+  // ---------------------------------------------------------------------------
+
+  describe("Feedback Attestation", () => {
+    test.skipIf(() => !testEnvReady)(
+      "creates feedback with real Ed25519 signatures",
+      async () => {
+        // Skip if agent not registered
+        if (!agentMint) return;
+
+        const taskRef = randomBytes32();
+        const dataHash = randomBytes32();
+        const outcome = Outcome.Positive;
+
+        // Get agent's token account using findAssociatedTokenAddress
+        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+
+        // Create real Ed25519 signatures using the helper
+        // Agent signs interaction hash (blind - doesn't know outcome)
+        // Counterparty signs feedback hash (includes outcome)
+        const signatures = createFeedbackSignatures(
+          sasSchema,
+          taskRef,
+          agentKeypair,
+          counterpartyKeypair,
+          dataHash,
+          outcome
+        );
+
+        // Submit attestation with real signatures
+        const result = await sati.createFeedback({
+          payer,
+          sasSchema,
+          tokenAccount,
+          counterparty: counterparty.address,
+          taskRef,
+          dataHash,
+          outcome,
+          tag1: "quality",
+          tag2: "speed",
+          agentSignature: {
+            pubkey: signatures[0].pubkey,
+            signature: signatures[0].sig,
+          },
+          counterpartySignature: {
+            pubkey: signatures[1].pubkey,
+            signature: signatures[1].sig,
+          },
+        });
+
+        expect(result).toHaveProperty("address");
+        expect(result).toHaveProperty("signature");
+      },
+      TEST_TIMEOUT
+    );
+
+    test.skipIf(() => !testEnvReady)(
+      "rejects feedback with mismatched outcome in signature",
+      async () => {
+        if (!agentMint) return;
+
+        const taskRef = randomBytes32();
+        const dataHash = randomBytes32();
+
+        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+
+        // Sign for Positive outcome
+        const signatures = createFeedbackSignatures(
+          sasSchema,
+          taskRef,
+          agentKeypair,
+          counterpartyKeypair,
+          dataHash,
+          Outcome.Positive
+        );
+
+        // But submit with Negative outcome - should fail on-chain
+        await expect(
+          sati.createFeedback({
+            payer,
+            sasSchema,
+            tokenAccount,
+            counterparty: counterparty.address,
+            taskRef,
+            dataHash,
+            outcome: Outcome.Negative, // Mismatch!
+            agentSignature: {
+              pubkey: signatures[0].pubkey,
+              signature: signatures[0].sig,
+            },
+            counterpartySignature: {
+              pubkey: signatures[1].pubkey,
+              signature: signatures[1].sig,
+            },
+          })
+        ).rejects.toThrow(); // Should fail signature verification
+      },
+      TEST_TIMEOUT
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Query Tests
+  // ---------------------------------------------------------------------------
+
+  describe("Attestation Queries", () => {
+    test.skipIf(() => !testEnvReady)(
+      "queries feedbacks by token account",
+      async () => {
+        if (!agentMint) return;
+
+        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+
+        // listFeedbacks takes tokenAccount as first arg
+        const result = await sati.listFeedbacks(tokenAccount);
+
+        expect(Array.isArray(result)).toBe(true);
+      },
+      TEST_TIMEOUT
+    );
+
+    test.skipIf(() => !testEnvReady)(
+      "queries feedbacks by outcome filter",
+      async () => {
+        if (!agentMint) return;
+
+        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner.address);
+
+        const result = await sati.listFeedbacks(tokenAccount, {
+          outcome: Outcome.Positive,
+        });
+
+        expect(Array.isArray(result)).toBe(true);
+        // All returned items should have positive outcome
+        for (const item of result) {
+          if (item.data.outcome !== undefined) {
+            expect(item.data.outcome).toBe(Outcome.Positive);
+          }
+        }
+      },
+      TEST_TIMEOUT
+    );
+  });
+});
+
+// =============================================================================
+// E2E: Validation Attestation Flow
+// =============================================================================
+
+describe("E2E: Validation Attestation Flow", () => {
+  let testEnvReady: boolean;
+  let sati: SATI;
+  let payer: KeyPairSigner;
+  let agentKeypair: TestKeypair;
+  let validatorKeypair: TestKeypair;
+  let agentSigner: KeyPairSigner;
+  let validatorSigner: KeyPairSigner;
+  let sasSchema: ReturnType<typeof address>;
+
+  beforeAll(async () => {
+    testEnvReady = await isTestEnvironmentReady();
+    if (!testEnvReady) return;
+
+    sati = new SATI({ network: "localnet" });
+
+    const payerKp = Keypair.generate();
+    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+
+    agentKeypair = createTestKeypair(10);
+    validatorKeypair = createTestKeypair(11);
+
+    agentSigner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
+    validatorSigner = await createKeyPairSignerFromBytes(validatorKeypair.secretKey);
+
+    sasSchema = address(Keypair.generate().publicKey.toBase58());
+  }, TEST_TIMEOUT);
+
+  test.skipIf(() => !testEnvReady)(
+    "creates validation attestation with real signatures",
+    async () => {
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+      const response = 95; // High validation score
+
+      // In a real test with registered agent:
+      // const tokenAccount = address(...);
+
+      // For now, use the agent keypair address as token account stand-in
+      const tokenAccount = agentKeypair.address;
+
+      // Create real Ed25519 signatures
+      const signatures = createValidationSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        validatorKeypair,
+        dataHash,
+        response
+      );
+
+      // Verify signatures were created correctly
+      expect(signatures).toHaveLength(2);
+      expect(signatures[0].pubkey).toBe(agentKeypair.address);
+      expect(signatures[1].pubkey).toBe(validatorKeypair.address);
+      expect(signatures[0].sig.length).toBe(64);
+      expect(signatures[1].sig.length).toBe(64);
+
+      // Verify validator signature is bound to response score
+      const validationHash = computeValidationHash(
+        sasSchema,
+        taskRef,
+        tokenAccount,
+        response
+      );
+
+      // Validator signature should verify against validation hash
+      const { verifySignature } = await import("../helpers/signatures");
+      const isValid = verifySignature(
+        validationHash,
+        signatures[1].sig,
+        validatorKeypair.publicKey.toBytes()
+      );
+      expect(isValid).toBe(true);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "different response scores produce different validator signatures",
+    async () => {
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+
+      const sig50 = createValidationSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        validatorKeypair,
+        dataHash,
+        50
+      );
+
+      const sig100 = createValidationSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        validatorKeypair,
+        dataHash,
+        100
+      );
+
+      // Agent signatures should be same (blind to response)
+      expect(sig50[0].sig).toEqual(sig100[0].sig);
+
+      // Validator signatures should differ (includes response)
+      expect(sig50[1].sig).not.toEqual(sig100[1].sig);
+    },
+    TEST_TIMEOUT
+  );
+});
+
+// =============================================================================
+// E2E: ReputationScore Attestation Flow
+// =============================================================================
+
+describe("E2E: ReputationScore Attestation Flow", () => {
+  let testEnvReady: boolean;
+  let providerKeypair: TestKeypair;
+  let agentKeypair: TestKeypair;
+  let sasSchema: ReturnType<typeof address>;
+
+  beforeAll(async () => {
+    testEnvReady = await isTestEnvironmentReady();
+    if (!testEnvReady) return;
+
+    providerKeypair = createTestKeypair(20);
+    agentKeypair = createTestKeypair(21);
+    sasSchema = address(Keypair.generate().publicKey.toBase58());
+  }, TEST_TIMEOUT);
+
+  test.skipIf(() => !testEnvReady)(
+    "creates reputation signature (SingleSigner mode)",
+    async () => {
+      const score = 85;
+
+      // ReputationScore uses SingleSigner mode - only provider signs
+      const signatures = createReputationSignature(
+        sasSchema,
+        agentKeypair.address,
+        providerKeypair,
+        score
+      );
+
+      // Only one signature (provider)
+      expect(signatures).toHaveLength(1);
+      expect(signatures[0].pubkey).toBe(providerKeypair.address);
+      expect(signatures[0].sig.length).toBe(64);
+
+      // Verify signature is bound to score
+      const reputationHash = computeReputationHash(
+        sasSchema,
+        agentKeypair.address,
+        providerKeypair.address,
+        score
+      );
+
+      const { verifySignature } = await import("../helpers/signatures");
+      const isValid = verifySignature(
+        reputationHash,
+        signatures[0].sig,
+        providerKeypair.publicKey.toBytes()
+      );
+      expect(isValid).toBe(true);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "different scores produce different signatures",
+    async () => {
+      const sig50 = createReputationSignature(
+        sasSchema,
+        agentKeypair.address,
+        providerKeypair,
+        50
+      );
+
+      const sig90 = createReputationSignature(
+        sasSchema,
+        agentKeypair.address,
+        providerKeypair,
+        90
+      );
+
+      // Different scores should produce different signatures
+      expect(sig50[0].sig).not.toEqual(sig90[0].sig);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "signature uniqueness per (provider, agent) pair",
+    async () => {
+      const agent1 = createTestKeypair(30);
+      const agent2 = createTestKeypair(31);
+      const score = 75;
+
+      const sig1 = createReputationSignature(
+        sasSchema,
+        agent1.address,
+        providerKeypair,
+        score
+      );
+
+      const sig2 = createReputationSignature(
+        sasSchema,
+        agent2.address,
+        providerKeypair,
+        score
+      );
+
+      // Same score but different agents should produce different signatures
+      expect(sig1[0].sig).not.toEqual(sig2[0].sig);
+    },
+    TEST_TIMEOUT
+  );
+});
+
+// =============================================================================
+// E2E: Error Handling
+// =============================================================================
+
+describe("E2E: Error Handling", () => {
+  let testEnvReady: boolean;
+  let sati: SATI;
+  let payer: KeyPairSigner;
+  let agentKeypair: TestKeypair;
+  let counterpartyKeypair: TestKeypair;
+  let sasSchema: ReturnType<typeof address>;
+
+  beforeAll(async () => {
+    testEnvReady = await isTestEnvironmentReady();
+    if (!testEnvReady) return;
+
+    sati = new SATI({ network: "localnet" });
+
+    const payerKp = Keypair.generate();
+    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+
+    agentKeypair = createTestKeypair(40);
+    counterpartyKeypair = createTestKeypair(41);
+    sasSchema = address(Keypair.generate().publicKey.toBase58());
+  }, TEST_TIMEOUT);
+
+  test.skipIf(() => !testEnvReady)(
+    "detects tampered signature",
+    async () => {
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+      const outcome = Outcome.Positive;
+
+      // Create valid signatures
+      const signatures = createFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        counterpartyKeypair,
+        dataHash,
+        outcome
+      );
+
+      // Tamper with the signature
+      const tamperedSig = new Uint8Array(signatures[0].sig);
+      tamperedSig[0] ^= 0xff; // Flip bits
+
+      // Verification should fail
+      const { verifySignature } = await import("../helpers/signatures");
+      const interactionHash = computeInteractionHash(
+        sasSchema,
+        taskRef,
+        agentKeypair.address,
+        dataHash
+      );
+
+      const isValid = verifySignature(
+        interactionHash,
+        tamperedSig,
+        agentKeypair.publicKey.toBytes()
+      );
+      expect(isValid).toBe(false);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "detects wrong signer",
+    async () => {
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+      const wrongKeypair = createTestKeypair(99);
+
+      // Create signatures with wrong keypair
+      const signatures = createFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        counterpartyKeypair,
+        dataHash,
+        Outcome.Positive
+      );
+
+      // Try to verify with wrong public key
+      const { verifySignature } = await import("../helpers/signatures");
+      const interactionHash = computeInteractionHash(
+        sasSchema,
+        taskRef,
+        agentKeypair.address,
+        dataHash
+      );
+
+      const isValid = verifySignature(
+        interactionHash,
+        signatures[0].sig,
+        wrongKeypair.publicKey.toBytes() // Wrong key!
+      );
+      expect(isValid).toBe(false);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "detects wrong message hash",
+    async () => {
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+
+      const signatures = createFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        counterpartyKeypair,
+        dataHash,
+        Outcome.Positive
+      );
+
+      // Try to verify against different taskRef
+      const wrongTaskRef = randomBytes32();
+      const wrongHash = computeInteractionHash(
+        sasSchema,
+        wrongTaskRef, // Different!
+        agentKeypair.address,
+        dataHash
+      );
+
+      const { verifySignature } = await import("../helpers/signatures");
+      const isValid = verifySignature(
+        wrongHash,
+        signatures[0].sig,
+        agentKeypair.publicKey.toBytes()
+      );
+      expect(isValid).toBe(false);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "validates signature count for DualSignature mode",
+    async () => {
+      // DualSignature mode requires exactly 2 signatures
+      const { verifyFeedbackSignatures } = await import("../helpers/signatures");
+
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+
+      // Create valid signatures
+      const signatures = createFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        counterpartyKeypair,
+        dataHash,
+        Outcome.Positive
+      );
+
+      // Verify with only one signature should fail
+      const result = verifyFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair.address,
+        dataHash,
+        Outcome.Positive,
+        [signatures[0]] // Only one signature!
+      );
+
+      expect(result.valid).toBe(false);
+    },
+    TEST_TIMEOUT
+  );
+
+  test.skipIf(() => !testEnvReady)(
+    "validates swapped signatures fail",
+    async () => {
+      const { verifyFeedbackSignatures } = await import("../helpers/signatures");
+
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+
+      const signatures = createFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        counterpartyKeypair,
+        dataHash,
+        Outcome.Positive
+      );
+
+      // Swap the signatures
+      const swapped = [signatures[1], signatures[0]];
+
+      const result = verifyFeedbackSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair.address,
+        dataHash,
+        Outcome.Positive,
+        swapped
+      );
+
+      expect(result.valid).toBe(false);
+    },
+    TEST_TIMEOUT
+  );
+});

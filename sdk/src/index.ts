@@ -17,10 +17,68 @@
  */
 
 // Generated Codama client (instructions, accounts, types, errors)
+// These are auto-generated from the program IDL
 export * from "./generated";
 
-// SAS schema definitions for reputation and validation
-export * from "./schemas";
+// SDK schema definitions (DataType, Outcome, serialization utilities)
+// Note: We selectively export to avoid collisions with generated types
+export {
+  // Enums (SDK definitions may differ from generated)
+  DataType,
+  Outcome,
+  ContentType,
+  ValidationType,
+  // Offsets for memcmp filtering
+  BASE_OFFSETS,
+  COMPRESSED_OFFSETS,
+  FEEDBACK_OFFSETS,
+  VALIDATION_OFFSETS,
+  REPUTATION_SCORE_OFFSETS,
+  // Schema size limits
+  MAX_CONTENT_SIZE,
+  MAX_TAG_LENGTH,
+  // Data interfaces
+  type FeedbackData,
+  type ValidationData,
+  type ReputationScoreData,
+  type CompressedAttestation,
+  // Serialization
+  serializeFeedback,
+  serializeValidation,
+  serializeReputationScore,
+  deserializeFeedback,
+  deserializeValidation,
+  deserializeReputationScore,
+} from "./schemas";
+
+// Domain-separated hash functions for attestations
+export * from "./hashes";
+
+// Light Protocol / Photon integration for compressed attestations
+export {
+  LightClient,
+  createLightClient,
+  getPhotonRpcUrl,
+  type AttestationFilter,
+  type ParsedAttestation,
+  type QueryResult,
+  type ValidityProofResult,
+  type CreationProofResult,
+  type MutationProofResult,
+  type PackedAddressTreeInfo,
+  type PackedStateTreeInfo,
+  // Re-export Light Protocol types
+  type CompressedAccountWithMerkleContext,
+  type Rpc,
+  createRpc,
+  bn,
+  getDefaultAddressTreeInfo,
+  PackedAccounts,
+  SystemAccountMetaConfig,
+  deriveAddress,
+  deriveAddressSeed,
+  selectStateTreeInfo,
+} from "./light";
 
 // SAS integration helpers
 export * from "./sas";

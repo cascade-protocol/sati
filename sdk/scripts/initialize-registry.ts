@@ -57,7 +57,7 @@ import { getInitializeInstruction } from "../src/generated";
 // Use @solana/spl-token for proper Token-2022 extension size calculation
 import { getMintLen, ExtensionType } from "@solana/spl-token";
 
-const PROGRAM_ID = address("satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF");
+const PROGRAM_ID = address("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 // Network RPC endpoints
 const RPC_ENDPOINTS: Record<string, string> = {

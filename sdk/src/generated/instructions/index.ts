@@ -6,6 +6,11 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from "./closeAttestation";
+export * from "./closeRegularAttestation";
+export * from "./createAttestation";
+export * from "./createRegularAttestation";
 export * from "./initialize";
 export * from "./registerAgent";
+export * from "./registerSchemaConfig";
 export * from "./updateRegistryAuthority";

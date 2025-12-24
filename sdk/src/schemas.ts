@@ -1,258 +1,778 @@
 /**
- * SATI SAS Schema Definitions
+ * SATI Schema Definitions
  *
- * Schema definitions for Solana Attestation Service (SAS) attestations.
- * These schemas define the data structures for SATI reputation and validation.
+ * Data layouts for SATI attestations with fixed offsets for memcmp filtering.
+ * These schemas must match the on-chain program's expectations.
  */
 
+import type { Address } from "@solana/kit";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Maximum content size in bytes */
+export const MAX_CONTENT_SIZE = 512;
+
+/** Maximum tag length in characters */
+export const MAX_TAG_LENGTH = 32;
+
+/** Minimum base layout size (task_ref + token_account + counterparty) */
+export const MIN_BASE_LAYOUT_SIZE = 96;
+
+// ============================================================================
+// Enums
+// ============================================================================
+
 /**
- * SAS Layout Types
- *
- * Type-safe enum for schema field layout definitions.
- * These map to the SAS program's internal type codes.
- *
- * @see https://github.com/solana-foundation/solana-attestation-service
+ * Data type discriminator for attestations
  */
-export enum SASLayoutType {
-  /** Unsigned 8-bit integer (0-255) */
-  U8 = 0,
-  /** Unsigned 16-bit integer (0-65535) */
-  U16 = 1,
-  /** Unsigned 32-bit integer */
-  U32 = 2,
-  /** Unsigned 64-bit integer */
-  U64 = 3,
-  /** Unsigned 128-bit integer */
-  U128 = 4,
-  /** Signed 8-bit integer */
-  I8 = 5,
-  /** Signed 16-bit integer */
-  I16 = 6,
-  /** Signed 32-bit integer */
-  I32 = 7,
-  /** Signed 64-bit integer (for timestamps) */
-  I64 = 8,
-  /** Signed 128-bit integer */
-  I128 = 9,
-  /** Boolean */
-  Bool = 10,
-  /** Single character */
-  Char = 11,
-  /** UTF-8 string with 4-byte length prefix */
-  String = 12,
-  /** Byte array with 4-byte length prefix */
-  VecU8 = 13,
+export enum DataType {
+  /** Feedback attestation (compressed storage) */
+  Feedback = 0,
+  /** Validation attestation (compressed storage) */
+  Validation = 1,
+  /** ReputationScore attestation (regular storage) */
+  ReputationScore = 2,
 }
 
 /**
- * SAS Schema definition structure
+ * Feedback outcome values (ERC-8004 compatible)
+ *
+ * For ERC-8004 score mapping:
+ * - Negative(0) → 0
+ * - Neutral(1) → 50
+ * - Positive(2) → 100
  */
-export interface SASSchema {
-  name: string;
-  version: number;
-  description: string;
-  layout: SASLayoutType[];
-  fieldNames: string[];
+export enum Outcome {
+  /** Negative feedback (score 0) */
+  Negative = 0,
+  /** Neutral feedback (score 50) */
+  Neutral = 1,
+  /** Positive feedback (score 100) */
+  Positive = 2,
 }
 
-// ============ FEEDBACK AUTH SCHEMA ============
+/**
+ * Content type determines how to interpret the variable-length content field
+ */
+export enum ContentType {
+  /** Empty content - just use outcome/tags */
+  None = 0,
+  /** Inline JSON object */
+  JSON = 1,
+  /** Plain UTF-8 text */
+  UTF8 = 2,
+  /** IPFS CIDv1 (~36 bytes) */
+  IPFS = 3,
+  /** Arweave transaction ID (32 bytes) */
+  Arweave = 4,
+}
 
 /**
- * FeedbackAuth Schema - Authorization for client to submit feedback
- *
- * Replaces ERC-8004's off-chain signature with on-chain attestation.
- *
- * Attestation configuration:
- * - credential = agent NFT mint
- * - subject = client pubkey (authorized reviewer)
- * - issuer = agent owner
- * - nonce = hash(agentMint, clientPubkey)
+ * Validation method types
  */
-export const FEEDBACK_AUTH_SCHEMA: SASSchema = {
-  name: "SATIFeedbackAuth",
-  version: 1,
-  description: "Authorization for client to submit feedback",
-  layout: [SASLayoutType.String, SASLayoutType.U16, SASLayoutType.I64],
-  fieldNames: [
-    "agent_mint", // Agent NFT mint address (base58 string)
-    "index_limit", // Maximum feedback index allowed (ERC-8004: indexLimit)
-    "expiry", // Unix timestamp (0 = use SAS expiry)
-  ],
-};
-
-// ============ FEEDBACK SCHEMA ============
+export enum ValidationType {
+  /** Trusted Execution Environment */
+  TEE = 0,
+  /** Zero-knowledge Machine Learning */
+  ZKML = 1,
+  /** Re-execution verification */
+  Reexecution = 2,
+  /** Consensus-based validation */
+  Consensus = 3,
+}
 
 /**
- * Feedback Schema - Client feedback for agent (ERC-8004 compatible)
- *
- * Attestation configuration:
- * - credential = agent NFT mint
- * - issuer = client (feedback giver)
- * - nonce = hash(agent_mint, client_pubkey, timestamp)
+ * Signature mode for schema configuration
  */
-export const FEEDBACK_SCHEMA: SASSchema = {
-  name: "SATIFeedback",
-  version: 1,
-  description: "Client feedback for agent (ERC-8004 compatible)",
-  layout: [
-    SASLayoutType.String, // agent_mint
-    SASLayoutType.U8, // score
-    SASLayoutType.String, // tag1
-    SASLayoutType.String, // tag2
-    SASLayoutType.String, // fileuri
-    SASLayoutType.VecU8, // filehash
-    SASLayoutType.String, // payment_proof
-  ],
-  fieldNames: [
-    "agent_mint", // Agent NFT mint receiving feedback (base58 string)
-    "score", // 0-100 as U8 (matches ERC-8004 uint8)
-    "tag1", // Optional tag (string)
-    "tag2", // Optional tag (string)
-    "fileuri", // Off-chain feedback details (IPFS) - matches ERC-8004
-    "filehash", // SHA-256 hash (32 bytes) - matches ERC-8004
-    "payment_proof", // x402 transaction reference (optional)
-  ],
-};
-
-// ============ FEEDBACK RESPONSE SCHEMA ============
+export enum SignatureMode {
+  /** Two signatures: agent + counterparty (blind feedback model) */
+  DualSignature = 0,
+  /** Single signature: provider signs (ReputationScore) */
+  SingleSigner = 1,
+}
 
 /**
- * FeedbackResponse Schema - Response to feedback (ERC-8004 appendResponse)
- *
- * Attestation configuration:
- * - credential = agent NFT mint
- * - issuer = responder (agent owner, auditor, etc.)
- * - nonce = hash(feedback_id, responder_pubkey, index)
+ * Storage type for attestations
  */
-export const FEEDBACK_RESPONSE_SCHEMA: SASSchema = {
-  name: "SATIFeedbackResponse",
-  version: 1,
-  description: "Response to feedback (ERC-8004 appendResponse)",
-  layout: [
-    SASLayoutType.String, // feedback_id
-    SASLayoutType.String, // response_uri
-    SASLayoutType.VecU8, // response_hash
-  ],
-  fieldNames: [
-    "feedback_id", // Reference to feedback attestation pubkey (base58 string)
-    "response_uri", // Off-chain response details (string)
-    "response_hash", // Content hash (32 bytes)
-  ],
-};
+export enum StorageType {
+  /** Light Protocol compressed accounts */
+  Compressed = 0,
+  /** Regular SAS accounts */
+  Regular = 1,
+}
 
-// ============ VALIDATION REQUEST SCHEMA ============
+// ============================================================================
+// Base Layout
+// ============================================================================
 
 /**
- * ValidationRequest Schema - Agent requests work validation
+ * Base data layout (first 96 bytes)
  *
- * Attestation configuration:
- * - credential = agent NFT mint
- * - subject = validator pubkey
- * - issuer = agent owner
- * - nonce = hash(agent_mint, validator_pubkey, user_nonce)
+ * All schemas MUST start with this layout. Program parses this for signature
+ * binding; full schema is parsed by indexers.
  */
-export const VALIDATION_REQUEST_SCHEMA: SASSchema = {
-  name: "SATIValidationRequest",
-  version: 1,
-  description: "Agent requests work validation",
-  layout: [
-    SASLayoutType.String, // agent_mint
-    SASLayoutType.String, // method_id
-    SASLayoutType.String, // request_uri
-    SASLayoutType.VecU8, // request_hash
-  ],
-  fieldNames: [
-    "agent_mint", // Agent NFT mint requesting validation (base58 string)
-    "method_id", // Validation method ("tee", "zkml", "restake") - SATI extension
-    "request_uri", // Off-chain validation data (string)
-    "request_hash", // Content hash (32 bytes)
-  ],
-};
-
-// ============ VALIDATION RESPONSE SCHEMA ============
+export interface BaseLayout {
+  /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
+  taskRef: Uint8Array;
+  /** Agent's token account address (32 bytes) */
+  tokenAccount: Address;
+  /** Counterparty address (32 bytes) */
+  counterparty: Address;
+}
 
 /**
- * ValidationResponse Schema - Validator responds to request
- *
- * Attestation configuration:
- * - credential = agent NFT mint (from request)
- * - issuer = validator
- * - nonce = hash(request_id, response_index)
+ * Fixed offsets in base layout
  */
-export const VALIDATION_RESPONSE_SCHEMA: SASSchema = {
-  name: "SATIValidationResponse",
-  version: 1,
-  description: "Validator responds to request",
-  layout: [
-    SASLayoutType.String, // request_id
-    SASLayoutType.U8, // response
-    SASLayoutType.String, // response_uri
-    SASLayoutType.VecU8, // response_hash
-    SASLayoutType.String, // tag
-  ],
-  fieldNames: [
-    "request_id", // Reference to request attestation pubkey (base58 string)
-    "response", // 0-100 as U8 (0=fail, 100=pass)
-    "response_uri", // Off-chain evidence (string)
-    "response_hash", // Content hash (32 bytes)
-    "tag", // Optional categorization (string)
-  ],
-};
+export const BASE_OFFSETS = {
+  TASK_REF: 0,
+  TOKEN_ACCOUNT: 32,
+  COUNTERPARTY: 64,
+} as const;
 
-// ============ CERTIFICATION SCHEMA ============
+// ============================================================================
+// Feedback Schema (data_type = 0)
+// ============================================================================
 
 /**
- * Certification Schema - Immutable certification for agent
+ * Feedback schema layout
  *
- * For permanent, unmodifiable records (security audits, compliance
- * certifications, credential attestations). SAS attestations are
- * immutable by design - content cannot be modified after creation.
+ * Fixed offsets for memcmp filtering:
+ * - outcome: offset 129
  *
- * Attestation configuration:
- * - credential = agent NFT mint
- * - issuer = certifier (e.g., audit firm)
- * - nonce = hash(agent_mint, certifier_pubkey, cert_type, issued_at)
+ * Variable-length fields: tag1, tag2, content
  */
-export const CERTIFICATION_SCHEMA: SASSchema = {
-  name: "SATICertification",
-  version: 1,
-  description: "Immutable certification for agent",
-  layout: [
-    SASLayoutType.String, // certifier
-    SASLayoutType.String, // cert_type
-    SASLayoutType.String, // cert_uri
-    SASLayoutType.I64, // issued_at
-  ],
-  fieldNames: [
-    "certifier", // Certifying entity (e.g., "OtterSec")
-    "cert_type", // Certification type (e.g., "security-audit")
-    "cert_uri", // Link to full certificate/report
-    "issued_at", // Unix timestamp
-  ],
-};
-
-// ============ ALL SCHEMAS ============
+export interface FeedbackData {
+  /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
+  taskRef: Uint8Array;
+  /** Agent's token account */
+  tokenAccount: Address;
+  /** Client (feedback giver) */
+  counterparty: Address;
+  /** Hash of request/interaction data for agent's blind signature (32 bytes) */
+  dataHash: Uint8Array;
+  /** Content format (see ContentType) */
+  contentType: ContentType;
+  /** Feedback outcome: Negative, Neutral, Positive */
+  outcome: Outcome;
+  /** Primary category tag (max 32 chars) */
+  tag1: string;
+  /** Secondary category tag (max 32 chars) */
+  tag2: string;
+  /** Variable-length content based on contentType */
+  content: Uint8Array;
+}
 
 /**
- * All SATI SAS schemas
+ * Fixed offsets in Feedback schema
  */
-export const SATI_SCHEMAS = {
-  feedbackAuth: FEEDBACK_AUTH_SCHEMA,
-  feedback: FEEDBACK_SCHEMA,
-  feedbackResponse: FEEDBACK_RESPONSE_SCHEMA,
-  validationRequest: VALIDATION_REQUEST_SCHEMA,
-  validationResponse: VALIDATION_RESPONSE_SCHEMA,
-  certification: CERTIFICATION_SCHEMA,
+export const FEEDBACK_OFFSETS = {
+  ...BASE_OFFSETS,
+  DATA_HASH: 96,
+  CONTENT_TYPE: 128,
+  /** Fixed offset for Photon memcmp filtering */
+  OUTCOME: 129,
+  /** Variable: starts at 130, length-prefixed string */
+  TAG1_LEN: 130,
 } as const;
 
 /**
- * Schema names for lookup
+ * Serialize Feedback data to bytes
  */
-export const SCHEMA_NAMES = {
-  FEEDBACK_AUTH: "SATIFeedbackAuth",
-  FEEDBACK: "SATIFeedback",
-  FEEDBACK_RESPONSE: "SATIFeedbackResponse",
-  VALIDATION_REQUEST: "SATIValidationRequest",
-  VALIDATION_RESPONSE: "SATIValidationResponse",
-  CERTIFICATION: "SATICertification",
+export function serializeFeedback(data: FeedbackData): Uint8Array {
+  const tag1Bytes = new TextEncoder().encode(data.tag1.slice(0, MAX_TAG_LENGTH));
+  const tag2Bytes = new TextEncoder().encode(data.tag2.slice(0, MAX_TAG_LENGTH));
+  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
+
+  // Calculate total size: base(96) + dataHash(32) + contentType(1) + outcome(1) +
+  // tag1_len(1) + tag1 + tag2_len(1) + tag2 + content_len(4) + content
+  const totalSize =
+    96 + 32 + 1 + 1 + 1 + tag1Bytes.length + 1 + tag2Bytes.length + 4 + contentBytes.length;
+
+  const buffer = new Uint8Array(totalSize);
+  const view = new DataView(buffer.buffer);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  buffer.set(data.taskRef, offset);
+  offset += 32;
+
+  // tokenAccount (32 bytes) - need to decode from Address
+  const tokenAccountBytes = addressToBytes(data.tokenAccount);
+  buffer.set(tokenAccountBytes, offset);
+  offset += 32;
+
+  // counterparty (32 bytes)
+  const counterpartyBytes = addressToBytes(data.counterparty);
+  buffer.set(counterpartyBytes, offset);
+  offset += 32;
+
+  // dataHash (32 bytes)
+  buffer.set(data.dataHash, offset);
+  offset += 32;
+
+  // contentType (1 byte)
+  buffer[offset++] = data.contentType;
+
+  // outcome (1 byte)
+  buffer[offset++] = data.outcome;
+
+  // tag1 (length-prefixed string)
+  buffer[offset++] = tag1Bytes.length;
+  buffer.set(tag1Bytes, offset);
+  offset += tag1Bytes.length;
+
+  // tag2 (length-prefixed string)
+  buffer[offset++] = tag2Bytes.length;
+  buffer.set(tag2Bytes, offset);
+  offset += tag2Bytes.length;
+
+  // content (4-byte length prefix + data)
+  view.setUint32(offset, contentBytes.length, true);
+  offset += 4;
+  buffer.set(contentBytes, offset);
+
+  return buffer;
+}
+
+/**
+ * Deserialize Feedback data from bytes
+ */
+export function deserializeFeedback(bytes: Uint8Array): FeedbackData {
+  if (bytes.length < 132) {
+    throw new Error("Feedback data too small (minimum 132 bytes)");
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  const taskRef = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // counterparty (32 bytes)
+  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // dataHash (32 bytes)
+  const dataHash = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // contentType (1 byte)
+  const contentType = bytes[offset++] as ContentType;
+
+  // outcome (1 byte)
+  const outcome = bytes[offset++] as Outcome;
+
+  // tag1 (length-prefixed string)
+  const tag1Len = bytes[offset++];
+  const tag1 = new TextDecoder().decode(bytes.slice(offset, offset + tag1Len));
+  offset += tag1Len;
+
+  // tag2 (length-prefixed string)
+  const tag2Len = bytes[offset++];
+  const tag2 = new TextDecoder().decode(bytes.slice(offset, offset + tag2Len));
+  offset += tag2Len;
+
+  // content (4-byte length prefix + data)
+  const contentLen = view.getUint32(offset, true);
+  offset += 4;
+  const content = bytes.slice(offset, offset + contentLen);
+
+  return {
+    taskRef,
+    tokenAccount,
+    counterparty,
+    dataHash,
+    contentType,
+    outcome,
+    tag1,
+    tag2,
+    content,
+  };
+}
+
+// ============================================================================
+// Validation Schema (data_type = 1)
+// ============================================================================
+
+/**
+ * Validation schema layout
+ *
+ * Fixed offsets for memcmp filtering:
+ * - response: offset 130
+ *
+ * Variable-length field: content
+ */
+export interface ValidationData {
+  /** Task reference (32 bytes) */
+  taskRef: Uint8Array;
+  /** Agent's token account */
+  tokenAccount: Address;
+  /** Validator address */
+  counterparty: Address;
+  /** Hash of work being validated for agent's blind signature (32 bytes) */
+  dataHash: Uint8Array;
+  /** Content format (see ContentType) */
+  contentType: ContentType;
+  /** Validation method (see ValidationType) */
+  validationType: ValidationType;
+  /** Validation confidence score: 0-100 */
+  response: number;
+  /** Variable-length content (validation report/evidence) */
+  content: Uint8Array;
+}
+
+/**
+ * Fixed offsets in Validation schema
+ */
+export const VALIDATION_OFFSETS = {
+  ...BASE_OFFSETS,
+  DATA_HASH: 96,
+  CONTENT_TYPE: 128,
+  VALIDATION_TYPE: 129,
+  /** Fixed offset for Photon memcmp filtering */
+  RESPONSE: 130,
+  CONTENT_LEN: 131,
 } as const;
+
+/**
+ * Serialize Validation data to bytes
+ */
+export function serializeValidation(data: ValidationData): Uint8Array {
+  if (data.response > 100) {
+    throw new Error("Response score must be 0-100");
+  }
+
+  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
+
+  // Calculate total size: base(96) + dataHash(32) + contentType(1) + validationType(1) +
+  // response(1) + content_len(4) + content
+  const totalSize = 96 + 32 + 1 + 1 + 1 + 4 + contentBytes.length;
+
+  const buffer = new Uint8Array(totalSize);
+  const view = new DataView(buffer.buffer);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  buffer.set(data.taskRef, offset);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  buffer.set(addressToBytes(data.tokenAccount), offset);
+  offset += 32;
+
+  // counterparty (32 bytes)
+  buffer.set(addressToBytes(data.counterparty), offset);
+  offset += 32;
+
+  // dataHash (32 bytes)
+  buffer.set(data.dataHash, offset);
+  offset += 32;
+
+  // contentType (1 byte)
+  buffer[offset++] = data.contentType;
+
+  // validationType (1 byte)
+  buffer[offset++] = data.validationType;
+
+  // response (1 byte)
+  buffer[offset++] = data.response;
+
+  // content (4-byte length prefix + data)
+  view.setUint32(offset, contentBytes.length, true);
+  offset += 4;
+  buffer.set(contentBytes, offset);
+
+  return buffer;
+}
+
+/**
+ * Deserialize Validation data from bytes
+ */
+export function deserializeValidation(bytes: Uint8Array): ValidationData {
+  if (bytes.length < 135) {
+    throw new Error("Validation data too small (minimum 135 bytes)");
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  const taskRef = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // counterparty (32 bytes)
+  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // dataHash (32 bytes)
+  const dataHash = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // contentType (1 byte)
+  const contentType = bytes[offset++] as ContentType;
+
+  // validationType (1 byte)
+  const validationType = bytes[offset++] as ValidationType;
+
+  // response (1 byte)
+  const response = bytes[offset++];
+
+  // content (4-byte length prefix + data)
+  const contentLen = view.getUint32(offset, true);
+  offset += 4;
+  const content = bytes.slice(offset, offset + contentLen);
+
+  return {
+    taskRef,
+    tokenAccount,
+    counterparty,
+    dataHash,
+    contentType,
+    validationType,
+    response,
+    content,
+  };
+}
+
+// ============================================================================
+// ReputationScore Schema (data_type = 2)
+// ============================================================================
+
+/**
+ * ReputationScore schema layout (regular SAS storage)
+ *
+ * Provider-computed scores with direct on-chain queryability.
+ * One ReputationScore per (provider, agent) pair - updates replace previous.
+ *
+ * Note: task_ref is deterministic: keccak256(counterparty, token_account)
+ */
+export interface ReputationScoreData {
+  /** Deterministic: keccak256(counterparty, token_account) (32 bytes) */
+  taskRef: Uint8Array;
+  /** Agent being scored */
+  tokenAccount: Address;
+  /** Reputation provider */
+  counterparty: Address;
+  /** Normalized reputation score: 0-100 */
+  score: number;
+  /** Content format (see ContentType) */
+  contentType: ContentType;
+  /** Variable-length content (methodology/details) */
+  content: Uint8Array;
+}
+
+/**
+ * Fixed offsets in ReputationScore schema
+ */
+export const REPUTATION_SCORE_OFFSETS = {
+  ...BASE_OFFSETS,
+  SCORE: 96,
+  CONTENT_TYPE: 97,
+  CONTENT_LEN: 98,
+} as const;
+
+/**
+ * Serialize ReputationScore data to bytes
+ */
+export function serializeReputationScore(data: ReputationScoreData): Uint8Array {
+  if (data.score > 100) {
+    throw new Error("Score must be 0-100");
+  }
+
+  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
+
+  // Calculate total size: taskRef(32) + tokenAccount(32) + counterparty(32) +
+  // score(1) + contentType(1) + content_len(4) + content
+  const totalSize = 32 + 32 + 32 + 1 + 1 + 4 + contentBytes.length;
+
+  const buffer = new Uint8Array(totalSize);
+  const view = new DataView(buffer.buffer);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  buffer.set(data.taskRef, offset);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  buffer.set(addressToBytes(data.tokenAccount), offset);
+  offset += 32;
+
+  // counterparty (32 bytes)
+  buffer.set(addressToBytes(data.counterparty), offset);
+  offset += 32;
+
+  // score (1 byte)
+  buffer[offset++] = data.score;
+
+  // contentType (1 byte)
+  buffer[offset++] = data.contentType;
+
+  // content (4-byte length prefix + data)
+  view.setUint32(offset, contentBytes.length, true);
+  offset += 4;
+  buffer.set(contentBytes, offset);
+
+  return buffer;
+}
+
+/**
+ * Deserialize ReputationScore data from bytes
+ */
+export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreData {
+  if (bytes.length < 102) {
+    throw new Error("ReputationScore data too small (minimum 102 bytes)");
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  const taskRef = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // counterparty (32 bytes)
+  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // score (1 byte)
+  const score = bytes[offset++];
+
+  // contentType (1 byte)
+  const contentType = bytes[offset++] as ContentType;
+
+  // content (4-byte length prefix + data)
+  const contentLen = view.getUint32(offset, true);
+  offset += 4;
+  const content = bytes.slice(offset, offset + contentLen);
+
+  return {
+    taskRef,
+    tokenAccount,
+    counterparty,
+    score,
+    contentType,
+    content,
+  };
+}
+
+// ============================================================================
+// Compressed Attestation Structure
+// ============================================================================
+
+/**
+ * CompressedAttestation structure (Light Protocol storage)
+ *
+ * This represents the full compressed account structure with Light Protocol fields.
+ */
+export interface CompressedAttestation {
+  /** SAS schema address (32 bytes) - memcmp filter at offset 8 */
+  sasSchema: Uint8Array;
+  /** Agent's token account (32 bytes) - memcmp filter at offset 40 */
+  tokenAccount: Uint8Array;
+  /** Data type discriminator: 0=Feedback, 1=Validation */
+  dataType: DataType;
+  /** Schema-conformant data bytes */
+  data: Uint8Array;
+  /** Number of signatures stored (1 or 2) */
+  numSignatures: number;
+  /** First signature (agent for DualSignature) */
+  signature1: Uint8Array;
+  /** Second signature (counterparty for DualSignature, zeroed for SingleSigner) */
+  signature2: Uint8Array;
+}
+
+/**
+ * Light Protocol compressed account discriminator offset
+ */
+export const COMPRESSED_DISCRIMINATOR_SIZE = 8;
+
+/**
+ * Fixed offsets in CompressedAttestation (after discriminator)
+ */
+export const COMPRESSED_OFFSETS = {
+  /** SAS schema pubkey offset for memcmp */
+  SAS_SCHEMA: COMPRESSED_DISCRIMINATOR_SIZE,
+  /** Token account pubkey offset for memcmp */
+  TOKEN_ACCOUNT: COMPRESSED_DISCRIMINATOR_SIZE + 32,
+  /** Data type byte offset */
+  DATA_TYPE: COMPRESSED_DISCRIMINATOR_SIZE + 64,
+} as const;
+
+// ============================================================================
+// Schema Configuration
+// ============================================================================
+
+/**
+ * Schema configuration for registered attestation types
+ */
+export interface SchemaConfig {
+  /** SAS schema address */
+  sasSchema: Address;
+  /** Signature verification mode */
+  signatureMode: SignatureMode;
+  /** Storage backend type */
+  storageType: StorageType;
+  /** Whether attestations can be closed/nullified */
+  closeable: boolean;
+}
+
+/**
+ * Core SATI schema configurations
+ */
+export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
+  Feedback: {
+    signatureMode: SignatureMode.DualSignature,
+    storageType: StorageType.Compressed,
+    closeable: false,
+  },
+  Validation: {
+    signatureMode: SignatureMode.DualSignature,
+    storageType: StorageType.Compressed,
+    closeable: false,
+  },
+  ReputationScore: {
+    signatureMode: SignatureMode.SingleSigner,
+    storageType: StorageType.Regular,
+    closeable: true,
+  },
+} as const;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Import address encoder lazily to avoid circular dependencies
+ */
+let _addressEncoder: ReturnType<typeof import("@solana/kit").getAddressEncoder> | null = null;
+
+async function getEncoder() {
+  if (!_addressEncoder) {
+    const { getAddressEncoder } = await import("@solana/kit");
+    _addressEncoder = getAddressEncoder();
+  }
+  return _addressEncoder;
+}
+
+/**
+ * Convert Address to 32-byte Uint8Array (synchronous version using base58 decode)
+ */
+function addressToBytes(address: Address): Uint8Array {
+  // Use base58 decoding for the address
+  const { getAddressEncoder } = require("@solana/kit");
+  const encoder = getAddressEncoder();
+  return encoder.encode(address);
+}
+
+/**
+ * Convert 32-byte Uint8Array to Address
+ */
+function bytesToAddress(bytes: Uint8Array): Address {
+  const { getAddressDecoder } = require("@solana/kit");
+  const decoder = getAddressDecoder();
+  return decoder.decode(bytes);
+}
+
+/**
+ * Deserialize attestation data based on data type
+ */
+export function deserializeAttestationData(
+  dataType: DataType,
+  data: Uint8Array
+): FeedbackData | ValidationData | ReputationScoreData {
+  switch (dataType) {
+    case DataType.Feedback:
+      return deserializeFeedback(data);
+    case DataType.Validation:
+      return deserializeValidation(data);
+    case DataType.ReputationScore:
+      return deserializeReputationScore(data);
+    default:
+      throw new Error(`Unknown data type: ${dataType}`);
+  }
+}
+
+/**
+ * Get the outcome label string
+ */
+export function getOutcomeLabel(outcome: Outcome): string {
+  switch (outcome) {
+    case Outcome.Negative:
+      return "Negative";
+    case Outcome.Neutral:
+      return "Neutral";
+    case Outcome.Positive:
+      return "Positive";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * Convert Outcome to ERC-8004 score (0-100)
+ */
+export function outcomeToScore(outcome: Outcome): number {
+  switch (outcome) {
+    case Outcome.Negative:
+      return 0;
+    case Outcome.Neutral:
+      return 50;
+    case Outcome.Positive:
+      return 100;
+    default:
+      return 50;
+  }
+}
+
+/**
+ * Get the content type label string
+ */
+export function getContentTypeLabel(contentType: ContentType): string {
+  switch (contentType) {
+    case ContentType.None:
+      return "None";
+    case ContentType.JSON:
+      return "JSON";
+    case ContentType.UTF8:
+      return "UTF-8";
+    case ContentType.IPFS:
+      return "IPFS";
+    case ContentType.Arweave:
+      return "Arweave";
+    default:
+      return "Unknown";
+  }
+}
+
+/**
+ * Get the validation type label string
+ */
+export function getValidationTypeLabel(validationType: ValidationType): string {
+  switch (validationType) {
+    case ValidationType.TEE:
+      return "TEE";
+    case ValidationType.ZKML:
+      return "ZKML";
+    case ValidationType.Reexecution:
+      return "Re-execution";
+    case ValidationType.Consensus:
+      return "Consensus";
+    default:
+      return "Unknown";
+  }
+}

@@ -1,9 +1,6 @@
 use anchor_lang::prelude::*;
 use borsh::{BorshDeserialize, BorshSerialize};
-use light_sdk::{
-    instruction::{PackedAddressTreeInfo, ValidityProof},
-    LightDiscriminator,
-};
+use light_sdk::LightDiscriminator;
 
 // ============================================================================
 // Registry State
@@ -135,6 +132,9 @@ pub struct SignatureData {
 }
 
 /// Parameters for creating a compressed attestation
+///
+/// Light Protocol specific data (proof, address_tree_info) is passed separately
+/// via remaining_accounts and deserialized in the handler using Light SDK.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CreateParams {
     /// Data type: 0=Feedback, 1=Validation
@@ -143,12 +143,12 @@ pub struct CreateParams {
     pub data: Vec<u8>,
     /// Ed25519 signatures with public keys
     pub signatures: Vec<SignatureData>,
-    /// Light Protocol validity proof for compressed account creation
-    pub proof: ValidityProof,
-    /// Address tree info for new compressed account address
-    pub address_tree_info: PackedAddressTreeInfo,
     /// Output state tree index for the new compressed account
     pub output_state_tree_index: u8,
+    /// Serialized Light Protocol proof bytes (CompressedProof)
+    pub proof_bytes: Vec<u8>,
+    /// Serialized address tree info bytes (PackedAddressTreeInfo)
+    pub address_tree_info_bytes: Vec<u8>,
 }
 
 /// Parameters for creating a regular (SAS) attestation
@@ -165,6 +165,9 @@ pub struct CreateRegularParams {
 }
 
 /// Parameters for closing a compressed attestation
+///
+/// Light Protocol specific data (proof, account_meta) is passed as serialized bytes
+/// and deserialized in the handler using Light SDK.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CloseParams {
     /// Data type of the attestation being closed
@@ -177,10 +180,10 @@ pub struct CloseParams {
     pub signature1: [u8; 64],
     /// Second signature (zeroed for SingleSigner mode)
     pub signature2: [u8; 64],
-    /// Light Protocol validity proof for account closure
-    pub proof: ValidityProof,
-    /// Compressed account metadata
-    pub account_meta: light_sdk::instruction::account_meta::CompressedAccountMeta,
     /// The compressed account address being closed (for event emission)
     pub address: Pubkey,
+    /// Serialized Light Protocol proof bytes
+    pub proof_bytes: Vec<u8>,
+    /// Serialized compressed account metadata bytes
+    pub account_meta_bytes: Vec<u8>,
 }

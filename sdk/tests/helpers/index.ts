@@ -1,0 +1,90 @@
+/**
+ * SATI Test Helpers
+ *
+ * Centralized test utilities for unit, integration, and E2E tests.
+ *
+ * @example
+ * ```typescript
+ * import {
+ *   createTestKeypair,
+ *   createFeedbackSignatures,
+ *   buildFeedbackData,
+ *   buildEd25519Instructions,
+ *   Outcome,
+ *   ContentType,
+ * } from "./helpers";
+ * ```
+ */
+
+// Signature utilities (Ed25519 signing with tweetnacl)
+export {
+  signMessage,
+  verifySignature,
+  createTestKeypair,
+  createFeedbackSignatures,
+  verifyFeedbackSignatures,
+  createValidationSignatures,
+  createReputationSignature,
+  randomBytes32,
+  randomBytes,
+  type SignatureData,
+  type TestKeypair,
+} from "./signatures";
+
+// Account builders and constants
+export {
+  // Constants
+  MAX_NAME_LENGTH,
+  MAX_SYMBOL_LENGTH,
+  MAX_URI_LENGTH,
+  MAX_TAG_LENGTH,
+  MAX_CONTENT_SIZE,
+  MIN_BASE_LAYOUT_SIZE,
+  // Enums
+  Outcome,
+  ContentType,
+  ValidationType,
+  SignatureMode,
+  StorageType,
+  DataType,
+  // PDA derivation
+  findRegistryConfigPda,
+  findSchemaConfigPda,
+  // Data builders
+  buildFeedbackData,
+  buildValidationData,
+  buildReputationScoreData,
+  // Validation
+  isValidOutcome,
+  isValidScore,
+  isValidContentType,
+  isValidValidationType,
+  // Types
+  type FeedbackDataParams,
+  type ValidationDataParams,
+  type ReputationScoreDataParams,
+} from "./accounts";
+
+// Instruction builders
+export {
+  buildEd25519Instruction,
+  buildEd25519Instructions,
+  buildFeedbackEd25519Instructions,
+  addressToPublicKey,
+  publicKeyToAddress,
+  type Ed25519SignatureParams,
+} from "./instructions";
+
+// RPC and connection utilities
+export {
+  getConnection,
+  isTestValidatorReady,
+  newAccountWithLamports,
+  getTestKeypair,
+  keypairToSigner,
+  sleep,
+  waitForIndexer,
+  retry,
+  DEFAULT_CONFIG,
+  type TestRpcConfig,
+} from "./test-rpc";

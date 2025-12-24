@@ -11,7 +11,7 @@ import {
   getProgramDerivedAddress,
   getAddressEncoder,
 } from "@solana/kit";
-import { SATI_REGISTRY_PROGRAM_ADDRESS } from "./generated";
+import { SATI_PROGRAM_ADDRESS } from "./generated";
 
 // Token-2022 and Associated Token Program addresses
 export const TOKEN_2022_PROGRAM_ADDRESS = address(
@@ -35,8 +35,26 @@ export async function findRegistryConfigPda(): Promise<
 > {
   const encoder = new TextEncoder();
   return getProgramDerivedAddress({
-    programAddress: SATI_REGISTRY_PROGRAM_ADDRESS,
+    programAddress: SATI_PROGRAM_ADDRESS,
     seeds: [encoder.encode("registry")],
+  });
+}
+
+/**
+ * Derive the Schema Config PDA for a SAS schema
+ *
+ * Seeds: ["schema_config", sas_schema]
+ *
+ * @param sasSchema - The SAS (Solana Attestation Service) schema address
+ */
+export async function findSchemaConfigPda(
+  sasSchema: Address,
+): Promise<readonly [Address, number]> {
+  const encoder = new TextEncoder();
+  const addressEncoder = getAddressEncoder();
+  return getProgramDerivedAddress({
+    programAddress: SATI_PROGRAM_ADDRESS,
+    seeds: [encoder.encode("schema_config"), addressEncoder.encode(sasSchema)],
   });
 }
 

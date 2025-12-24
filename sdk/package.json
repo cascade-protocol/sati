@@ -35,13 +35,17 @@
     "types.ts"
   ],
   "scripts": {
-    "generate": "cp ../target/idl/sati_registry.json ./idl.json && tsx scripts/generate-clients.ts",
+    "generate": "cp ../target/idl/sati.json ./idl.json && tsx scripts/generate-clients.ts",
     "build": "pnpm generate && tsdown",
     "prepublishOnly": "pnpm build",
     "dev": "tsdown --watch",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist src/generated"
   },
   "keywords": [
@@ -66,6 +70,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
+    "@lightprotocol/stateless.js": "0.22.1-alpha.5",
     "@noble/hashes": "^1.7.2",
     "@solana-program/compute-budget": "^0.11.0",
     "@solana-program/token-2022": "^0.6.1",
@@ -80,11 +85,13 @@
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^4.0.15",
     "codama": "^1.4.2",
     "litesvm": "^0.4.0",
     "ts-node": "^10.9.0",
     "tsdown": "^0.16.1",
     "tsx": "^4.20.6",
+    "tweetnacl": "^1.0.3",
     "typescript": "^5.7.3",
     "vitest": "^4.0.15"
   }
