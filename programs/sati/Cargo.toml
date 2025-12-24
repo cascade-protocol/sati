@@ -41,10 +41,28 @@ solana-attestation-service-client.workspace = true
 sha3.workspace = true
 
 [dev-dependencies]
+# LiteSVM for fast in-process testing
+litesvm = "0.7"
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+solana-sdk.workspace = true
+
+# For proper Token-2022 and account mocking
+spl-pod = "0.5"
+sha2 = "0.10"
+
+# Keep mollusk-svm-bencher for CU benchmarking (optional)
 mollusk-svm = "0.5"
 mollusk-svm-bencher = "0.5"
-mollusk-svm-programs-token = "0.5"
-solana-sdk.workspace = true
+
+# Light Protocol for compressed account testing
+# Note: devenv feature has version conflicts in crates.io releases
+# Use with_prover=true in ProgramTestConfig and run `light start-prover` manually
+light-program-test = "0.17"
+light-prover-client = "5.0"
+
+# Ed25519 signature creation for tests
+ed25519-dalek = "1.0"
+rand = "0.7"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

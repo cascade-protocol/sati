@@ -83,20 +83,17 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
           ▲
           │ (CPI: mint NFT)
 ┌─────────────────────────────────────────────────────────────────────┐
-│                      SATI Registry Program                          │
-│             (satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF)            │
+│                         SATI Program                                 │
+│             (satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz)            │
 ├─────────────────────────────────────────────────────────────────────┤
-│  initialize()                → Create registry + TokenGroup         │
-│  register_agent()            → Token-2022 NFT + group membership    │
-│  update_registry_authority() → Transfer/renounce control            │
-└─────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────┐
-│                      SATI Attestation Program                        │
-├─────────────────────────────────────────────────────────────────────┤
-│  register_schema_config()    → Register schema + auth mode + storage│
-│  create_attestation()        → Verify sigs → route to storage       │
-│  close_attestation()         → Close/nullify attestation            │
+│  Registry:                                                           │
+│    initialize()                → Create registry + TokenGroup        │
+│    register_agent()            → Token-2022 NFT + group membership   │
+│    update_registry_authority() → Transfer/renounce control           │
+│  Attestation:                                                        │
+│    register_schema_config()    → Register schema + auth mode + storage│
+│    create_attestation()        → Verify sigs → route to storage      │
+│    close_attestation()         → Close/nullify attestation           │
 └─────────────────────────────────────────────────────────────────────┘
           │                                         │
           │ (CPI: compressed)                       │ (CPI: regular)
@@ -114,8 +111,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 
 | Component | Responsibility |
 |-----------|----------------|
-| **SATI Registry** | Canonical agent registration |
-| **SATI Attestation** | Signature verification + storage routing |
+| **SATI Program** | Agent registration, signature verification, storage routing |
 | **Token-2022** | Identity storage, metadata, transfers |
 | **SAS** | Schema definitions + regular attestation storage |
 | **Light Protocol** | Compressed attestation storage |
@@ -123,11 +119,13 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 
 ---
 
-## Registry Program
+## SATI Program
 
-**Program ID**: `satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF`
+**Program ID**: `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz`
 
-### RegistryConfig (PDA: `["registry"]`)
+### Registry
+
+#### RegistryConfig (PDA: `["registry"]`)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -136,7 +134,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `total_agents` | u64 | Agent counter |
 | `bump` | u8 | PDA bump |
 
-### Instructions
+#### Instructions
 
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
@@ -144,22 +142,20 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `register_agent` | name, symbol, uri, additional_metadata?, non_transferable | Create Token-2022 NFT, add to group, renounce mint |
 | `update_registry_authority` | new_authority? | Transfer or renounce (None = immutable) |
 
-### Events
+#### Events
 
 | Event | Fields |
 |-------|--------|
 | `AgentRegistered` | mint, owner, member_number, name, uri, non_transferable |
 | `RegistryAuthorityUpdated` | old_authority, new_authority |
 
-### Errors
+#### Errors
 
 `InvalidAuthority` · `ImmutableAuthority` · `NameTooLong` · `SymbolTooLong` · `UriTooLong` · `TooManyMetadataEntries` · `Overflow`
 
----
+### Attestation
 
-## Attestation Program
-
-### SchemaConfig (PDA: `["schema_config", schema]`)
+#### SchemaConfig (PDA: `["schema_config", schema]`)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -169,7 +165,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `closeable` | bool | Whether attestations can be closed |
 | `bump` | u8 | PDA bump seed |
 
-### CompressedAttestation
+#### CompressedAttestation
 
 Compressed accounts require Light Protocol derives for hashing and discrimination:
 
@@ -186,7 +182,7 @@ pub struct CompressedAttestation { /* fields below */ }
 | `data` | Vec&lt;u8&gt; | 65+ | Schema-conformant bytes |
 | `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
 
-### Base Data Layout (first 96 bytes)
+#### Base Data Layout (first 96 bytes)
 
 All schemas MUST start with:
 
@@ -200,14 +196,14 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 **Note on timestamps**: Attestation creation time is tracked via Photon's `slotCreated` field. For interaction time (when the original event occurred), clients can look up the transaction referenced in `task_ref`.
 
-### Signature Verification (On-Chain)
+#### Signature Verification (On-Chain)
 
 1. **Count**: Match `SignatureMode` (2 for DualSignature)
 2. **Binding**: `signatures[0].pubkey == token_account`, `signatures[1].pubkey == counterparty`
 3. **Self-attestation**: `token_account != counterparty`
 4. **Validity**: Each signature on its domain-separated hash
 
-### Instructions
+#### Instructions
 
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
@@ -222,9 +218,9 @@ Program parses this for signature binding; full schema parsed by indexers.
 | Compressed | proof, address_tree_info, output_state_tree_index | proof, account_meta, current_data |
 | Regular | nonce, expiry | attestation_pda |
 
-**Routing**: Program checks `SchemaConfig.storage_type` and CPIs to Light Protocol (compressed) or SAS (regular). SATI Attestation Program PDA is the sole authorized signer for both storage backends.
+**Routing**: Program checks `SchemaConfig.storage_type` and CPIs to Light Protocol (compressed) or SAS (regular). SATI Program PDA is the sole authorized signer for both storage backends.
 
-### Events
+#### Events
 
 | Event | Fields |
 |-------|--------|
@@ -232,7 +228,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 | `AttestationCreated` | sas_schema, token_account, data_type, storage_type, address, timestamp |
 | `AttestationClosed` | sas_schema, token_account, address |
 
-### Errors
+#### Errors
 
 `SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `InvalidDataType` · `InvalidScore` · `InvalidResponse` · `TagTooLong` · `InvalidDataLayout` · `LightCpiInvocationFailed`
 
@@ -561,10 +557,10 @@ await sati.createFeedback({
 
 ### Addresses
 
-| Network | Registry | Registry Config | Group Mint |
-|---------|----------|-----------------|------------|
-| Devnet | TBD | TBD | TBD |
-| Mainnet | TBD | TBD | TBD |
+| Network | SATI Program | Registry Config | Group Mint |
+|---------|--------------|-----------------|------------|
+| Devnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | TBD | TBD |
+| Mainnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | TBD | TBD |
 
 ### Governance
 
@@ -672,7 +668,7 @@ Agents register separately on each chain but link identities via the off-chain r
     { "name": "agentWallet", "endpoint": "solana:5eykt4...:7S3P4..." }
   ],
   "registrations": [
-    { "agentId": "sati:mainnet:ABC123mint", "agentRegistry": "solana:5eykt4...:satiFVb9..." },
+    { "agentId": "sati:mainnet:ABC123mint", "agentRegistry": "solana:5eykt4...:satiR3q7..." },
     { "agentId": 22, "agentRegistry": "eip155:1:0x..." },
     { "agentId": 45, "agentRegistry": "eip155:8453:0x..." }
   ],
@@ -708,7 +704,7 @@ sati:<network>:<mint_address>
 |--------|---------|
 | SATI (Solana) | `sati:mainnet:ABC123mintPubkey` |
 | ERC-8004 (EVM) | `22` (tokenId on specific registry) |
-| Registry address | `solana:5eykt4...:satiFVb9...` (CAIP-10) |
+| Registry address | `solana:5eykt4...:satiR3q7...` (CAIP-10) |
 
 See [CAIP Standards](https://github.com/ChainAgnostic/CAIPs) and [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) for full format specifications.
 
@@ -769,12 +765,6 @@ When added, Certification may use a new `CredentialAuthority` SignatureMode with
 ### Third-Party Credential System (Deferred)
 
 The spec supports external projects registering their own SAS credentials with SATI for permissionless attestation creation and unified indexing. This "SATI as platform" model adds complexity without immediate value — will be added when third parties express demand.
-
----
-
-## Appendices
-
-- [Appendix A: Implementation Details](./appendix-a-implementation.md) — Full implementation guidance
 
 ---
 
