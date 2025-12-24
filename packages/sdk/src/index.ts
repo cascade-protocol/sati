@@ -34,9 +34,10 @@ export {
   FEEDBACK_OFFSETS,
   VALIDATION_OFFSETS,
   REPUTATION_SCORE_OFFSETS,
-  // Schema size limits
+  // Schema size limits and constants
   MAX_CONTENT_SIZE,
   MAX_TAG_LENGTH,
+  SAS_HEADER_SIZE,
   // Data interfaces
   type FeedbackData,
   type ValidationData,
@@ -54,36 +55,41 @@ export {
 // Domain-separated hash functions for attestations
 export * from "./hashes";
 
-// Light Protocol / Photon integration for compressed attestations
-export {
+// Light Protocol / Photon types only (runtime values available via @cascade-fyi/sati-sdk/light)
+// This avoids bundling Node.js dependencies in browser environments
+export type {
   LightClient,
-  createLightClient,
-  getPhotonRpcUrl,
-  type AttestationFilter,
-  type ParsedAttestation,
-  type QueryResult,
-  type ValidityProofResult,
-  type CreationProofResult,
-  type MutationProofResult,
-  type PackedAddressTreeInfo,
-  type PackedStateTreeInfo,
-  // Re-export Light Protocol types
-  type CompressedAccountWithMerkleContext,
-  type Rpc,
-  createRpc,
-  bn,
-  PackedAccounts,
-  SystemAccountMetaConfig,
-  deriveAddress,
-  deriveAddressSeed,
-  selectStateTreeInfo,
-  // V1 address tree constants for mainnet compatibility
-  ADDRESS_TREE_V1,
-  ADDRESS_QUEUE_V1,
+  AttestationFilter,
+  ParsedAttestation,
+  QueryResult,
+  ValidityProofResult,
+  CreationProofResult,
+  MutationProofResult,
+  PackedAddressTreeInfo,
+  PackedStateTreeInfo,
+  CompressedAccountWithMerkleContext,
+  Rpc,
 } from "./light";
 
 // SAS integration helpers
 export * from "./sas";
+
+// SAS PDA derivation helpers (SATI-specific)
+export {
+  // SATI-specific PDA derivation (uses SATI program PDA as authority)
+  deriveSatiPda,
+  deriveSatiProgramCredentialPda,
+  deriveReputationSchemaPda,
+  deriveReputationAttestationPda,
+  // Constants
+  SAS_PROGRAM_ADDRESS,
+  CREDENTIAL_SEED,
+  SCHEMA_SEED,
+  ATTESTATION_SEED,
+  SATI_ATTESTATION_SEED,
+  REPUTATION_SCHEMA_NAME,
+  REPUTATION_SCHEMA_VERSION,
+} from "./sas-pdas";
 
 // Utility helpers and PDA derivation
 export * from "./helpers";
@@ -101,8 +107,15 @@ export {
   getDeployedNetworks,
 } from "./deployed";
 
-// High-level client
-export { SATI } from "./client";
+// High-level client and related types
+export {
+  SATI,
+  type AttestationResult,
+  type SignatureInput,
+  type CreateFeedbackParams,
+  type CreateValidationParams,
+  type CreateReputationScoreParams,
+} from "./client";
 
 // Re-export types for convenience
 export type { Address } from "@solana/kit";

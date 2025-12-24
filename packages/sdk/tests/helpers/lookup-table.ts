@@ -65,7 +65,8 @@ export async function createSatiLookupTable(
   const connection = new Connection(rpcUrl, "confirmed");
 
   // Get addresses to include in lookup table (do this first, before fetching slot)
-  const addresses = await sati.light.getLookupTableAddresses();
+  const light = await sati.getLightClient();
+  const addresses = await light.getLookupTableAddresses();
 
   // Get current slot for lookup table creation
   const slot = await connection.getSlot("finalized");

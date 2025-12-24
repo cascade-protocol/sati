@@ -51,9 +51,19 @@ const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
  */
 function setupLiteSVM(): LiteSVM {
   const svm = new LiteSVM();
-  const programPath = process.cwd().endsWith("sdk")
-    ? "../target/deploy/sati.so"
-    : "./target/deploy/sati.so";
+  // Handle monorepo structure: SDK is at packages/sdk/
+  const cwd = process.cwd();
+  let programPath: string;
+  if (cwd.includes("packages/sdk")) {
+    // Running from packages/sdk - go up two levels
+    programPath = "../../target/deploy/sati.so";
+  } else if (cwd.endsWith("sdk")) {
+    // Legacy: running from sdk/ directly
+    programPath = "../target/deploy/sati.so";
+  } else {
+    // Running from project root
+    programPath = "./target/deploy/sati.so";
+  }
   svm.addProgramFromFile(new PublicKey(SATI_PROGRAM_ADDRESS), programPath);
   return svm;
 }

@@ -13,19 +13,52 @@ import {
   phantom,
   solflare,
   backpack,
+  resolveCluster,
+  type ClusterMoniker,
 } from "@solana/client";
 import { SolanaProvider } from "@solana/react-hooks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router } from "./router";
+import { NETWORK_STORAGE_KEY } from "@/lib/constants";
 import "./index.css";
+
+function getSavedNetwork(): ClusterMoniker {
+  const saved = localStorage.getItem(NETWORK_STORAGE_KEY);
+  if (saved === "localnet" || saved === "devnet" || saved === "mainnet") {
+    return saved;
+  }
+  return "localnet"; // Default to localnet for development
+}
+
+// Get initial cluster config from saved preference or env vars
+function getInitialCluster() {
+  const network = getSavedNetwork();
+
+  // Allow env var overrides for each network
+  if (network === "mainnet" && import.meta.env.VITE_MAINNET_RPC) {
+    return {
+      endpoint: import.meta.env.VITE_MAINNET_RPC,
+      websocketEndpoint: import.meta.env.VITE_MAINNET_WS,
+    };
+  }
+  if (network === "devnet" && import.meta.env.VITE_DEVNET_RPC) {
+    return {
+      endpoint: import.meta.env.VITE_DEVNET_RPC,
+      websocketEndpoint: import.meta.env.VITE_DEVNET_WS,
+    };
+  }
+
+  // Use built-in cluster resolution
+  return resolveCluster({ moniker: network });
+}
+
+const initialCluster = getInitialCluster();
 
 // Solana client configuration
 const solanaClient = createClient({
   commitment: "confirmed",
-  endpoint:
-    import.meta.env.VITE_MAINNET_RPC || "https://api.mainnet-beta.solana.com",
-  websocketEndpoint:
-    import.meta.env.VITE_MAINNET_WS || "wss://api.mainnet-beta.solana.com",
+  endpoint: initialCluster.endpoint,
+  websocketEndpoint: initialCluster.websocketEndpoint,
   walletConnectors: [
     ...phantom(),
     ...solflare(),

@@ -5,7 +5,11 @@
  * These schemas must match the on-chain program's expectations.
  */
 
-import type { Address } from "@solana/kit";
+import {
+  getAddressEncoder,
+  getAddressDecoder,
+  type Address,
+} from "@solana/kit";
 
 // ============================================================================
 // Constants
@@ -19,6 +23,16 @@ export const MAX_TAG_LENGTH = 32;
 
 /** Minimum base layout size (task_ref + token_account + counterparty) */
 export const MIN_BASE_LAYOUT_SIZE = 96;
+
+/**
+ * SAS attestation header size in bytes.
+ *
+ * Layout: discriminator(1) + nonce(32) + credential(32) + schema(32) + data_len(4)
+ * Total: 101 bytes
+ *
+ * Must match programs/sati/src/constants.rs SAS_HEADER_SIZE
+ */
+export const SAS_HEADER_SIZE = 101;
 
 // ============================================================================
 // Enums
@@ -673,38 +687,22 @@ export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
 // Utility Functions
 // ============================================================================
 
-/**
- * Import address encoder lazily to avoid circular dependencies
- */
-let _addressEncoder: ReturnType<
-  typeof import("@solana/kit").getAddressEncoder
-> | null = null;
-
-async function _getEncoder() {
-  if (!_addressEncoder) {
-    const { getAddressEncoder } = await import("@solana/kit");
-    _addressEncoder = getAddressEncoder();
-  }
-  return _addressEncoder;
-}
+// Address encoder/decoder singletons
+const addressEncoder = getAddressEncoder();
+const addressDecoder = getAddressDecoder();
 
 /**
- * Convert Address to 32-byte Uint8Array (synchronous version using base58 decode)
+ * Convert Address to 32-byte Uint8Array
  */
 function addressToBytes(address: Address): Uint8Array {
-  // Use base58 decoding for the address
-  const { getAddressEncoder } = require("@solana/kit");
-  const encoder = getAddressEncoder();
-  return encoder.encode(address);
+  return new Uint8Array(addressEncoder.encode(address));
 }
 
 /**
  * Convert 32-byte Uint8Array to Address
  */
 function bytesToAddress(bytes: Uint8Array): Address {
-  const { getAddressDecoder } = require("@solana/kit");
-  const decoder = getAddressDecoder();
-  return decoder.decode(bytes);
+  return addressDecoder.decode(bytes);
 }
 
 /**

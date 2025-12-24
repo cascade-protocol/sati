@@ -274,6 +274,21 @@ export class LightClient {
   }
 
   /**
+   * Get a compressed attestation by its Address (kit Address type)
+   *
+   * Convenience wrapper around getAttestation that converts Address to Uint8Array.
+   *
+   * @param address - Compressed account address (kit Address type)
+   * @returns Parsed attestation or null if not found
+   */
+  async getAttestationByAddress(
+    address: Address,
+  ): Promise<ParsedAttestation | null> {
+    const addressBytes = addressToBytes(address);
+    return this.getAttestation(addressBytes);
+  }
+
+  /**
    * Get multiple compressed attestations by addresses
    *
    * @param addresses - Array of compressed account addresses

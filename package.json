@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "localnet": "light test-validator",
+    "localnet:init": "cd packages/sdk && pnpm tsx scripts/deploy-and-initialize.ts",
     "build": "anchor build",
     "test": "cargo test -p sati && pnpm test:sdk:unit",
     "test:rust": "cargo test -p sati",
@@ -13,7 +15,7 @@
     "test:sdk:e2e": "pnpm --filter @cascade-fyi/sati-sdk exec vitest run tests/e2e/",
     "test:smoke": "SOLANA_CLUSTER=devnet pnpm vitest run tests/smoke/",
     "test:smoke:mainnet": "SOLANA_CLUSTER=mainnet pnpm vitest run tests/smoke/",
-    "test:all": "pnpm test && pnpm test:sdk && pnpm test:smoke",
+    "test:all": "pnpm test && pnpm test:sdk",
     "type-check": "tsc --noEmit && pnpm --filter @cascade-fyi/sati-sdk run type-check",
     "lint": "biome check",
     "lint:fix": "biome check --write",

@@ -4,7 +4,7 @@
  * Core types for agent identity, reputation, and validation.
  */
 
-import type { Address } from "@solana/kit";
+import type { Address, KeyPairSigner } from "@solana/kit";
 
 /**
  * Agent identity information retrieved from Token-2022 NFT
@@ -130,16 +130,6 @@ export interface RegisterAgentResult {
 }
 
 /**
- * Attestation result from SAS operations
- */
-export interface AttestationResult {
-  /** Attestation account address */
-  attestation: Address;
-  /** Transaction signature */
-  signature: string;
-}
-
-/**
  * SATI client configuration options
  */
 export interface SATIClientOptions {
@@ -169,6 +159,7 @@ export interface SATISASConfig {
     validationRequest: Address;
     validationResponse: Address;
     certification: Address;
+    reputationScore: Address;
   };
 }
 
@@ -221,4 +212,46 @@ export interface DeployedSASConfig {
   deployedAt: string;
   /** The SAS configuration */
   config: SATISASConfig;
+}
+
+// ============ CLOSE ATTESTATION TYPES ============
+
+/**
+ * Parameters for closing a compressed attestation (Light Protocol)
+ */
+export interface CloseCompressedAttestationParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** Counterparty who must authorize the close (original signer) */
+  counterparty: KeyPairSigner;
+  /** SAS schema address */
+  sasSchema: Address;
+  /** Attestation's compressed account address */
+  attestationAddress: Address;
+  /** Optional address lookup table for transaction compression */
+  lookupTableAddress?: Address;
+}
+
+/**
+ * Parameters for closing a regular SAS attestation (ReputationScore)
+ */
+export interface CloseRegularAttestationParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** Provider who created the score (must sign) */
+  provider: KeyPairSigner;
+  /** SAS schema address */
+  sasSchema: Address;
+  /** SATI credential address */
+  satiCredential: Address;
+  /** SAS attestation address */
+  attestation: Address;
+}
+
+/**
+ * Result of closing an attestation
+ */
+export interface CloseAttestationResult {
+  /** Transaction signature */
+  signature: string;
 }

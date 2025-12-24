@@ -47,6 +47,9 @@ import { getSetComputeUnitLimitInstruction } from "@solana-program/compute-budge
 import {
   getRegisterAgentInstructionAsync,
   getCreateAttestationInstructionAsync,
+  getCloseAttestationInstructionAsync,
+  getCloseRegularAttestationInstructionAsync,
+  getCreateRegularAttestationInstructionAsync,
   getRegisterSchemaConfigInstructionAsync,
   fetchRegistryConfig,
   fetchSchemaConfig,
@@ -54,6 +57,7 @@ import {
   type SignatureData as GeneratedSignatureData,
   type ValidityProofArgs,
   type PackedAddressTreeInfoArgs,
+  type CompressedAccountMetaArgs,
 } from "./generated";
 
 import {
@@ -81,23 +85,36 @@ import {
   serializeFeedback,
   serializeValidation,
   serializeReputationScore,
+  deserializeReputationScore,
+  SAS_HEADER_SIZE,
   type FeedbackData,
   type ValidationData,
   type ReputationScoreData,
 } from "./schemas";
 
-import {
-  type LightClient,
-  createLightClient,
-  type ParsedAttestation,
-  type AttestationFilter,
+// Light Protocol types (type-only imports don't trigger bundling)
+import type {
+  LightClient,
+  ParsedAttestation,
+  AttestationFilter,
 } from "./light";
+
+// Dynamic import helper for Light Protocol (avoids bundling Node.js deps for browser)
+async function loadLightClient(): Promise<typeof import("./light")> {
+  return import("./light");
+}
 
 import type {
   AgentIdentity,
   RegisterAgentResult,
   SATIClientOptions,
+  CloseCompressedAttestationParams,
+  CloseRegularAttestationParams,
+  CloseAttestationResult,
+  SASDeploymentResult,
 } from "./types";
+
+import { deriveReputationAttestationPda } from "./sas-pdas";
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
@@ -238,10 +255,14 @@ export interface CreateValidationParams {
 export interface CreateReputationScoreParams {
   /** Payer for transaction fees */
   payer: KeyPairSigner;
-  /** Provider (reputation scorer) - must sign */
-  provider: KeyPairSigner;
+  /** Provider (reputation scorer) address */
+  provider: Address;
+  /** Provider's signature over the reputation hash (see computeReputationHash) */
+  providerSignature: Uint8Array;
   /** SAS schema address */
   sasSchema: Address;
+  /** SATI credential address in SAS */
+  satiCredential: Address;
   /** Agent's token account being scored */
   tokenAccount: Address;
   /** Reputation score (0-100) */
@@ -290,6 +311,8 @@ export class SATI {
   private network: "mainnet" | "devnet" | "localnet";
   private lightClient: LightClient | null = null;
 
+  private photonRpcUrl?: string;
+
   constructor(options: SATIClientOptions) {
     this.network = options.network;
     const rpcUrl = options.rpcUrl ?? RPC_URLS[options.network];
@@ -302,31 +325,26 @@ export class SATI {
       rpcSubscriptions: this.rpcSubscriptions,
     });
 
-    // Initialize Light client if Photon URL provided
-    if (options.photonRpcUrl) {
-      this.lightClient = createLightClient(options.photonRpcUrl);
-    }
+    // Store Photon URL for lazy initialization
+    this.photonRpcUrl = options.photonRpcUrl;
   }
 
   /**
-   * Get or create Light Protocol client
+   * Get or create Light Protocol client (async to support dynamic import)
+   *
+   * Light Protocol is loaded dynamically to avoid bundling Node.js
+   * dependencies in browser environments.
    */
-  getLightClient(): LightClient {
+  async getLightClient(): Promise<LightClient> {
     if (!this.lightClient) {
-      this.lightClient = createLightClient();
+      const { createLightClient } = await loadLightClient();
+      this.lightClient = createLightClient(this.photonRpcUrl);
     }
     return this.lightClient;
   }
 
   /**
-   * Light Protocol client accessor
-   */
-  get light(): LightClient {
-    return this.getLightClient();
-  }
-
-  /**
-   * Set Light Protocol client
+   * Set Light Protocol client (for testing or custom clients)
    */
   setLightClient(client: LightClient): void {
     this.lightClient = client;
@@ -748,7 +766,7 @@ export class SATI {
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
     // Get Light Protocol proof and remaining accounts
-    const light = this.getLightClient();
+    const light = await this.getLightClient();
 
     // Compute seeds for address derivation
     // Must match program's derive_address seeds:
@@ -941,7 +959,7 @@ export class SATI {
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
     // Get Light Protocol proof and remaining accounts
-    const light = this.getLightClient();
+    const light = await this.getLightClient();
 
     // Compute seeds for address derivation
     // Must match program's derive_address seeds:
@@ -1064,6 +1082,164 @@ export class SATI {
     };
   }
 
+  /**
+   * Close a compressed attestation (Light Protocol)
+   *
+   * Closes a Feedback or Validation attestation and returns any associated
+   * rent to the payer. Only the counterparty from the original attestation
+   * can authorize the close.
+   *
+   * @param params - Close parameters
+   * @returns Transaction signature
+   */
+  async closeCompressedAttestation(
+    params: CloseCompressedAttestationParams,
+  ): Promise<CloseAttestationResult> {
+    const {
+      payer,
+      counterparty,
+      sasSchema,
+      attestationAddress,
+      lookupTableAddress,
+    } = params;
+
+    // 1. Fetch the attestation by address
+    const light = await this.getLightClient();
+    const parsedAttestation =
+      await light.getAttestationByAddress(attestationAddress);
+
+    if (!parsedAttestation) {
+      throw new Error(`Attestation not found at address ${attestationAddress}`);
+    }
+
+    // 2. Verify the signer is the counterparty
+    // Counterparty is at offset 64-96 in the attestation data
+    const addressEncoder = getAddressEncoder();
+    const counterpartyBytes = parsedAttestation.attestation.data.slice(64, 96);
+    const expectedCounterpartyBytes = new Uint8Array(
+      addressEncoder.encode(counterparty.address),
+    );
+
+    // Compare byte arrays
+    const isCounterparty =
+      counterpartyBytes.length === expectedCounterpartyBytes.length &&
+      counterpartyBytes.every(
+        (byte, i) => byte === expectedCounterpartyBytes[i],
+      );
+
+    if (!isCounterparty) {
+      throw new Error(
+        "Signer must be the counterparty from the original attestation",
+      );
+    }
+
+    // 3. Get mutation proof from Light Protocol
+    const mutationResult = await light.getMutationProof(parsedAttestation.raw);
+
+    // 4. Build the compressed account meta
+    const accountMeta: CompressedAccountMetaArgs = {
+      treeInfo: {
+        rootIndex: mutationResult.stateTreeInfo.rootIndex,
+        proveByIndex: true,
+        merkleTreePubkeyIndex:
+          mutationResult.stateTreeInfo.merkleTreePubkeyIndex,
+        queuePubkeyIndex: mutationResult.stateTreeInfo.queuePubkeyIndex,
+        leafIndex: mutationResult.stateTreeInfo.leafIndex,
+      },
+      address: parsedAttestation.address,
+      outputStateTreeIndex: mutationResult.outputStateTreeIndex,
+    };
+
+    // 5. Convert proof format
+    const proof: ValidityProofArgs = mutationResult.proof.compressedProof
+      ? [
+          {
+            a: new Uint8Array(mutationResult.proof.compressedProof.a),
+            b: new Uint8Array(mutationResult.proof.compressedProof.b),
+            c: new Uint8Array(mutationResult.proof.compressedProof.c),
+          },
+        ]
+      : [null];
+
+    // 6. Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    // 7. Build the close instruction
+    const baseCloseIx = await getCloseAttestationInstructionAsync({
+      signer: counterparty,
+      schemaConfig: schemaConfigPda,
+      program: SATI_PROGRAM_ADDRESS,
+      dataType: parsedAttestation.attestation.dataType,
+      currentData: parsedAttestation.attestation.data,
+      numSignatures: parsedAttestation.attestation.numSignatures,
+      signature1: parsedAttestation.attestation.signature1,
+      signature2: parsedAttestation.attestation.signature2,
+      address: attestationAddress,
+      proof,
+      accountMeta,
+    });
+
+    // 8. Append remaining accounts
+    const closeIx = {
+      ...baseCloseIx,
+      accounts: [
+        ...baseCloseIx.accounts,
+        ...mutationResult.remainingAccounts.map((acc) => ({
+          address: address(acc.pubkey.toBase58()),
+          role: acc.isWritable
+            ? acc.isSigner
+              ? 3 // AccountRole.WRITABLE_SIGNER
+              : 1 // AccountRole.WRITABLE
+            : acc.isSigner
+              ? 2 // AccountRole.READONLY_SIGNER
+              : 0, // AccountRole.READONLY
+        })),
+      ],
+    };
+
+    // 9. Build and send transaction
+    const signature = await this.buildAndSendTransaction(
+      [closeIx],
+      payer,
+      lookupTableAddress,
+    );
+
+    return { signature };
+  }
+
+  /**
+   * Close a regular SAS attestation (ReputationScore)
+   *
+   * Closes a ReputationScore attestation and returns the rent to the payer.
+   * Only the provider who created the score can authorize the close.
+   *
+   * @param params - Close parameters
+   * @returns Transaction signature
+   */
+  async closeRegularAttestation(
+    params: CloseRegularAttestationParams,
+  ): Promise<CloseAttestationResult> {
+    const { payer, provider, sasSchema, satiCredential, attestation } = params;
+
+    // Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    // Build the close instruction
+    const closeIx = await getCloseRegularAttestationInstructionAsync({
+      payer,
+      signer: provider,
+      schemaConfig: schemaConfigPda,
+      satiCredential,
+      attestation,
+      program: SATI_PROGRAM_ADDRESS,
+    });
+
+    // Build and send transaction
+    const signature = await this.buildAndSendTransaction([closeIx], payer);
+
+    return { signature };
+  }
+
   // ============================================================
   // REGULAR ATTESTATIONS (SAS)
   // ============================================================
@@ -1081,12 +1257,16 @@ export class SATI {
     params: CreateReputationScoreParams,
   ): Promise<AttestationResult> {
     const {
+      payer,
       provider,
+      providerSignature,
       sasSchema,
+      satiCredential,
       tokenAccount,
       score,
       contentType = ContentType.None,
       content = new Uint8Array(0),
+      expiry = 0,
     } = params;
 
     // Validate score
@@ -1094,37 +1274,78 @@ export class SATI {
       throw new Error("Score must be 0-100");
     }
 
-    // Compute deterministic task_ref
-    const taskRef = computeReputationNonce(provider.address, tokenAccount);
+    // Validate signature length
+    if (providerSignature.length !== 64) {
+      throw new Error("Provider signature must be 64 bytes");
+    }
+
+    // Compute deterministic nonce from (provider, tokenAccount)
+    const nonce = computeReputationNonce(provider, tokenAccount);
 
     // Serialize reputation score data
     const reputationData: ReputationScoreData = {
-      taskRef,
+      taskRef: nonce,
       tokenAccount,
-      counterparty: provider.address,
+      counterparty: provider,
       score,
       contentType,
       content,
     };
-    const _data = serializeReputationScore(reputationData);
+    const data = serializeReputationScore(reputationData);
 
-    // Compute hash for provider signature
-    const _messageHash = computeReputationHash(
+    // Compute message hash that provider signed
+    const messageHash = computeReputationHash(
       sasSchema,
       tokenAccount,
-      provider.address,
+      provider,
       score,
     );
 
-    // Get schema config PDA
-    const [_schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+    // Derive the attestation PDA using the nonce
+    const [attestationPda] = await deriveReputationAttestationPda(nonce);
 
-    // TODO: Implement proper SAS credential and schema derivation
-    // For now, this method is a placeholder - requires additional SAS setup
-    throw new Error(
-      "createReputationScore: Not yet implemented. Requires SAS credential and schema configuration. " +
-        "Use the LightClient for Feedback/Validation attestations instead.",
+    // Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    // Create Ed25519 instruction for provider signature verification
+    const addressEncoder = getAddressEncoder();
+    const ed25519Ix = createBatchEd25519Instruction([
+      {
+        publicKey: new Uint8Array(addressEncoder.encode(provider)),
+        message: messageHash,
+        signature: providerSignature,
+      },
+    ]);
+
+    // Build the create regular attestation instruction
+    const createIx = await getCreateRegularAttestationInstructionAsync({
+      payer,
+      schemaConfig: schemaConfigPda,
+      satiCredential,
+      sasSchema,
+      attestation: attestationPda,
+      program: SATI_PROGRAM_ADDRESS,
+      dataType: DataType.ReputationScore,
+      data,
+      signatures: [
+        {
+          pubkey: provider,
+          sig: providerSignature,
+        },
+      ],
+      expiry: BigInt(expiry),
+    });
+
+    // Build and send transaction (Ed25519 instruction must come first)
+    const signature = await this.buildAndSendTransaction(
+      [ed25519Ix, createIx],
+      payer,
     );
+
+    return {
+      address: attestationPda,
+      signature,
+    };
   }
 
   // ============================================================
@@ -1144,7 +1365,7 @@ export class SATI {
     tokenAccount: Address,
     filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
-    const light = this.getLightClient();
+    const light = await this.getLightClient();
     return light.listFeedbacks(tokenAccount, filter);
   }
 
@@ -1161,7 +1382,7 @@ export class SATI {
     tokenAccount: Address,
     filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
-    const light = this.getLightClient();
+    const light = await this.getLightClient();
     return light.listValidations(tokenAccount, filter);
   }
 
@@ -1178,13 +1399,38 @@ export class SATI {
     provider: Address,
     tokenAccount: Address,
   ): Promise<ReputationScoreData | null> {
-    // Compute deterministic nonce
-    const _nonce = computeReputationNonce(provider, tokenAccount);
+    // Compute deterministic nonce (same as on-chain)
+    const nonce = computeReputationNonce(provider, tokenAccount);
 
-    // TODO: Query SAS attestation by nonce
-    // This requires SAS program integration
+    // Derive the attestation PDA
+    const [attestationPda] = await deriveReputationAttestationPda(nonce);
 
-    return null;
+    // Fetch the account
+    const accountInfo = await this.rpc
+      .getAccountInfo(attestationPda, { encoding: "base64" })
+      .send();
+
+    if (!accountInfo.value) {
+      return null;
+    }
+
+    // Decode base64 data (browser-compatible)
+    const base64Data = accountInfo.value.data[0];
+    const binaryString = atob(base64Data);
+    const data = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      data[i] = binaryString.charCodeAt(i);
+    }
+
+    if (data.length < SAS_HEADER_SIZE) {
+      return null;
+    }
+
+    // Extract SATI data payload (after SAS header)
+    const satiData = new Uint8Array(data.subarray(SAS_HEADER_SIZE));
+
+    // Deserialize the ReputationScore data
+    return deserializeReputationScore(satiData);
   }
 
   // ============================================================
@@ -1360,5 +1606,57 @@ export class SATI {
     } catch {
       return null;
     }
+  }
+
+  // ============================================================
+  // SAS DEPLOYMENT
+  // ============================================================
+
+  /**
+   * Setup SATI SAS schemas
+   *
+   * Deploys SATI credential and all required schemas to the SAS program.
+   * This is an admin operation typically run once per network.
+   *
+   * Creates:
+   * - SATI credential with SATI PDA as authorized signer
+   * - feedbackAuth schema
+   * - feedback schema
+   * - feedbackResponse schema
+   * - validationRequest schema
+   * - validationResponse schema
+   * - certification schema
+   * - reputationScore schema
+   *
+   * @internal This method is not yet implemented. Use scripts/deploy-sas-schemas.ts instead.
+   * @throws Always throws - implementation requires SAS SDK integration
+   * @param params - Setup parameters
+   * @returns Deployment result with addresses and signatures
+   */
+  async setupSASSchemas(params: {
+    /** Payer for transaction fees and account rent */
+    payer: KeyPairSigner;
+    /** Authority that will control the SATI credential */
+    authority: KeyPairSigner;
+    /** Deploy test schemas (v0) instead of production */
+    testMode?: boolean;
+  }): Promise<SASDeploymentResult> {
+    const { authority, testMode } = params;
+    const mode = testMode ? "test" : "production";
+
+    // TODO: Implement full SAS credential and schema deployment
+    // This requires:
+    // 1. Import SAS SDK: getCreateCredentialInstruction, getCreateSchemaInstruction
+    // 2. Derive SATI authority PDA
+    // 3. Check if credential exists, create if not
+    // 4. Add SATI PDA as authorized signer on the credential
+    // 5. Create each schema (feedbackAuth, feedback, feedbackResponse, etc.)
+    // 6. Register SchemaConfig in SATI for each schema
+    // 7. Return deployment result
+
+    throw new Error(
+      `setupSASSchemas: Not yet implemented for authority ${authority.address} (${mode} mode). ` +
+        "Requires SAS SDK integration. Use scripts/deploy-sas-schemas.ts instead.",
+    );
   }
 }

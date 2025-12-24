@@ -215,7 +215,8 @@ async function deriveRegistryPda(programId: Address): Promise<Address> {
 
 // Get the program binary path (and default keypair for localnet)
 function getProgramPaths(): { binaryPath: string; defaultKeypairPath: string } {
-  const workspaceRoot = path.join(__dirname, "..", "..");
+  // Use process.cwd() for monorepo compatibility - run from packages/sdk
+  const workspaceRoot = path.join(process.cwd(), "..", "..");
   const binaryPath = path.join(workspaceRoot, "target", "deploy", "sati.so");
   const defaultKeypairPath = path.join(
     workspaceRoot,

@@ -2,6 +2,7 @@
   "name": "@cascade-fyi/sati-sdk",
   "version": "0.2.0",
   "description": "TypeScript SDK for SATI - Solana Agent Trust Infrastructure",
+  "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.cts",
@@ -14,6 +15,16 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
+      }
+    },
+    "./light": {
+      "import": {
+        "types": "./dist/light/index.d.mts",
+        "default": "./dist/light/index.mjs"
+      },
+      "require": {
+        "types": "./dist/light/index.d.cts",
+        "default": "./dist/light/index.cjs"
       }
     },
     "./web3-compat": {

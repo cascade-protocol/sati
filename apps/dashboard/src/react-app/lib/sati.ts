@@ -14,24 +14,47 @@ import {
   createHeliusEager,
   type HeliusClientEager,
 } from "helius-sdk/rpc/eager";
+import { NETWORK_STORAGE_KEY } from "./constants";
 
 // Singleton SATI client instance
 let satiClient: SATI | null = null;
 let heliusClient: HeliusClientEager | null = null;
 
 /**
+ * Get current network from localStorage
+ */
+function getCurrentNetwork(): "mainnet" | "devnet" | "localnet" {
+  const saved = localStorage.getItem(NETWORK_STORAGE_KEY);
+  if (saved === "localnet" || saved === "devnet" || saved === "mainnet") {
+    return saved;
+  }
+  return "localnet"; // Default for development
+}
+
+/**
+ * Get RPC URL for current network
+ */
+function getRpcUrl(network: "mainnet" | "devnet" | "localnet"): string {
+  switch (network) {
+    case "localnet":
+      return "http://127.0.0.1:8899";
+    case "devnet":
+      return import.meta.env.VITE_DEVNET_RPC || "https://api.devnet.solana.com";
+    case "mainnet":
+      return (
+        import.meta.env.VITE_MAINNET_RPC ||
+        "https://api.mainnet-beta.solana.com"
+      );
+  }
+}
+
+/**
  * Get or create the SATI client singleton
  */
 export function getSatiClient(): SATI {
   if (!satiClient) {
-    const network = (import.meta.env.VITE_SOLANA_NETWORK ?? "mainnet") as
-      | "mainnet"
-      | "devnet"
-      | "localnet";
-    const rpcUrl =
-      import.meta.env.VITE_MAINNET_RPC ||
-      import.meta.env.VITE_DEVNET_RPC ||
-      undefined;
+    const network = getCurrentNetwork();
+    const rpcUrl = getRpcUrl(network);
 
     satiClient = new SATI({
       network,
@@ -39,6 +62,14 @@ export function getSatiClient(): SATI {
     });
   }
   return satiClient;
+}
+
+/**
+ * Reset SATI client singleton (call when network changes)
+ */
+export function resetSatiClient(): void {
+  satiClient = null;
+  heliusClient = null;
 }
 
 /**
@@ -230,7 +261,11 @@ export function getSolscanUrl(
   address: string,
   type: "account" | "token" | "tx" = "account",
 ): string {
-  const network = import.meta.env.VITE_SOLANA_NETWORK ?? "mainnet";
+  const network = getCurrentNetwork();
+  // Solscan doesn't support localnet, use Solana Explorer instead
+  if (network === "localnet") {
+    return `https://explorer.solana.com/${type === "tx" ? "tx" : "address"}/${address}?cluster=custom&customUrl=http%3A%2F%2F127.0.0.1%3A8899`;
+  }
   const cluster = network === "mainnet" ? "" : `?cluster=${network}`;
   return `https://solscan.io/${type}/${address}${cluster}`;
 }

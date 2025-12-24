@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Link, useLocation } from "react-router";
 import { Menu, Bot } from "lucide-react";
 import { WalletButton } from "./wallet/wallet-button";
+import { NetworkSelector } from "./NetworkSelector";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -69,8 +70,11 @@ export function Header() {
             </nav>
           </div>
 
-          {/* Right group: Social icons + Wallet + Mobile menu */}
+          {/* Right group: Network selector + Social icons + Wallet + Mobile menu */}
           <div className="flex items-center gap-3 md:gap-4">
+            {/* Network selector */}
+            <NetworkSelector />
+
             {/* Desktop social icons - hidden on mobile */}
             <a
               href="https://github.com/cascade-protocol/sati"
