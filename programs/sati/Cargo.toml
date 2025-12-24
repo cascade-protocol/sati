@@ -1,0 +1,72 @@
+[package]
+name = "sati"
+version = "0.1.0"
+description = "SATI - Solana Agent Trust Infrastructure"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/cascade-protocol/sati"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "sati"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "light-sdk/idl-build"]
+
+[dependencies]
+# Core
+anchor-lang = { workspace = true, features = ["event-cpi"] }
+anchor-spl.workspace = true
+solana-security-txt.workspace = true
+solana-program.workspace = true
+
+# Token-2022 (registry)
+spl-token-2022 = "8.0"
+spl-token-metadata-interface = "0.7"
+spl-token-group-interface = "0.6"
+spl-type-length-value = "0.8"
+spl-associated-token-account = { version = "7.0", features = ["no-entrypoint"] }
+
+# Light Protocol (attestation)
+light-sdk.workspace = true
+light-hasher.workspace = true
+
+# SAS (attestation)
+solana-attestation-service-client.workspace = true
+
+# Crypto
+sha3.workspace = true
+
+[dev-dependencies]
+# LiteSVM for fast in-process testing
+litesvm = "0.7"
+tokio = { version = "1", features = ["rt", "macros", "rt-multi-thread"] }
+solana-sdk.workspace = true
+
+# For proper Token-2022 and account mocking
+spl-pod = "0.5"
+sha2 = "0.10"
+
+# Keep mollusk-svm-bencher for CU benchmarking (optional)
+mollusk-svm = "0.5"
+mollusk-svm-bencher = "0.5"
+
+# Light Protocol for compressed account testing
+# Note: devenv feature has version conflicts in crates.io releases
+# Use with_prover=true in ProgramTestConfig and run `light start-prover` manually
+light-program-test = "0.17"
+light-prover-client = "5.0"
+
+# Ed25519 signature creation for tests
+ed25519-dalek = "1.0"
+rand = "0.7"
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("anchor-debug", "custom-heap", "custom-panic", "no-idl", "no-log-ix-name"))',
+]

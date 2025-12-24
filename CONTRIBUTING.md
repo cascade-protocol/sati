@@ -21,7 +21,7 @@ Building an agent framework or protocol? We'd love to hear about:
 
 ### 3. Implementation Contributions
 
-**Registry Program:**
+**SATI Program:**
 - Bug fixes and optimizations
 - Test coverage improvements
 - Security hardening
@@ -31,7 +31,7 @@ Building an agent framework or protocol? We'd love to hear about:
 - Documentation
 - Additional examples
 
-**SAS Schemas:**
+**Schemas:**
 - Schema improvements
 - Validation helpers
 
@@ -50,7 +50,7 @@ git clone https://github.com/cascade-protocol/sati.git
 cd sati
 pnpm install
 anchor build
-pnpm --filter @sati/sdk build
+pnpm --filter @cascade-fyi/sati-sdk build
 anchor test
 ```
 
@@ -92,7 +92,7 @@ export function toAddress(pubkey: PublicKey): Address {
 ## SDK Structure
 
 ```
-sdk/
+packages/sdk/
 ├── scripts/
 │   └── generate-clients.ts  # Codama generation script
 ├── src/
@@ -106,7 +106,7 @@ sdk/
 **Important:** Never edit files in `src/generated/`. To update:
 1. Modify the Anchor program
 2. Run `anchor build`
-3. Run `pnpm --filter @sati/sdk generate`
+3. Run `pnpm --filter @cascade-fyi/sati-sdk generate`
 
 ## Pull Request Process
 
@@ -134,7 +134,7 @@ anchor test
 anchor test --skip-deploy -- tests/sati-registry.test.ts
 
 # Build and test SDK
-cd sdk && pnpm build && pnpm test
+cd packages/sdk && pnpm build && pnpm test
 ```
 
 ## Documentation

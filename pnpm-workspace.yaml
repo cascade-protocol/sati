@@ -1,5 +1,5 @@
 packages:
-  - sdk
+  - packages/*
   - apps/*
 
 onlyBuiltDependencies:

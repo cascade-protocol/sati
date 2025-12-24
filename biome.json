@@ -10,11 +10,11 @@
     "includes": [
       "tests/**/*.ts",
       "scripts/**/*.ts",
-      "sdk/**/*.ts",
+      "packages/**/*.ts",
       "**/*.json",
       "!!**/dist",
       "!**/idl.json",
-      "!sdk/**/generated"
+      "!packages/**/generated"
     ]
   },
   "formatter": {
