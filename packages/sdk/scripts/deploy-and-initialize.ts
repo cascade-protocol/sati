@@ -521,11 +521,20 @@ async function main() {
   const signature = getSignatureFromTransaction(signedTx);
 
   // @solana/kit cluster-branded RPC types don't match dynamic network config
-  const rpcConfig = { rpc, rpcSubscriptions } as Parameters<
+  // Cast both the config and the transaction to satisfy the type system
+  type SendAndConfirmConfig = Parameters<
     typeof sendAndConfirmTransactionFactory
   >[0];
-  const sendAndConfirm = sendAndConfirmTransactionFactory(rpcConfig);
-  await sendAndConfirm(signedTx, { commitment: "confirmed" });
+  type SendAndConfirmTx = Parameters<
+    ReturnType<typeof sendAndConfirmTransactionFactory>
+  >[0];
+  const sendAndConfirm = sendAndConfirmTransactionFactory({
+    rpc,
+    rpcSubscriptions,
+  } as SendAndConfirmConfig);
+  await sendAndConfirm(signedTx as SendAndConfirmTx, {
+    commitment: "confirmed",
+  });
 
   // PHASE 4: Verify we are the authority (DETECT LATE FRONTRUN)
   console.log("\n--- PHASE 4: Verification ---");

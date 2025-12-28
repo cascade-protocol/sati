@@ -30,3 +30,6 @@ Thumbs.db
 .claude/
 
 coverage/
+
+# Temporary files
+tmp/
