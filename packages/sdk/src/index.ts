@@ -117,6 +117,24 @@ export {
   type CreateReputationScoreParams,
 } from "./client";
 
+// Registration file helpers (ERC-8004 + Phantom compatible)
+export {
+  // Functions
+  buildRegistrationFile,
+  fetchRegistrationFile,
+  getImageUrl,
+  inferMimeType,
+  stringifyRegistrationFile,
+  // Types
+  type RegistrationFile,
+  type RegistrationFileParams,
+  type Endpoint,
+  type RegistrationEntry,
+  type Properties,
+  type PropertyFile,
+  type TrustMechanism,
+} from "./registration";
+
 // Re-export types for convenience
 export type { Address } from "@solana/kit";
 export { address } from "@solana/kit";

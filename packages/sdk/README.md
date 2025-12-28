@@ -28,7 +28,6 @@ const sati = new SATI({
 const { mint, memberNumber, signature } = await sati.registerAgent({
   payer,
   name: "MyAgent",
-  symbol: "MYAG",
   uri: "https://example.com/agent.json",
 });
 ```
@@ -41,7 +40,6 @@ const { mint, memberNumber, signature } = await sati.registerAgent({
 const result = await sati.registerAgent({
   payer,                          // KeyPairSigner (pays fees + becomes owner)
   name: "MyAgent",                // Max 32 chars
-  symbol: "MYAG",                 // Max 10 chars
   uri: "ipfs://Qm...",            // Agent metadata JSON
   additionalMetadata: [           // Optional key-value pairs
     { key: "version", value: "1.0" },

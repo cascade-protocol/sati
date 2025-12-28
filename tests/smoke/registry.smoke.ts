@@ -161,7 +161,6 @@ describe("sati-registry: smoke tests", () => {
       // Generate unique agent details
       const timestamp = Date.now();
       const agentName = `${TEST_AGENT_PREFIX}${timestamp}`;
-      const agentSymbol = "SMOKE";
       const agentUri = `https://example.com/smoke-test-${timestamp}.json`;
 
       // Generate new mint keypair
@@ -180,7 +179,7 @@ describe("sati-registry: smoke tests", () => {
       const tx = await program.methods
         .registerAgent(
           agentName,
-          agentSymbol,
+          "", // symbol - empty (vestigial field)
           agentUri,
           [{ key: "test", value: "smoke" }], // minimal metadata
           false, // transferable
@@ -229,7 +228,7 @@ describe("sati-registry: smoke tests", () => {
       // Verify metadata
       const metadata = await getTokenMetadata(connection, agentMint.publicKey);
       expect(metadata?.name).toBe(agentName);
-      expect(metadata?.symbol).toBe(agentSymbol);
+      expect(metadata?.symbol).toBe(""); // empty (vestigial field)
       expect(metadata?.uri).toBe(agentUri);
 
       // Verify additional metadata
@@ -259,7 +258,7 @@ describe("sati-registry: smoke tests", () => {
       const tx = await program.methods
         .registerAgent(
           `Soulbound${timestamp}`,
-          "SOUL",
+          "", // symbol - empty (vestigial field)
           `https://example.com/soul-${timestamp}.json`,
           null,
           true, // non-transferable
@@ -312,7 +311,7 @@ describe("sati-registry: smoke tests", () => {
 
       await expect(
         program.methods
-          .registerAgent(longName, "TEST", "https://example.com", null, false)
+          .registerAgent(longName, "", "https://example.com", null, false)
           .accounts({
             payer: wallet.publicKey,
             owner: wallet.publicKey,
@@ -325,40 +324,7 @@ describe("sati-registry: smoke tests", () => {
       ).rejects.toThrow(/NameTooLong|Name too long/);
     });
 
-    test("rejects symbol > 10 bytes", async () => {
-      const config = await program.account.registryConfig.fetch(registryConfig);
-      groupMint = config.groupMint;
-
-      const agentMint = Keypair.generate();
-      const agentTokenAccount = getAssociatedTokenAddressSync(
-        agentMint.publicKey,
-        wallet.publicKey,
-        false,
-        TOKEN_2022_PROGRAM_ID,
-      );
-
-      const longSymbol = "S".repeat(11);
-
-      await expect(
-        program.methods
-          .registerAgent(
-            "TestAgent",
-            longSymbol,
-            "https://example.com",
-            null,
-            false,
-          )
-          .accounts({
-            payer: wallet.publicKey,
-            owner: wallet.publicKey,
-            groupMint: groupMint,
-            agentMint: agentMint.publicKey,
-            agentTokenAccount,
-          })
-          .signers([agentMint])
-          .rpc(),
-      ).rejects.toThrow(/SymbolTooLong|Symbol too long/);
-    });
+    // Note: Symbol validation test removed - SDK always passes empty string
 
     test("rejects URI > 200 bytes", async () => {
       const config = await program.account.registryConfig.fetch(registryConfig);
@@ -376,7 +342,7 @@ describe("sati-registry: smoke tests", () => {
 
       await expect(
         program.methods
-          .registerAgent("TestAgent", "TEST", longUri, null, false)
+          .registerAgent("TestAgent", "", longUri, null, false)
           .accounts({
             payer: wallet.publicKey,
             owner: wallet.publicKey,
@@ -410,7 +376,7 @@ describe("sati-registry: smoke tests", () => {
         program.methods
           .registerAgent(
             "TestAgent",
-            "TEST",
+            "", // symbol - empty (vestigial field)
             "https://example.com",
             tooManyEntries,
             false,

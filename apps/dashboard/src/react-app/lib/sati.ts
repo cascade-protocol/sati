@@ -8,10 +8,13 @@
 import {
   SATI,
   SATI_PROGRAM_ADDRESS,
-  TOKEN_2022_PROGRAM_ADDRESS,
   type AgentIdentity,
+  // Registration file helpers
+  fetchRegistrationFile,
+  getImageUrl,
+  type RegistrationFile,
 } from "@cascade-fyi/sati-sdk";
-import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
+import type { Address } from "@solana/kit";
 
 // RPC URL from env var or fallback to public devnet
 // Currently restricted to devnet only (mainnet will be enabled after deployment)
@@ -50,139 +53,19 @@ export interface ListAgentsResult {
 }
 
 /**
- * Efficiently list agents owned by a specific wallet.
+ * List agents owned by a specific wallet.
  *
- * Uses getTokenAccountsByOwner + batch getMultipleAccounts for optimal performance.
- * 1. Fetches all Token-2022 token accounts for owner (1 RPC call)
- * 2. Gets registry config for group mint (1 RPC call)
- * 3. Batch fetches all potential NFT mints (1 RPC call)
- * 4. Filters to agents with correct group membership
- *
- * Also returns totalAgents from registry stats (no extra RPC call).
+ * Delegates to SDK's listAgentsByOwner for Token-2022 parsing.
+ * Also returns totalAgents from registry stats.
  */
 export async function listAgentsByOwner(
-  rpc: Rpc<SolanaRpcApi>,
   owner: Address,
 ): Promise<ListAgentsResult> {
-  // Parallel fetch: token accounts + registry stats (for group mint)
-  const [tokenAccountsResult, stats] = await Promise.all([
-    rpc
-      .getTokenAccountsByOwner(
-        owner,
-        { programId: TOKEN_2022_PROGRAM_ADDRESS },
-        { encoding: "jsonParsed" },
-      )
-      .send(),
-    getSatiClient().getRegistryStats(),
+  const sati = getSatiClient();
+  const [agents, stats] = await Promise.all([
+    sati.listAgentsByOwner(owner),
+    sati.getRegistryStats(),
   ]);
-
-  const groupMint = stats.groupMint;
-
-  // Collect potential NFT mints (amount=1, decimals=0)
-  const potentialMints: Address[] = [];
-
-  for (const { account } of tokenAccountsResult.value) {
-    const parsed = account.data as {
-      parsed?: {
-        info?: {
-          mint?: string;
-          tokenAmount?: { amount: string; decimals: number };
-        };
-      };
-    };
-
-    const info = parsed.parsed?.info;
-    if (!info?.mint || !info?.tokenAmount) continue;
-
-    // NFTs have amount=1 and decimals=0
-    if (info.tokenAmount.amount !== "1" || info.tokenAmount.decimals !== 0) {
-      continue;
-    }
-
-    potentialMints.push(info.mint as Address);
-  }
-
-  if (potentialMints.length === 0) {
-    return { agents: [], totalAgents: stats.totalAgents };
-  }
-
-  // Batch fetch all potential mint accounts
-  const mintAccountsResult = await rpc
-    .getMultipleAccounts(potentialMints, { encoding: "jsonParsed" })
-    .send();
-
-  const agents: AgentIdentity[] = [];
-
-  for (let i = 0; i < potentialMints.length; i++) {
-    const mintAccount = mintAccountsResult.value[i];
-    if (!mintAccount) continue;
-
-    const parsed = mintAccount.data as {
-      parsed?: {
-        info?: {
-          extensions?: Array<{
-            extension: string;
-            state: Record<string, unknown>;
-          }>;
-        };
-      };
-    };
-
-    const extensions = parsed.parsed?.info?.extensions;
-    if (!extensions) continue;
-
-    // Find TokenGroupMember extension
-    const groupMemberExt = extensions.find(
-      (ext) => ext.extension === "tokenGroupMember",
-    );
-    if (!groupMemberExt) continue;
-
-    // Verify it belongs to the SATI registry group
-    const memberState = groupMemberExt.state as {
-      group?: string;
-      memberNumber?: number;
-    };
-    if (memberState.group !== groupMint) continue;
-
-    // Find TokenMetadata extension
-    const metadataExt = extensions.find(
-      (ext) => ext.extension === "tokenMetadata",
-    );
-    if (!metadataExt) continue;
-
-    const metadataState = metadataExt.state as {
-      name?: string;
-      symbol?: string;
-      uri?: string;
-      additionalMetadata?: Array<[string, string]>;
-    };
-
-    // Check for NonTransferable extension
-    const nonTransferableExt = extensions.find(
-      (ext) => ext.extension === "nonTransferable",
-    );
-
-    // Build additional metadata record
-    const additionalMetadata: Record<string, string> = {};
-    if (metadataState.additionalMetadata) {
-      for (const [key, value] of metadataState.additionalMetadata) {
-        additionalMetadata[key] = value;
-      }
-    }
-
-    // Construct agent identity directly from parsed data
-    agents.push({
-      mint: potentialMints[i],
-      owner, // We already know the owner
-      name: metadataState.name ?? "Unknown",
-      symbol: metadataState.symbol ?? "SATI",
-      uri: metadataState.uri ?? "",
-      memberNumber: BigInt(memberState.memberNumber ?? 0),
-      additionalMetadata,
-      nonTransferable: !!nonTransferableExt,
-    });
-  }
-
   return { agents, totalAgents: stats.totalAgents };
 }
 
@@ -357,74 +240,39 @@ export async function listAllAgents(params?: {
 }
 
 /**
- * Agent metadata from the URI (JSON file on IPFS)
+ * Agent metadata type (re-exported from SDK)
+ *
+ * Uses SDK's RegistrationFile which is ERC-8004 + Phantom compatible.
+ * The SDK handles validation, IPFS/Arweave URI conversion, and image extraction.
  */
-export interface AgentMetadata {
-  name: string;
-  symbol: string;
-  description?: string;
-  image?: string;
-  attributes?: Array<{ trait_type: string; value: string }>;
-}
+export type AgentMetadata = RegistrationFile;
 
 /**
- * Convert metadata URI to a fetchable URL.
- * - Arweave URLs (https://arweave.net/...) pass through as-is
- * - IPFS URLs are no longer supported (legacy)
- */
-export function ipfsToGatewayUrl(uri: string): string {
-  // Guard against undefined/invalid URIs
-  if (!uri || uri === "undefined" || uri.includes("undefined")) {
-    return "";
-  }
-
-  // Arweave URLs pass through as-is
-  if (uri.startsWith("https://arweave.net/")) {
-    return uri;
-  }
-
-  // Return as-is for other URLs (http/https)
-  if (uri.startsWith("http://") || uri.startsWith("https://")) {
-    return uri;
-  }
-
-  // IPFS URLs no longer supported
-  return "";
-}
-
-/**
- * Fetch agent metadata from URI
+ * Fetch agent metadata from URI.
+ *
+ * Uses SDK's fetchRegistrationFile which:
+ * - Handles IPFS/Arweave URI conversion
+ * - Validates against ERC-8004 schema
+ * - Returns null on network errors or invalid URIs (never throws)
  */
 export async function fetchAgentMetadata(
   uri: string,
 ): Promise<AgentMetadata | null> {
-  if (!uri) return null;
-
-  try {
-    const url = ipfsToGatewayUrl(uri);
-    if (!url) return null; // Invalid or unsupported URI
-    const response = await fetch(url);
-    if (!response.ok) {
-      console.warn(`Failed to fetch metadata from ${url}: ${response.status}`);
-      return null;
-    }
-    return response.json();
-  } catch (error) {
-    console.warn(`Failed to fetch metadata from ${uri}:`, error);
-    return null;
-  }
+  return fetchRegistrationFile(uri);
 }
 
 /**
- * Get image URL from agent metadata
- * Handles Arweave URLs (passes through as-is)
+ * Get image URL from agent metadata.
+ *
+ * Uses SDK's getImageUrl which:
+ * - Prefers properties.files (Phantom format)
+ * - Falls back to image field
+ * - Handles IPFS/Arweave URI conversion
  */
 export function getAgentImageUrl(
   metadata: AgentMetadata | null,
 ): string | null {
-  if (!metadata?.image) return null;
-  const url = ipfsToGatewayUrl(metadata.image);
-  return url || null;
+  return getImageUrl(metadata);
 }
 
 // Re-export types

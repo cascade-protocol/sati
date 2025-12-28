@@ -139,8 +139,10 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
 | `initialize` | — | Create registry + TokenGroup (one-time) |
-| `register_agent` | name, symbol, uri, additional_metadata?, non_transferable | Create Token-2022 NFT, add to group, renounce mint |
+| `register_agent` | name, symbol*, uri, additional_metadata?, non_transferable | Create Token-2022 NFT, add to group, renounce mint |
 | `update_registry_authority` | new_authority? | Transfer or renounce (None = immutable) |
+
+> \* **Note on `symbol`**: This field is vestigial from Token-2022's fungible token origin. For NFTs it has no semantic meaning. The SDK hardcodes this to an empty string `""`. The on-chain program still accepts and validates the field (max 10 bytes) for backwards compatibility.
 
 #### Events
 
@@ -264,7 +266,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 | `updateAuthority` | Agent owner |
 | `mint` | Agent ID |
 | `name` | Agent name |
-| `symbol` | "SATI" or type |
+| `symbol` | Empty string (legacy field, not used) |
 | `uri` | Registration file URL |
 | `additionalMetadata` | agentWallet, did, a2a, mcp |
 
@@ -652,16 +654,44 @@ See [CAIP Standards](https://github.com/ChainAgnostic/CAIPs) for full format spe
 
 ## Cross-Chain
 
-### Cross-Chain Identity via `registrations[]`
+### Registration File Schema
 
-Agents register separately on each chain but link identities via the off-chain registration file. The `registrations` array lists all on-chain registrations for the same logical agent:
+The registration file is an off-chain JSON document referenced by the on-chain `uri` field. SATI's schema merges ERC-8004 requirements with Metaplex/Phantom standards, ensuring agents display correctly in Solana wallets while maintaining cross-chain compatibility.
+
+#### Field Reference
+
+| Field | Source | Required | Description |
+|-------|--------|----------|-------------|
+| `type` | ERC-8004 | Yes | Schema identifier |
+| `name` | Both | Yes | Agent name |
+| `description` | Both | Yes | Agent description |
+| `image` | Both | Yes | Primary image URL |
+| `properties.files` | Metaplex | Yes* | Image with MIME type for wallet display |
+| `properties.category` | Metaplex | No | Asset category |
+| `external_url` | Metaplex | No | Project website |
+| `endpoints` | ERC-8004 | No | Service endpoints (A2A, MCP, etc.) |
+| `registrations` | ERC-8004 | No | Cross-chain registration entries |
+| `supportedTrust` | ERC-8004 | No | Supported trust mechanisms |
+| `active` | SATI | No | Operational status |
+| `x402support` | SATI | No | x402 payment support |
+
+*Required for Phantom wallet image rendering
+
+#### Example
 
 ```json
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "myAgentName",
-  "description": "Agent description",
+  "description": "AI assistant with x402 payment support",
   "image": "https://example.com/agent.png",
+
+  "properties": {
+    "files": [{ "uri": "https://example.com/agent.png", "type": "image/png" }],
+    "category": "image"
+  },
+  "external_url": "https://myagent.example.com",
+
   "endpoints": [
     { "name": "A2A", "endpoint": "https://agent.example/agent-card.json", "version": "0.3.0" },
     { "name": "MCP", "endpoint": "https://mcp.agent.example/", "version": "2025-06-18" },
@@ -669,19 +699,45 @@ Agents register separately on each chain but link identities via the off-chain r
   ],
   "registrations": [
     { "agentId": "sati:mainnet:ABC123mint", "agentRegistry": "solana:5eykt4...:satiR3q7..." },
-    { "agentId": 22, "agentRegistry": "eip155:1:0x..." },
-    { "agentId": 45, "agentRegistry": "eip155:8453:0x..." }
+    { "agentId": 22, "agentRegistry": "eip155:1:0x..." }
   ],
-  "supportedTrust": ["reputation", "crypto-economic"],
+  "supportedTrust": ["reputation"],
   "active": true,
   "x402support": true
 }
 ```
 
-**Required**: `type`, `name`, `description`, `image`
-**Optional**: `active` (operational status), `x402support` (accepts x402), `supportedTrust` (`"reputation"`, `"crypto-economic"`, `"tee-attestation"`), `registrations` (can be null/empty initially)
+#### Image Requirements
 
-**Note on `registrations`**: This array can be null or empty when first creating the registration file. The typical workflow is:
+For proper display in Phantom, Solflare, and Solscan:
+
+1. **Use `properties.files`** with explicit MIME type — this is what wallets read for image rendering
+2. **Match URIs** — `properties.files[0].uri` should equal `image` field
+3. **Supported formats**: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/svg+xml`
+4. **Recommended specs**: 512×512 to 1024×1024 pixels, under 1MB
+
+**Why both `image` and `properties.files`?**
+- `image` — ERC-8004 standard field, used by cross-chain consumers
+- `properties.files` — Metaplex standard, used by Solana wallets for rendering
+
+Including both ensures compatibility with both ecosystems.
+
+#### Consumer Compatibility
+
+| Consumer | Reads | Ignores |
+|----------|-------|---------|
+| Phantom/Solflare | name, description, image, properties.files, external_url | type, endpoints, registrations, supportedTrust, active, x402support |
+| Solscan | name, description, image, properties.files | Same as wallets |
+| ERC-8004 clients | type, name, description, image, endpoints, registrations, supportedTrust | properties, external_url, active, x402support |
+| SATI SDK | All fields | — |
+
+Custom fields from either standard are preserved but ignored by consumers that don't understand them.
+
+#### Cross-Chain Identity via `registrations[]`
+
+The `registrations` array lists all on-chain registrations for the same logical agent, enabling cross-chain identity linking.
+
+**Note**: This array can be null or empty when first creating the registration file. The typical workflow is:
 1. Create registration file with `registrations: []`
 2. Register agent on-chain (returns mint address)
 3. Update registration file with actual registration entry
@@ -689,7 +745,7 @@ Agents register separately on each chain but link identities via the off-chain r
 
 This is necessary because the mint address isn't known until after registration completes.
 
-This enables:
+Cross-chain identity enables:
 - **Same agent identity** across Solana, Ethereum, Base, etc.
 - **Verifiable cross-chain resolution** — verify registration file hash matches on-chain uri
 - **No on-chain bridging required** — off-chain linking via content-addressed storage

@@ -91,7 +91,6 @@ export function EditMetadataDialog({
       // 2. Create and upload metadata JSON
       const metadata = {
         name: currentName,
-        symbol: "SATI",
         description: description || `SATI Agent: ${currentName}`,
         image: `ipfs://${imageCid}`,
         attributes: [

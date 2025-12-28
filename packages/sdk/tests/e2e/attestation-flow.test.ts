@@ -153,14 +153,12 @@ describe("E2E: Attestation Flow", () => {
       "registers an agent (mints Token-2022 NFT)",
       async () => {
         const name = `TestAgent-${Date.now()}`;
-        const symbol = "TEST";
         const metadataUri = "https://example.com/metadata.json";
 
         const result = await sati.registerAgent({
           payer,
           owner: agentOwner.address,
           name,
-          symbol,
           uri: metadataUri,
         });
 

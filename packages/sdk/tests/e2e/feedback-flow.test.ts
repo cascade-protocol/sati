@@ -135,14 +135,12 @@ describe("E2E: Full Feedback Lifecycle", () => {
       "registers agent with Token-2022 NFT",
       async () => {
         const name = `LifecycleAgent-${Date.now()}`;
-        const symbol = "LIFE";
         const metadataUri = "https://example.com/lifecycle-agent.json";
 
         const result = await sati.registerAgent({
           payer,
           owner: agentOwner.address,
           name,
-          symbol,
           uri: metadataUri,
         });
 
@@ -157,7 +155,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const agent = await sati.loadAgent(agentMint);
         expect(agent).not.toBeNull();
         expect(agent?.name).toBe(name);
-        expect(agent?.symbol).toBe(symbol);
+        expect(agent?.symbol).toBe(""); // empty (vestigial field)
       },
       TEST_TIMEOUT,
     );

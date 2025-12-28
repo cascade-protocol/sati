@@ -115,7 +115,6 @@ const sati = new SATI({ network: "mainnet" }); // or "devnet"
 const { mint, memberNumber } = await sati.registerAgent({
   payer: keypair,
   name: "MyAgent",
-  symbol: "SATI",
   uri: "ipfs://QmRegistrationFile",
   additionalMetadata: [
     ["agentWallet", `solana:${keypair.address}`],

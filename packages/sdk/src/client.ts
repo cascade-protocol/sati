@@ -436,8 +436,6 @@ export class SATI {
     payer: KeyPairSigner;
     /** Agent name (max 32 bytes) */
     name: string;
-    /** Agent symbol (max 10 bytes, default: "SATI") */
-    symbol?: string;
     /** Registration file URI (max 200 bytes) */
     uri: string;
     /** Additional metadata key-value pairs (max 10 entries) */
@@ -450,7 +448,6 @@ export class SATI {
     const {
       payer,
       name,
-      symbol = "SATI",
       uri,
       additionalMetadata,
       nonTransferable = false,
@@ -481,7 +478,7 @@ export class SATI {
       agentMint,
       agentTokenAccount,
       name,
-      symbol,
+      symbol: "", // Empty - vestigial field from fungible tokens, meaningless for NFTs
       uri,
       additionalMetadata: additionalMetadata ?? null,
       nonTransferable,
@@ -710,6 +707,137 @@ export class SATI {
     );
 
     return tokenAccount.data.owner;
+  }
+
+  /**
+   * List agents owned by a specific wallet
+   *
+   * Efficiently queries Token-2022 accounts and filters to SATI agents.
+   * Uses batch RPC calls for optimal performance.
+   *
+   * @param owner - Wallet address to query
+   * @returns Array of agent identities owned by the wallet
+   */
+  async listAgentsByOwner(owner: Address): Promise<AgentIdentity[]> {
+    // Get registry stats to know the group mint
+    const stats = await this.getRegistryStats();
+    const groupMint = stats.groupMint;
+
+    // Fetch all Token-2022 token accounts for owner
+    const tokenAccountsResult = await this.rpc
+      .getTokenAccountsByOwner(
+        owner,
+        { programId: address("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") },
+        { encoding: "jsonParsed" },
+      )
+      .send();
+
+    // Collect potential NFT mints (amount=1, decimals=0)
+    const potentialMints: Address[] = [];
+
+    for (const { account } of tokenAccountsResult.value) {
+      const parsed = account.data as {
+        parsed?: {
+          info?: {
+            mint?: string;
+            tokenAmount?: { amount: string; decimals: number };
+          };
+        };
+      };
+
+      const info = parsed.parsed?.info;
+      if (!info?.mint || !info?.tokenAmount) continue;
+
+      // NFTs have amount=1 and decimals=0
+      if (info.tokenAmount.amount !== "1" || info.tokenAmount.decimals !== 0) {
+        continue;
+      }
+
+      potentialMints.push(info.mint as Address);
+    }
+
+    if (potentialMints.length === 0) {
+      return [];
+    }
+
+    // Batch fetch all potential mint accounts
+    const mintAccountsResult = await this.rpc
+      .getMultipleAccounts(potentialMints, { encoding: "jsonParsed" })
+      .send();
+
+    const agents: AgentIdentity[] = [];
+
+    for (let i = 0; i < potentialMints.length; i++) {
+      const mintAccount = mintAccountsResult.value[i];
+      if (!mintAccount) continue;
+
+      const parsed = mintAccount.data as {
+        parsed?: {
+          info?: {
+            extensions?: Array<{
+              extension: string;
+              state: Record<string, unknown>;
+            }>;
+          };
+        };
+      };
+
+      const extensions = parsed.parsed?.info?.extensions;
+      if (!extensions) continue;
+
+      // Find TokenGroupMember extension
+      const groupMemberExt = extensions.find(
+        (ext) => ext.extension === "tokenGroupMember",
+      );
+      if (!groupMemberExt) continue;
+
+      // Verify it belongs to the SATI registry group
+      const memberState = groupMemberExt.state as {
+        group?: string;
+        memberNumber?: number;
+      };
+      if (memberState.group !== groupMint) continue;
+
+      // Find TokenMetadata extension
+      const metadataExt = extensions.find(
+        (ext) => ext.extension === "tokenMetadata",
+      );
+      if (!metadataExt) continue;
+
+      const metadataState = metadataExt.state as {
+        name?: string;
+        symbol?: string;
+        uri?: string;
+        additionalMetadata?: Array<[string, string]>;
+      };
+
+      // Check for NonTransferable extension
+      const nonTransferableExt = extensions.find(
+        (ext) => ext.extension === "nonTransferable",
+      );
+
+      // Build additional metadata record
+      const additionalMetadata: Record<string, string> = {};
+      if (metadataState.additionalMetadata) {
+        for (const [key, value] of metadataState.additionalMetadata) {
+          additionalMetadata[key] = value;
+        }
+      }
+
+      // Construct agent identity
+      agents.push({
+        mint: potentialMints[i],
+        owner, // We already know the owner
+        name: metadataState.name ?? "Unknown",
+        symbol: metadataState.symbol ?? "",
+        uri: metadataState.uri ?? "",
+        memberNumber: BigInt(memberState.memberNumber ?? 0),
+        additionalMetadata,
+        nonTransferable: !!nonTransferableExt,
+      });
+    }
+
+    return agents;
   }
 
   // ============================================================

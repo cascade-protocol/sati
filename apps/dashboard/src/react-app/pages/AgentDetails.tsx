@@ -84,8 +84,6 @@ export function AgentDetails() {
               {agent.name}
             </h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-muted-foreground">{agent.symbol}</span>
-              <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">
                 {formatMemberNumber(agent.memberNumber)}
               </span>

@@ -44,7 +44,6 @@ const PAGE_SIZE = 20;
 
 export interface RegisterAgentParams {
   name: string;
-  symbol?: string;
   uri: string;
   additionalMetadata?: Array<{ key: string; value: string }>;
   nonTransferable?: boolean;
@@ -127,7 +126,6 @@ export function useAgentDetails(mint: Address | string | undefined) {
  * Hook for user's registered agents (Dashboard page)
  */
 export function useMyAgents() {
-  const solanaClient = useSolanaClient();
   const session = useWalletSession();
   const walletAddress = session?.account.address;
 
@@ -135,9 +133,7 @@ export function useMyAgents() {
     queryKey: [...AGENTS_KEY, "my", walletAddress],
     queryFn: async () => {
       if (!walletAddress) return { agents: [], totalAgents: 0n };
-
-      const rpc = solanaClient.runtime.rpc as Rpc<SolanaRpcApi>;
-      return listAgentsByOwner(rpc, walletAddress);
+      return listAgentsByOwner(walletAddress);
     },
     enabled: !!walletAddress,
     staleTime: 30_000,
@@ -215,7 +211,7 @@ export function useRegisterAgent() {
           agentMint,
           agentTokenAccount,
           name: params.name,
-          symbol: params.symbol ?? "SATI",
+          symbol: "", // Empty - vestigial field from fungible tokens
           uri: params.uri,
           additionalMetadata: params.additionalMetadata ?? null,
           nonTransferable: params.nonTransferable ?? false,
