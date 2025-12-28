@@ -8,12 +8,14 @@
   "files": {
     "ignoreUnknown": false,
     "includes": [
+      "apps/**/*.ts",
       "tests/**/*.ts",
       "scripts/**/*.ts",
       "packages/**/*.ts",
       "**/*.json",
       "!!**/dist",
       "!**/idl.json",
+      "!**/*.d.ts",
       "!packages/**/generated"
     ]
   },

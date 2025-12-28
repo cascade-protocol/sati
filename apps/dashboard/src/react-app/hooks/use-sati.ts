@@ -1,12 +1,15 @@
 /**
  * SATI Registry hooks.
  *
- * useSati() - Main hook for dashboard state and actions
- * useAgentDetails(mint) - Hook for single agent details page
+ * Hooks are split by concern:
+ * - useMyAgents() - User's registered agents (Dashboard)
+ * - useExploreAgents() - Paginated all agents (Explore page)
+ * - useRegisterAgent() - Agent registration mutation
+ * - useAgentDetails(mint) - Single agent details
+ * - useSati() - Facade combining myAgents + registerAgent (for Dashboard)
  *
  * Uses TanStack Query with:
- * - Shared registry stats cache
- * - Parallel transaction fetching via useQueries
+ * - Targeted query invalidation
  * - Appropriate stale times
  */
 
@@ -28,9 +31,15 @@ import {
   fetchRegistryConfig,
   findAssociatedTokenAddress,
 } from "@cascade-fyi/sati-sdk";
-import { getSatiClient, listAgentsByOwner, listAllAgents, type AgentIdentity } from "@/lib/sati";
+import {
+  getSatiClient,
+  listAgentsByOwner,
+  listAllAgents,
+  type AgentIdentity,
+} from "@/lib/sati";
 
 const QUERY_KEY = ["sati"];
+const AGENTS_KEY = [...QUERY_KEY, "agents"];
 const PAGE_SIZE = 20;
 
 export interface RegisterAgentParams {
@@ -57,7 +66,9 @@ export interface UseSatiReturn {
   setExplorePage: (page: number) => void;
 
   // Actions
-  registerAgent: (params: RegisterAgentParams) => Promise<{ mint: Address; signature: string }>;
+  registerAgent: (
+    params: RegisterAgentParams,
+  ) => Promise<{ mint: Address; signature: string }>;
   isPending: boolean;
 
   // Refresh
@@ -92,7 +103,7 @@ export function useAgentDetails(mint: Address | string | undefined) {
     error,
     refetch,
   } = useQuery({
-    queryKey: [...QUERY_KEY, "agent", mint],
+    queryKey: [...AGENTS_KEY, "detail", mint],
     queryFn: async () => {
       if (!mint) return null;
       const sati = getSatiClient();
@@ -106,52 +117,74 @@ export function useAgentDetails(mint: Address | string | undefined) {
     agent: agent ?? null,
     isLoading,
     error: error as Error | null,
-    refetch: async () => { await refetch(); },
+    refetch: async () => {
+      await refetch();
+    },
   };
 }
 
 /**
- * Main SATI hook for dashboard
+ * Hook for user's registered agents (Dashboard page)
  */
-export function useSati(): UseSatiReturn {
-  const queryClient = useQueryClient();
+export function useMyAgents() {
   const solanaClient = useSolanaClient();
   const session = useWalletSession();
   const walletAddress = session?.account.address;
 
-  const [explorePage, setExplorePage] = useState(0);
-
-  // Fetch user's agents efficiently using getTokenAccountsByOwner
-  const {
-    data: myAgentsData,
-    isLoading: myAgentsLoading,
-  } = useQuery({
-    queryKey: [...QUERY_KEY, "my-agents", walletAddress],
+  const { data: myAgentsData, isLoading: myAgentsLoading } = useQuery({
+    queryKey: [...AGENTS_KEY, "my", walletAddress],
     queryFn: async () => {
       if (!walletAddress) return { agents: [], totalAgents: 0n };
 
       const rpc = solanaClient.runtime.rpc as Rpc<SolanaRpcApi>;
-      // listAgentsByOwner returns both agents and totalAgents (no extra RPC call)
       return listAgentsByOwner(rpc, walletAddress);
     },
     enabled: !!walletAddress,
     staleTime: 30_000,
   });
 
-  // Fetch explore page agents
-  const {
-    data: exploreData,
-    isLoading: exploreLoading,
-  } = useQuery({
-    queryKey: [...QUERY_KEY, "explore", explorePage],
-    queryFn: async () => {
-      const rpc = solanaClient.runtime.rpc as Rpc<SolanaRpcApi>;
-      return listAllAgents(rpc, { offset: explorePage * PAGE_SIZE, limit: PAGE_SIZE });
-    },
+  return {
+    myAgents: myAgentsData?.agents ?? [],
+    myAgentsLoading,
+    totalAgents: myAgentsData?.totalAgents ?? 0n,
+  };
+}
+
+/**
+ * Hook for paginated all agents (Explore page)
+ * Only fetches when this hook is used, not when useSati is used on Dashboard
+ */
+export function useExploreAgents() {
+  const [explorePage, setExplorePage] = useState(0);
+
+  const { data: exploreData, isLoading: exploreLoading } = useQuery({
+    queryKey: [...AGENTS_KEY, "explore", explorePage],
+    queryFn: () =>
+      listAllAgents({
+        offset: explorePage * PAGE_SIZE,
+        limit: PAGE_SIZE,
+      }),
     staleTime: 30_000,
   });
 
-  // Register agent mutation
+  return {
+    exploreAgents: exploreData?.agents ?? [],
+    exploreLoading,
+    explorePage,
+    exploreHasMore: (exploreData?.agents?.length ?? 0) === PAGE_SIZE,
+    setExplorePage,
+    totalAgents: exploreData?.totalAgents ?? 0n,
+  };
+}
+
+/**
+ * Hook for agent registration mutation
+ */
+export function useRegisterAgent() {
+  const queryClient = useQueryClient();
+  const solanaClient = useSolanaClient();
+  const session = useWalletSession();
+
   const registerMutation = useMutation({
     mutationFn: async (params: RegisterAgentParams) => {
       if (!session) throw new Error("Wallet not connected");
@@ -163,7 +196,10 @@ export function useSati(): UseSatiReturn {
         const rpc = solanaClient.runtime.rpc as Rpc<SolanaRpcApi>;
 
         const [registryConfigAddress] = await findRegistryConfigPda();
-        const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
+        const registryConfig = await fetchRegistryConfig(
+          rpc,
+          registryConfigAddress,
+        );
         const groupMint = registryConfig.data.groupMint;
 
         const ownerAddress = session.account.address;
@@ -185,46 +221,66 @@ export function useSati(): UseSatiReturn {
           nonTransferable: params.nonTransferable ?? false,
         });
 
-        const signature = await solanaClient.helpers.transaction.prepareAndSend({
-          authority: session,
-          instructions: [instruction],
-          commitment: "confirmed",
-        });
+        const signature = await solanaClient.helpers.transaction.prepareAndSend(
+          {
+            authority: session,
+            instructions: [instruction],
+            commitment: "confirmed",
+          },
+        );
 
         toast.success("Agent registered!", { id: toastId });
         return { mint: agentMint.address, signature: signature.toString() };
       } catch (error) {
         toast.dismiss(toastId);
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
         toast.error(`Failed: ${message}`);
         throw error;
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: AGENTS_KEY });
     },
   });
 
+  return {
+    registerAgent: registerMutation.mutateAsync,
+    isPending: registerMutation.isPending,
+  };
+}
+
+/**
+ * Main SATI hook for dashboard (facade for backwards compatibility)
+ * Combines myAgents + registerAgent. Does NOT fetch explore data.
+ */
+export function useSati(): UseSatiReturn {
+  const queryClient = useQueryClient();
+  const { myAgents, myAgentsLoading, totalAgents } = useMyAgents();
+  const { registerAgent, isPending } = useRegisterAgent();
+
+  // Note: Explore data is NOT fetched here to avoid unnecessary RPC calls.
+  // Use useExploreAgents() directly on the Explore page.
+  const [explorePage, setExplorePage] = useState(0);
+
   const refresh = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+    await queryClient.invalidateQueries({ queryKey: AGENTS_KEY });
   }, [queryClient]);
 
   return {
-    myAgents: myAgentsData?.agents ?? [],
+    myAgents,
     myAgentsLoading,
-    totalAgents: myAgentsData?.totalAgents ?? 0n,
+    totalAgents,
 
-    exploreAgents: exploreData?.agents ?? [],
-    exploreLoading,
+    // Explore data - not fetched, use useExploreAgents() on Explore page
+    exploreAgents: [],
+    exploreLoading: false,
     explorePage,
-    exploreHasMore: (exploreData?.agents?.length ?? 0) === PAGE_SIZE,
+    exploreHasMore: false,
     setExplorePage,
 
-    registerAgent: useCallback(
-      (params: RegisterAgentParams) => registerMutation.mutateAsync(params),
-      [registerMutation],
-    ),
-    isPending: registerMutation.isPending,
+    registerAgent,
+    isPending,
 
     refresh,
   };
@@ -248,25 +304,33 @@ export function useUpdateAgentMetadata() {
       try {
         const instruction = getUpdateTokenMetadataFieldInstruction({
           metadata: mint,
-          updateAuthority: { address: session.account.address } as KeyPairSigner,
+          updateAuthority: {
+            address: session.account.address,
+          } as KeyPairSigner,
           field: { __kind: "Uri" },
           value: newUri,
         });
 
-        const signature = await solanaClient.helpers.transaction.prepareAndSend({
-          authority: session,
-          instructions: [instruction],
-          commitment: "confirmed",
-        });
+        const signature = await solanaClient.helpers.transaction.prepareAndSend(
+          {
+            authority: session,
+            instructions: [instruction],
+            commitment: "confirmed",
+          },
+        );
 
         toast.success("Metadata updated!", { id: toastId });
         return { signature: signature.toString() };
       } catch (error) {
         toast.dismiss(toastId);
-        const message = error instanceof Error ? error.message : "Unknown error";
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
 
         // Check for authority error
-        if (message.includes("custom program error") || message.includes("0x35c2b5c0")) {
+        if (
+          message.includes("custom program error") ||
+          message.includes("0x35c2b5c0")
+        ) {
           toast.error("You are not the update authority for this agent");
         } else {
           toast.error(`Failed: ${message}`);

@@ -8,7 +8,7 @@ import { Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentTable } from "@/components/AgentTable";
-import { useSati } from "@/hooks/use-sati";
+import { useExploreAgents } from "@/hooks/use-sati";
 
 export function Explore() {
   const {
@@ -18,7 +18,7 @@ export function Explore() {
     explorePage,
     setExplorePage,
     totalAgents,
-  } = useSati();
+  } = useExploreAgents();
 
   return (
     <main className="flex-1 container mx-auto px-4 py-6 md:py-8 max-w-4xl">
