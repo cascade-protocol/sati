@@ -4,7 +4,10 @@
  * useSati() - Main hook for dashboard state and actions
  * useAgentDetails(mint) - Hook for single agent details page
  *
- * Uses TanStack Query for data fetching and caching.
+ * Uses TanStack Query with:
+ * - Shared registry stats cache
+ * - Parallel transaction fetching via useQueries
+ * - Appropriate stale times
  */
 
 import { useCallback, useState } from "react";

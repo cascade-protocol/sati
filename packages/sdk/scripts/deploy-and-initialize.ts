@@ -520,11 +520,11 @@ async function main() {
   const signedTx = await signTransactionMessageWithSigners(txMessage);
   const signature = getSignatureFromTransaction(signedTx);
 
-  // biome-ignore lint/suspicious/noExplicitAny: @solana/kit cluster-branded RPC types don't match dynamic network config
-  const sendAndConfirm = sendAndConfirmTransactionFactory({
-    rpc,
-    rpcSubscriptions,
-  } as any);
+  // @solana/kit cluster-branded RPC types don't match dynamic network config
+  const rpcConfig = { rpc, rpcSubscriptions } as Parameters<
+    typeof sendAndConfirmTransactionFactory
+  >[0];
+  const sendAndConfirm = sendAndConfirmTransactionFactory(rpcConfig);
   await sendAndConfirm(signedTx, { commitment: "confirmed" });
 
   // PHASE 4: Verify we are the authority (DETECT LATE FRONTRUN)

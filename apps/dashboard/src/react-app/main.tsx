@@ -27,7 +27,7 @@ function getSavedNetwork(): ClusterMoniker {
   if (saved === "localnet" || saved === "devnet" || saved === "mainnet") {
     return saved;
   }
-  return "localnet"; // Default to localnet for development
+  return "devnet"; // Default to devnet
 }
 
 // Get initial cluster config from saved preference or env vars

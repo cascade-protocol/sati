@@ -6,19 +6,15 @@
 
 import {
   SATI,
+  SATI_PROGRAM_ADDRESS,
   TOKEN_2022_PROGRAM_ADDRESS,
   type AgentIdentity,
 } from "@cascade-fyi/sati-sdk";
 import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
-import {
-  createHeliusEager,
-  type HeliusClientEager,
-} from "helius-sdk/rpc/eager";
 import { NETWORK_STORAGE_KEY } from "./constants";
 
 // Singleton SATI client instance
 let satiClient: SATI | null = null;
-let heliusClient: HeliusClientEager | null = null;
 
 /**
  * Get current network from localStorage
@@ -28,7 +24,7 @@ function getCurrentNetwork(): "mainnet" | "devnet" | "localnet" {
   if (saved === "localnet" || saved === "devnet" || saved === "mainnet") {
     return saved;
   }
-  return "localnet"; // Default for development
+  return "devnet"; // Default to devnet
 }
 
 /**
@@ -69,25 +65,6 @@ export function getSatiClient(): SATI {
  */
 export function resetSatiClient(): void {
   satiClient = null;
-  heliusClient = null;
-}
-
-/**
- * Get or create the Helius client singleton
- * Extracts API key from RPC URL
- */
-function getHeliusClient(): HeliusClientEager | null {
-  if (heliusClient) return heliusClient;
-
-  const rpcUrl = import.meta.env.VITE_MAINNET_RPC;
-  if (!rpcUrl) return null;
-
-  // Extract API key from Helius RPC URL
-  const match = rpcUrl.match(/api-key=([a-zA-Z0-9-]+)/);
-  if (!match) return null;
-
-  heliusClient = createHeliusEager({ apiKey: match[1] });
-  return heliusClient;
 }
 
 /**
@@ -270,20 +247,33 @@ export function getSolscanUrl(
   return `https://solscan.io/${type}/${address}${cluster}`;
 }
 
-// Constants for transaction parsing
-const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
-const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
-const SATI_PROGRAM = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz";
+// Token-2022 extension type for parsed mint data
+interface ParsedMintExtensions {
+  tokenMetadata?: {
+    state: {
+      name: string;
+      symbol: string;
+      uri: string;
+      additionalMetadata: Array<[string, string]>;
+    };
+  };
+  tokenGroupMember?: {
+    state: {
+      group: string;
+      memberNumber: number;
+    };
+  };
+  nonTransferable?: object;
+}
 
 /**
  * List all agents registered in the SATI registry.
  *
- * Uses Helius getTransactionsForAddress to scan program transactions,
- * then extracts agent mints from registerAgent transactions.
- * No storage needed - always fresh from chain.
+ * Uses transaction scanning to find registerAgent calls, then fetches
+ * agent details via standard RPC (works on all networks without DAS indexing).
  */
 export async function listAllAgents(
-  _rpc: Rpc<SolanaRpcApi>,
+  rpc: Rpc<SolanaRpcApi>,
   params?: { offset?: number; limit?: number },
 ): Promise<ListAgentsResult> {
   const { offset = 0, limit = 20 } = params ?? {};
@@ -292,91 +282,57 @@ export async function listAllAgents(
   const stats = await getSatiClient().getRegistryStats();
   const groupMint = stats.groupMint;
 
-  const rpcUrl = import.meta.env.VITE_MAINNET_RPC;
-  if (!rpcUrl) {
-    console.error("VITE_MAINNET_RPC not configured");
-    return { agents: [], totalAgents: stats.totalAgents };
-  }
-
   try {
-    // Step 1: Get all program transactions
-    const txResponse = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "scan-agents",
-        method: "getTransactionsForAddress",
-        params: [
-          SATI_PROGRAM,
-          {
-            transactionDetails: "full",
-            encoding: "jsonParsed",
-            maxSupportedTransactionVersion: 0,
-            sortOrder: "desc", // Newest first
-            limit: 100,
-            filters: { status: "succeeded" },
-          },
-        ],
-      }),
-    });
+    // Step 1: Get recent signatures for SATI program
+    const signatures = await rpc
+      .getSignaturesForAddress(SATI_PROGRAM_ADDRESS, { limit: 100 })
+      .send();
 
-    const txData = await txResponse.json();
-    if (txData.error) {
-      console.error("getTransactionsForAddress error:", txData.error);
+    if (!signatures || signatures.length === 0) {
       return { agents: [], totalAgents: stats.totalAgents };
     }
 
-    // Step 2: Extract agent mints from registerAgent transactions
-    // registerAgent txs have: Token-2022, ATA program, group mint, and agent mint
+    // Step 2: Fetch transactions in parallel (much faster than sequential)
+    const successfulSigs = signatures.filter((sig) => !sig.err);
+    const transactions = await Promise.all(
+      successfulSigs.map((sig) =>
+        rpc
+          .getTransaction(sig.signature, {
+            encoding: "jsonParsed",
+            maxSupportedTransactionVersion: 0,
+          })
+          .send()
+          .catch(() => null),
+      ),
+    );
+
+    // Step 3: Extract agent mints from registerAgent transactions
     const agentMints: string[] = [];
 
-    for (const tx of txData.result?.data || []) {
-      const accounts = tx.transaction?.message?.accountKeys || [];
-      const pubkeys = accounts.map(
-        (acc: { pubkey: string } | string) =>
-          typeof acc === "object" ? acc.pubkey : acc,
+    for (const tx of transactions) {
+      if (!tx?.transaction?.message) continue;
+
+      const accounts = tx.transaction.message.accountKeys;
+      const pubkeys = accounts.map((acc) =>
+        typeof acc === "object" && "pubkey" in acc ? acc.pubkey : String(acc),
       );
 
-      // Check if this is a registerAgent transaction
-      const hasToken2022 = pubkeys.includes(TOKEN_2022_PROGRAM);
-      const hasATA = pubkeys.includes(ATA_PROGRAM);
-      const hasGroupMint = pubkeys.includes(groupMint);
+      // Check if this transaction involves the group mint (indicates registerAgent)
+      if (!pubkeys.includes(groupMint)) continue;
 
-      if (hasToken2022 && hasATA && hasGroupMint) {
-        // Find the agent mint - it's a writable account that's not:
-        // - The group mint
-        // - A system program
-        // - The payer (first signer)
-        for (const acc of accounts) {
-          const pubkey = typeof acc === "object" ? acc.pubkey : acc;
-          const isWritable = typeof acc === "object" ? acc.writable : false;
+      // Find the agent mint - it's the second signer (first is payer)
+      const signerAccounts = accounts.filter(
+        (acc) => typeof acc === "object" && "signer" in acc && acc.signer,
+      );
 
-          if (
-            isWritable &&
-            pubkey !== groupMint &&
-            !pubkey.startsWith("1111") &&
-            !pubkey.startsWith("Token") &&
-            !pubkey.startsWith("sati") &&
-            !pubkey.startsWith("Sysvar") &&
-            !pubkey.startsWith("AToken") &&
-            !pubkey.startsWith("Compute") &&
-            pubkey.length === 44 // Valid base58 Solana address length
-          ) {
-            // Check if it's not already in the list and not the payer
-            const isFirstSigner =
-              accounts[0] &&
-              (typeof accounts[0] === "object"
-                ? accounts[0].pubkey
-                : accounts[0]) === pubkey;
+      if (signerAccounts.length >= 2) {
+        const agentMintCandidate =
+          typeof signerAccounts[1] === "object" && "pubkey" in signerAccounts[1]
+            ? signerAccounts[1].pubkey
+            : null;
 
-            if (!isFirstSigner && !agentMints.includes(pubkey)) {
-              // Verify it's actually a mint by checking it's not the ATA
-              // Agent mint appears before the ATA in the accounts
-              agentMints.push(pubkey);
-              break; // Only one agent mint per transaction
-            }
-          }
+        if (agentMintCandidate && !agentMints.includes(agentMintCandidate)) {
+          agentMints.push(agentMintCandidate);
         }
       }
     }
@@ -385,37 +341,68 @@ export async function listAllAgents(
       return { agents: [], totalAgents: stats.totalAgents };
     }
 
-    // Step 3: Get asset details for all mints in one batch call
-    const helius = getHeliusClient();
-    if (!helius) {
-      console.error("Helius client not configured");
-      return { agents: [], totalAgents: stats.totalAgents };
-    }
+    // Step 4: Apply pagination
+    const paginatedMints = agentMints.slice(offset, offset + limit);
 
-    const assets = await helius.getAssetBatch({
-      ids: agentMints.slice(offset, offset + limit),
-    });
+    // Step 5: Batch fetch mint accounts via standard RPC
+    const mintAccounts = await rpc
+      .getMultipleAccounts(paginatedMints as Address[], { encoding: "jsonParsed" })
+      .send();
 
-    // Step 4: Convert to AgentIdentity
-    const agents: AgentIdentity[] = assets
-      .filter((asset) => asset && asset.id)
-      .map((asset, index) => {
-        // Helius SDK types don't include token_group_member, but it's in the response
-        const mintExtensions = asset.mint_extensions as
-          | { token_group_member?: { member_number?: number } }
-          | undefined;
-        const memberNumber = mintExtensions?.token_group_member?.member_number;
-        return {
-          mint: asset.id as Address,
-          owner: (asset.ownership?.owner ?? "") as Address,
-          name: asset.content?.metadata?.name ?? "Unknown",
-          symbol: asset.content?.metadata?.symbol ?? "SATI",
-          uri: asset.content?.json_uri ?? "",
-          memberNumber: memberNumber ? BigInt(memberNumber) : BigInt(index + 1),
-          additionalMetadata: {},
-          nonTransferable: true,
+    // Step 6: Convert to AgentIdentity
+    const agents: AgentIdentity[] = [];
+
+    for (let i = 0; i < paginatedMints.length; i++) {
+      const mintAccount = mintAccounts.value[i];
+      if (!mintAccount) continue;
+
+      const parsed = mintAccount.data as {
+        parsed?: {
+          info?: {
+            extensions?: Array<{ extension: string; state: Record<string, unknown> }>;
+          };
         };
+      };
+
+      const extensions = parsed.parsed?.info?.extensions;
+      if (!extensions) continue;
+
+      // Find TokenGroupMember extension and verify group
+      const groupMemberExt = extensions.find(
+        (ext) => ext.extension === "tokenGroupMember",
+      ) as ParsedMintExtensions["tokenGroupMember"] | undefined;
+
+      if (!groupMemberExt || groupMemberExt.state.group !== groupMint) continue;
+
+      // Find TokenMetadata extension
+      const metadataExt = extensions.find(
+        (ext) => ext.extension === "tokenMetadata",
+      ) as ParsedMintExtensions["tokenMetadata"] | undefined;
+
+      // Check for NonTransferable extension
+      const nonTransferableExt = extensions.find(
+        (ext) => ext.extension === "nonTransferable",
+      );
+
+      // Build additional metadata
+      const additionalMetadata: Record<string, string> = {};
+      if (metadataExt?.state.additionalMetadata) {
+        for (const [key, value] of metadataExt.state.additionalMetadata) {
+          additionalMetadata[key] = value;
+        }
+      }
+
+      agents.push({
+        mint: paginatedMints[i] as Address,
+        owner: "" as Address, // Owner requires fetching token account - skip for now
+        name: metadataExt?.state.name ?? "Unknown",
+        symbol: metadataExt?.state.symbol ?? "SATI",
+        uri: metadataExt?.state.uri ?? "",
+        memberNumber: BigInt(groupMemberExt.state.memberNumber),
+        additionalMetadata,
+        nonTransferable: !!nonTransferableExt,
       });
+    }
 
     return {
       agents,
