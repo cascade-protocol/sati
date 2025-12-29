@@ -170,6 +170,24 @@ function uint8ArrayToBase58(bytes: Uint8Array): string {
 }
 
 /**
+ * Type for a 64-byte Ed25519 signature
+ */
+type Signature64 = Uint8Array & { length: 64 };
+
+/**
+ * Validate and cast a signature to the expected 64-byte type.
+ * @throws Error if signature is not exactly 64 bytes
+ */
+function assertSignature64(sig: Uint8Array): Signature64 {
+  if (sig.length !== 64) {
+    throw new Error(
+      `Invalid signature length: expected 64 bytes, got ${sig.length}`,
+    );
+  }
+  return sig as Signature64;
+}
+
+/**
  * Type helper for signed transactions with blockhash lifetime.
  */
 type SignedBlockhashTransaction = Awaited<
@@ -685,8 +703,16 @@ export class SATI {
         additionalMetadata,
         nonTransferable: !!nonTransferableExt,
       };
-    } catch {
-      return null;
+    } catch (error) {
+      // Return null only for account-not-found errors, re-throw others
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("could not find account") ||
+        message.includes("Account not found")
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
 
@@ -1029,7 +1055,7 @@ export class SATI {
     const signatures: GeneratedSignatureData[] = [
       {
         pubkey: agentSignature.pubkey,
-        sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
+        sig: assertSignature64(agentSignature.signature),
       },
     ];
 
@@ -1037,9 +1063,7 @@ export class SATI {
     if (counterpartySignature) {
       signatures.push({
         pubkey: counterpartySignature.pubkey,
-        sig: counterpartySignature.signature as unknown as Uint8Array & {
-          length: 64;
-        },
+        sig: assertSignature64(counterpartySignature.signature),
       });
     }
 
@@ -1232,7 +1256,7 @@ export class SATI {
     const signatures: GeneratedSignatureData[] = [
       {
         pubkey: agentSignature.pubkey,
-        sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
+        sig: assertSignature64(agentSignature.signature),
       },
     ];
 
@@ -1240,9 +1264,7 @@ export class SATI {
     if (counterpartySignature) {
       signatures.push({
         pubkey: counterpartySignature.pubkey,
-        sig: counterpartySignature.signature as unknown as Uint8Array & {
-          length: 64;
-        },
+        sig: assertSignature64(counterpartySignature.signature),
       });
     }
 
@@ -1472,13 +1494,11 @@ export class SATI {
     const signatures: GeneratedSignatureData[] = [
       {
         pubkey: agentSignature.pubkey,
-        sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
+        sig: assertSignature64(agentSignature.signature),
       },
       {
         pubkey: validatorSignature.pubkey,
-        sig: validatorSignature.signature as unknown as Uint8Array & {
-          length: 64;
-        },
+        sig: assertSignature64(validatorSignature.signature),
       },
     ];
 
@@ -2450,8 +2470,16 @@ export class SATI {
         storageType,
         closeable: schemaConfig.data.closeable,
       };
-    } catch {
-      return null;
+    } catch (error) {
+      // Return null only for account-not-found errors, re-throw others
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("could not find account") ||
+        message.includes("Account not found")
+      ) {
+        return null;
+      }
+      throw error;
     }
   }
 

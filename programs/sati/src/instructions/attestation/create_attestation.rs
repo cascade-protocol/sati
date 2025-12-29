@@ -108,21 +108,34 @@ pub fn handler<'info>(
         );
     }
 
-    // 6. Validate schema-specific fields
+    // 6. Validate minimum data length based on data_type
+    // Feedback (0): needs outcome at offset 129, so min length 130
+    // Validation (1): needs response at offset 130, so min length 131
+    let min_length = match params.data_type {
+        0 => 130, // Feedback: outcome at 129
+        1 => 131, // Validation: response at 130
+        _ => return Err(SatiError::InvalidDataType.into()),
+    };
+    require!(
+        params.data.len() >= min_length,
+        SatiError::AttestationDataTooSmall
+    );
+
+    // 7. Validate schema-specific fields
     validate_schema_fields(&params)?;
 
-    // 7. Construct expected message hashes for signature verification
+    // 8. Construct expected message hashes for signature verification
     let expected_messages =
         build_expected_messages(&params, schema_config, &task_ref, &token_account_pubkey)?;
 
-    // 8. Verify Ed25519 signatures via instruction introspection
+    // 9. Verify Ed25519 signatures via instruction introspection
     verify_ed25519_signatures(
         &ctx.accounts.instructions_sysvar,
         &params.signatures,
         &expected_messages,
     )?;
 
-    // 9. Derive deterministic address
+    // 10. Derive deterministic address
     let nonce = compute_attestation_nonce(
         &task_ref,
         &schema_config.sas_schema,
@@ -130,14 +143,14 @@ pub fn handler<'info>(
         &counterparty_pubkey,
     );
 
-    // 10. Initialize Light Protocol CPI accounts
+    // 11. Initialize Light Protocol CPI accounts
     let light_cpi_accounts = CpiAccounts::new(
         ctx.accounts.payer.as_ref(),
         ctx.remaining_accounts,
         LIGHT_CPI_SIGNER,
     );
 
-    // 11. Get address tree pubkey from params
+    // 12. Get address tree pubkey from params
     let address_tree_pubkey = params
         .address_tree_info
         .get_tree_pubkey(&light_cpi_accounts)
@@ -154,7 +167,7 @@ pub fn handler<'info>(
         &ID,
     );
 
-    // 11b. Initialize compressed account with proper tree index
+    // 13. Initialize compressed account with proper tree index
     let mut attestation = LightAccount::<CompressedAttestation>::new_init(
         &ID,
         Some(address),
@@ -173,12 +186,12 @@ pub fn handler<'info>(
         .unwrap_or([0u8; 64]);
     attestation.signature2 = params.signatures.get(1).map(|s| s.sig).unwrap_or([0u8; 64]);
 
-    // 12. Compute new address params from params
+    // 14. Compute new address params from params
     let new_address_params = params
         .address_tree_info
         .into_new_address_params_assigned_packed(address_seed, Some(0));
 
-    // 13. CPI to Light System Program with proof from params
+    // 15. CPI to Light System Program with proof from params
     InstructionDataInvokeCpiWithReadOnly::new_cpi(LIGHT_CPI_SIGNER, params.proof)
         .mode_v1()
         .with_light_account(attestation)?
@@ -186,7 +199,7 @@ pub fn handler<'info>(
         .invoke(light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
-    // 14. Emit event
+    // 16. Emit event
     emit_cpi!(AttestationCreated {
         sas_schema: schema_config.sas_schema,
         token_account: token_account_pubkey,

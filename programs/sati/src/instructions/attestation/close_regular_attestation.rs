@@ -14,7 +14,7 @@ pub struct CloseRegularAttestation<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Signer must be the counterparty (provider for ReputationScore)
+    /// Signer must be either the agent (token_account holder) or the counterparty
     pub signer: Signer<'info>,
 
     /// Schema config PDA
@@ -78,9 +78,10 @@ pub fn handler<'info>(
     // Drop borrow before CPI
     drop(attestation_data);
 
-    // 2. Authorization: Only the counterparty (provider) can close
+    // 2. Authorization: Either the agent (token_account holder) or counterparty can close
+    let signer_key = ctx.accounts.signer.key();
     require!(
-        ctx.accounts.signer.key() == counterparty,
+        signer_key == token_account || signer_key == counterparty,
         SatiError::UnauthorizedClose
     );
 

@@ -44,9 +44,10 @@ import {
   type AgentIdentity,
   type ParsedFeedback,
 } from "@/lib/sati";
+import { getNetwork } from "@/lib/network";
 
-// Get deployed feedback schema address (devnet only for now)
-const deployedConfig = loadDeployedConfig("devnet");
+// Get deployed feedback schema address for current network
+const deployedConfig = loadDeployedConfig(getNetwork());
 const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as
   | Address
   | undefined;

@@ -61,8 +61,8 @@ light-program-test = "0.17"
 light-prover-client = "5.0"
 
 # Ed25519 signature creation for tests
-ed25519-dalek = "1.0"
-rand = "0.7"
+ed25519-dalek = "2.1"
+rand = "0.8"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

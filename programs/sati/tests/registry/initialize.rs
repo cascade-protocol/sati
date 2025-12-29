@@ -19,7 +19,6 @@ use crate::common::{
 ///
 /// For now, we test initialize via SDK integration tests.
 #[test]
-#[ignore = "requires complex Token-2022 setup - test via SDK integration tests"]
 fn test_initialize_success() {
     let mut svm = setup_litesvm();
 
@@ -82,7 +81,6 @@ fn test_initialize_success() {
 
 /// Test that initialize fails if registry already exists
 #[test]
-#[ignore = "requires complex Token-2022 setup - test via SDK integration tests"]
 fn test_initialize_already_initialized() {
     let mut svm = setup_litesvm();
 

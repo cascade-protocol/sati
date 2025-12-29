@@ -11,14 +11,17 @@ import { createDefaultClient } from "@solana/client";
 import { SolanaProvider } from "@solana/react-hooks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router } from "./router";
+import { getNetwork, getRpcUrl, getWsUrl } from "./lib/network";
 import "./index.css";
 
-// Solana client configuration
-// Currently restricted to devnet only (mainnet will be enabled after deployment)
+// Read network once at startup (before React mounts)
+const currentNetwork = getNetwork();
+
+// Solana client configuration - uses selected network
 const solanaClient = createDefaultClient({
-  cluster: "devnet",
-  rpc: import.meta.env.VITE_DEVNET_RPC,
-  websocket: import.meta.env.VITE_DEVNET_WS,
+  cluster: currentNetwork,
+  rpc: getRpcUrl(currentNetwork),
+  websocket: getWsUrl(currentNetwork),
   commitment: "confirmed",
 });
 

@@ -72,6 +72,14 @@ export type {
   Rpc,
 } from "./light-types";
 
+// Portable Light Protocol client for Cloudflare Workers / edge environments
+// This implementation avoids Node.js APIs (like 'events') that aren't available in Workers
+export {
+  PortableLightClient,
+  PortablePublicKey,
+  createPortableLightClient,
+} from "./light-portable";
+
 // SAS integration helpers
 export * from "./sas";
 

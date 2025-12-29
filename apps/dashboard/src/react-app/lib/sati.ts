@@ -2,7 +2,7 @@
  * SATI Client and Helpers for Dashboard
  *
  * Provides singleton client and utility functions for agent management.
- * Currently restricted to devnet only (mainnet will be enabled after deployment).
+ * Supports both devnet and mainnet based on user selection.
  */
 
 import {
@@ -23,11 +23,11 @@ import {
 import type { Address } from "@solana/kit";
 import { createHelius, type HeliusClient } from "helius-sdk";
 import bs58 from "bs58";
+import { getNetwork, getRpcUrl } from "./network";
 
-// RPC URL from env var or fallback to public devnet
-// Currently restricted to devnet only (mainnet will be enabled after deployment)
-const RPC_URL =
-  import.meta.env.VITE_DEVNET_RPC ?? "https://api.devnet.solana.com";
+// Read network once at module load (will be consistent until page reload)
+const currentNetwork = getNetwork();
+const RPC_URL = getRpcUrl(currentNetwork);
 
 // Singleton SATI client instance
 let satiClient: SATI | null = null;
@@ -38,7 +38,7 @@ let satiClient: SATI | null = null;
 export function getSatiClient(): SATI {
   if (!satiClient) {
     satiClient = new SATI({
-      network: "devnet",
+      network: currentNetwork,
       rpcUrl: RPC_URL,
     });
   }
@@ -75,16 +75,19 @@ export function getHeliusClient(): HeliusClient | null {
     return null;
   }
   if (!heliusClient) {
+    // Helius SDK uses "mainnet-beta" for mainnet
+    const heliusNetwork =
+      currentNetwork === "mainnet" ? "mainnet-beta" : "devnet";
     heliusClient = createHelius({
       apiKey: HELIUS_API_KEY,
-      network: "devnet",
+      network: heliusNetwork as "devnet" | "mainnet",
     });
   }
   return heliusClient;
 }
 
 // Get deployed feedback schema addresses (both DualSignature and SingleSigner)
-const deployedConfig = loadDeployedConfig("devnet");
+const deployedConfig = loadDeployedConfig(currentNetwork);
 const FEEDBACK_SCHEMA = deployedConfig?.schemas?.feedback;
 const FEEDBACK_PUBLIC_SCHEMA = deployedConfig?.schemas?.feedbackPublic;
 
@@ -343,17 +346,8 @@ export function formatMemberNumber(num: bigint): string {
   return `#${num.toLocaleString()}`;
 }
 
-/**
- * Get Solscan URL for an address
- */
-export function getSolscanUrl(
-  address: string,
-  type: "account" | "token" | "tx" = "account",
-): string {
-  // Currently only devnet is supported
-  // TODO: Add mainnet support (remove cluster param) after mainnet deployment
-  return `https://solscan.io/${type}/${address}?cluster=devnet`;
-}
+// Re-export getSolscanUrl from network module
+export { getSolscanUrl } from "./network";
 
 /**
  * Helius getTransactionsForAddress response types

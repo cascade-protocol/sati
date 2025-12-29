@@ -73,8 +73,9 @@ pub fn handler<'info>(
     );
 
     // 2. Verify data length
+    // ReputationScore requires at least 97 bytes (base 96 + score at index 96)
     require!(
-        params.data.len() >= MIN_BASE_LAYOUT_SIZE,
+        params.data.len() > MIN_BASE_LAYOUT_SIZE,
         SatiError::AttestationDataTooSmall
     );
     require!(

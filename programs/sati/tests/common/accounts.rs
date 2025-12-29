@@ -6,6 +6,12 @@
 
 use litesvm::LiteSVM;
 use solana_sdk::{account::Account, pubkey::Pubkey, signature::Keypair, signer::Signer};
+use spl_pod::optional_keys::OptionalNonZeroPubkey;
+use spl_token_2022::{
+    extension::{BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut},
+    state::Mint,
+};
+use spl_token_group_interface::state::TokenGroup;
 
 use crate::common::setup::{SATI_PROGRAM_ID, TOKEN_2022_PROGRAM_ID};
 
@@ -27,28 +33,48 @@ pub fn create_funded_keypair(svm: &mut LiteSVM, lamports: u64) -> Keypair {
     keypair
 }
 
-/// Create a dummy Token-2022 mint account
+/// Create a Token-2022 mint with TokenGroup extension
 ///
-/// Note: This creates a minimal account that passes owner checks but may not
-/// pass full Token-2022 validation. For tests that mock RegistryConfig directly,
-/// this is sufficient since the group_mint is only used as a reference.
-///
-/// For tests that need actual Token-2022 functionality (like initialize),
-/// use proper Token-2022 setup or mark tests as #[ignore].
+/// Uses the actual SPL Token-2022 types to ensure correct binary format.
 pub fn create_mock_group_mint(
     svm: &mut LiteSVM,
     mint_keypair: &Keypair,
-    _registry_config_pda: &Pubkey,
+    registry_config_pda: &Pubkey,
 ) {
-    // Create a minimal Token-2022 account
-    // This won't pass full Token-2022 validation but is enough for tests
-    // that only reference the pubkey via a mocked RegistryConfig
-    let space = 200; // Minimal space
+    // Calculate space needed for mint with TokenGroup extension
+    let extension_types = &[ExtensionType::TokenGroup];
+    let space = ExtensionType::try_calculate_account_len::<Mint>(extension_types).unwrap();
+
+    let mut data = vec![0u8; space];
     let lamports = svm.minimum_balance_for_rent_exemption(space);
+
+    // Initialize the mint with extensions using SPL Token-2022's own serialization
+    let mut state = StateWithExtensionsMut::<Mint>::unpack_uninitialized(&mut data).unwrap();
+
+    // Set base mint fields
+    state.base.mint_authority = solana_sdk::program_option::COption::Some(*registry_config_pda);
+    state.base.supply = 0;
+    state.base.decimals = 0;
+    state.base.is_initialized = true;
+    state.base.freeze_authority = solana_sdk::program_option::COption::None;
+
+    // Pack the base state
+    state.pack_base();
+
+    // Set the account type to Mint (required for unpack to work)
+    state.init_account_type().unwrap();
+
+    // Initialize the TokenGroup extension
+    state.init_extension::<TokenGroup>(true).unwrap();
+    let group = state.get_extension_mut::<TokenGroup>().unwrap();
+    group.update_authority = OptionalNonZeroPubkey::try_from(Some(*registry_config_pda)).unwrap();
+    // TokenGroup uses PodU64 for max_size and size in newer versions
+    group.max_size = (u32::MAX as u64).into();
+    group.size = 0u64.into();
 
     let account = Account {
         lamports,
-        data: vec![0u8; space],
+        data,
         owner: TOKEN_2022_PROGRAM_ID,
         executable: false,
         rent_epoch: 0,

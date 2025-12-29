@@ -26,6 +26,7 @@ import {
   loadDeployedConfig,
 } from "@cascade-fyi/sati-sdk";
 import { createPaymentClient } from "@/lib/x402";
+import { getNetwork } from "@/lib/network";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +43,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 
 // Get deployed FeedbackPublic schema address (SingleSigner mode - no counterparty sig needed)
-const deployedConfig = loadDeployedConfig("devnet");
+const deployedConfig = loadDeployedConfig(getNetwork());
 const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
 
 interface GiveFeedbackDialogProps {

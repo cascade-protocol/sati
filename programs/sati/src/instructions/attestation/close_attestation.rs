@@ -17,7 +17,7 @@ use crate::LIGHT_CPI_SIGNER;
 #[event_cpi]
 #[derive(Accounts)]
 pub struct CloseAttestation<'info> {
-    /// Signer must be the counterparty (provider for ReputationScore)
+    /// Signer must be either the agent (token_account holder) or the counterparty
     #[account(mut)]
     pub signer: Signer<'info>,
 
@@ -54,9 +54,10 @@ pub fn handler<'info>(
     let token_account = Pubkey::new_from_array(token_account_bytes);
     let counterparty = Pubkey::new_from_array(counterparty_bytes);
 
-    // 2. Authorization: Only the counterparty can close
+    // 2. Authorization: Either the agent (token_account holder) or counterparty can close
+    let signer_key = ctx.accounts.signer.key();
     require!(
-        ctx.accounts.signer.key() == counterparty,
+        signer_key == token_account || signer_key == counterparty,
         SatiError::UnauthorizedClose
     );
 

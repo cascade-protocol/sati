@@ -5,7 +5,8 @@
 //! - Create Ed25519 program instructions for signature verification
 //! - Compute message hashes matching on-chain signature verification
 
-use ed25519_dalek::{Keypair, Signer};
+use ed25519_dalek::{Signer, SigningKey};
+use rand::RngCore;
 use sha3::{Digest, Keccak256};
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 
@@ -16,18 +17,20 @@ const DOMAIN_VALIDATION: &[u8] = b"SATI:validation:v1";
 const DOMAIN_REPUTATION: &[u8] = b"SATI:reputation:v1";
 
 /// Generate a new Ed25519 keypair for testing
-pub fn generate_ed25519_keypair() -> Keypair {
-    Keypair::generate(&mut rand::thread_rng())
+pub fn generate_ed25519_keypair() -> SigningKey {
+    let mut secret_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut secret_bytes);
+    SigningKey::from_bytes(&secret_bytes)
 }
 
 /// Sign a message with an Ed25519 keypair
-pub fn sign_message(keypair: &Keypair, message: &[u8]) -> [u8; 64] {
+pub fn sign_message(keypair: &SigningKey, message: &[u8]) -> [u8; 64] {
     keypair.sign(message).to_bytes()
 }
 
 /// Get the public key from an Ed25519 keypair as a Solana Pubkey
-pub fn keypair_to_pubkey(keypair: &Keypair) -> Pubkey {
-    Pubkey::new_from_array(keypair.public.to_bytes())
+pub fn keypair_to_pubkey(keypair: &SigningKey) -> Pubkey {
+    Pubkey::new_from_array(keypair.verifying_key().to_bytes())
 }
 
 /// Create an Ed25519 program instruction for signature verification
@@ -243,7 +246,7 @@ mod tests {
 
         // Pubkey conversion should work
         let pubkey = keypair_to_pubkey(&keypair);
-        assert_eq!(pubkey.to_bytes(), keypair.public.to_bytes());
+        assert_eq!(pubkey.to_bytes(), keypair.verifying_key().to_bytes());
     }
 
     #[test]

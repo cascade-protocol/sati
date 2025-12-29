@@ -2,5 +2,5 @@
 //!
 //! Uses Light Protocol's LightProgramTest for compressed account testing.
 
+mod close_compressed;
 mod create_compressed;
-// mod close_compressed;  // TODO: Add once create tests work
