@@ -1,0 +1,15 @@
+{
+  "network": "devnet",
+  "authority": "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z",
+  "deployedAt": "2025-12-29T01:27:58.892Z",
+  "config": {
+    "credential": "DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1",
+    "schemas": {
+      "feedback": "6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB",
+      "feedbackPublic": "HFVmsUxbCjTmDzWKdBcXhqFBGv7dhq9uuPxo9WejDYz3",
+      "validation": "5VBFsqkX6mG2zBhXBpkCnfvPNcc9mY9UQdCHtnTFHQEF",
+      "reputationScore": "7Pm1CmkMfU8XM3ehApgfsMjfGg6A63y9egVfD1VN8EPd"
+    },
+    "lookupTable": "EfAZzjfYQmd51o7kWJCtGBeoHssBrME1tqpLcVLpdns"
+  }
+}

@@ -34,7 +34,6 @@ export function AgentCard({ agent }: AgentCardProps) {
             </div>
             <div>
               <CardTitle className="text-lg">{agent.name}</CardTitle>
-              <p className="text-sm text-muted-foreground">{agent.symbol}</p>
             </div>
           </div>
           <span className="text-sm text-muted-foreground">

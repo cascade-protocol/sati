@@ -2,61 +2,300 @@
  * SATI Client and Helpers for Dashboard
  *
  * Provides singleton client and utility functions for agent management.
+ * Currently restricted to devnet only (mainnet will be enabled after deployment).
  */
 
 import {
   SATI,
-  TOKEN_2022_PROGRAM_ADDRESS,
+  SATI_PROGRAM_ADDRESS,
   type AgentIdentity,
+  // Registration file helpers
+  fetchRegistrationFile,
+  getImageUrl,
+  type RegistrationFile,
+  // Schema types and deserialization
+  deserializeFeedback,
+  type FeedbackData,
+  DataType,
+  COMPRESSED_OFFSETS,
+  loadDeployedConfig,
 } from "@cascade-fyi/sati-sdk";
-import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
-import {
-  createHeliusEager,
-  type HeliusClientEager,
-} from "helius-sdk/rpc/eager";
+import type { Address } from "@solana/kit";
+import { createHelius, type HeliusClient } from "helius-sdk";
+import bs58 from "bs58";
+
+// RPC URL from env var or fallback to public devnet
+// Currently restricted to devnet only (mainnet will be enabled after deployment)
+const RPC_URL =
+  import.meta.env.VITE_DEVNET_RPC ?? "https://api.devnet.solana.com";
 
 // Singleton SATI client instance
 let satiClient: SATI | null = null;
-let heliusClient: HeliusClientEager | null = null;
 
 /**
  * Get or create the SATI client singleton
  */
 export function getSatiClient(): SATI {
   if (!satiClient) {
-    const network = (import.meta.env.VITE_SOLANA_NETWORK ?? "mainnet") as
-      | "mainnet"
-      | "devnet"
-      | "localnet";
-    const rpcUrl =
-      import.meta.env.VITE_MAINNET_RPC ||
-      import.meta.env.VITE_DEVNET_RPC ||
-      undefined;
-
     satiClient = new SATI({
-      network,
-      rpcUrl,
+      network: "devnet",
+      rpcUrl: RPC_URL,
     });
   }
   return satiClient;
 }
 
 /**
- * Get or create the Helius client singleton
- * Extracts API key from RPC URL
+ * Reset SATI client singleton (call when network changes)
  */
-function getHeliusClient(): HeliusClientEager | null {
-  if (heliusClient) return heliusClient;
+export function resetSatiClient(): void {
+  satiClient = null;
+}
 
-  const rpcUrl = import.meta.env.VITE_MAINNET_RPC;
-  if (!rpcUrl) return null;
+// =============================================================================
+// Helius Client for ZK Compression (Photon) Queries
+// =============================================================================
 
-  // Extract API key from Helius RPC URL
-  const match = rpcUrl.match(/api-key=([a-zA-Z0-9-]+)/);
-  if (!match) return null;
+// Helius API key from env var
+const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY as
+  | string
+  | undefined;
 
-  heliusClient = createHeliusEager({ apiKey: match[1] });
+// Singleton Helius client instance
+let heliusClient: HeliusClient | null = null;
+
+/**
+ * Get or create the Helius client singleton for ZK compression queries
+ */
+export function getHeliusClient(): HeliusClient | null {
+  if (!HELIUS_API_KEY) {
+    console.warn(
+      "VITE_HELIUS_API_KEY not set - ZK compression queries disabled",
+    );
+    return null;
+  }
+  if (!heliusClient) {
+    heliusClient = createHelius({
+      apiKey: HELIUS_API_KEY,
+      network: "devnet",
+    });
+  }
   return heliusClient;
+}
+
+// Get deployed feedback schema addresses (both DualSignature and SingleSigner)
+const deployedConfig = loadDeployedConfig("devnet");
+const FEEDBACK_SCHEMA = deployedConfig?.schemas?.feedback;
+const FEEDBACK_PUBLIC_SCHEMA = deployedConfig?.schemas?.feedbackPublic;
+
+/**
+ * Parsed feedback attestation from ZK compression
+ */
+export interface ParsedFeedback {
+  /** Compressed account hash (identifier) */
+  hash: string;
+  /** Compressed account address */
+  address?: string;
+  /** Slot when created */
+  slotCreated: number;
+  /** Decoded feedback data */
+  feedback: FeedbackData;
+}
+
+/**
+ * Convert Address to base58-encoded bytes for memcmp filter
+ */
+function addressToBase58Bytes(address: Address): string {
+  return address; // Address is already base58
+}
+
+/**
+ * Parse a compressed account into a ParsedFeedback
+ */
+function parseCompressedFeedback(account: {
+  hash: string;
+  address?: string;
+  slotCreated: number;
+  data?: { data: string; discriminator: number };
+}): ParsedFeedback | null {
+  try {
+    if (!account.data?.data) return null;
+
+    // Decode base64 data
+    const binaryString = atob(account.data.data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    // Data layout (no discriminator prefix - Light Protocol separates it):
+    //   - bytes 0-31:  sasSchema (32 bytes)
+    //   - bytes 32-63: tokenAccount (32 bytes)
+    //   - byte 64:     dataType (1 byte)
+    //   - bytes 65-68: schemaData length (4 bytes, little-endian u32)
+    //   - bytes 69+:   schemaData
+    const dataTypeOffset = COMPRESSED_OFFSETS.DATA_TYPE; // 64
+    const dataType = bytes[dataTypeOffset];
+
+    if (dataType !== DataType.Feedback) {
+      return null; // Not a feedback attestation
+    }
+
+    // Schema data Vec<u8>: 4-byte length prefix at offset 65
+    const schemaDataLenOffset = 65;
+    const view = new DataView(bytes.buffer, bytes.byteOffset);
+    const schemaDataLen = view.getUint32(schemaDataLenOffset, true);
+    const schemaData = bytes.slice(
+      schemaDataLenOffset + 4,
+      schemaDataLenOffset + 4 + schemaDataLen,
+    );
+
+    const feedback = deserializeFeedback(schemaData);
+
+    return {
+      hash: account.hash,
+      address: account.address,
+      slotCreated: account.slotCreated,
+      feedback,
+    };
+  } catch (e) {
+    console.error("Failed to parse compressed feedback:", e);
+    return null;
+  }
+}
+
+/**
+ * List all feedbacks for a specific agent (by token account)
+ * Queries both Feedback (DualSignature) and FeedbackPublic (SingleSigner) schemas
+ */
+export async function listAgentFeedbacks(
+  tokenAccount: Address,
+): Promise<ParsedFeedback[]> {
+  const helius = getHeliusClient();
+  if (!helius) {
+    return [];
+  }
+
+  const schemas = [FEEDBACK_SCHEMA, FEEDBACK_PUBLIC_SCHEMA].filter(
+    Boolean,
+  ) as Address[];
+  if (schemas.length === 0) {
+    return [];
+  }
+
+  try {
+    const feedbacks: ParsedFeedback[] = [];
+
+    // Query each schema
+    for (const schema of schemas) {
+      const response = await helius.zk.getCompressedAccountsByOwner({
+        owner: SATI_PROGRAM_ADDRESS,
+        filters: [
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.SAS_SCHEMA,
+              bytes: addressToBase58Bytes(schema),
+            },
+          },
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.TOKEN_ACCOUNT,
+              bytes: addressToBase58Bytes(tokenAccount),
+            },
+          },
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.DATA_TYPE,
+              bytes: bs58.encode(new Uint8Array([DataType.Feedback])),
+            },
+          },
+        ],
+      });
+
+      for (const account of response.value.items) {
+        const parsed = parseCompressedFeedback(account);
+        if (parsed) {
+          feedbacks.push(parsed);
+        }
+      }
+    }
+
+    return feedbacks;
+  } catch (e) {
+    console.error("Failed to list agent feedbacks:", e);
+    return [];
+  }
+}
+
+/**
+ * List all feedbacks globally (by schema)
+ * Queries both Feedback (DualSignature) and FeedbackPublic (SingleSigner) schemas
+ */
+export async function listAllFeedbacks(): Promise<ParsedFeedback[]> {
+  const helius = getHeliusClient();
+  if (!helius) {
+    return [];
+  }
+
+  const schemas = [FEEDBACK_SCHEMA, FEEDBACK_PUBLIC_SCHEMA].filter(
+    Boolean,
+  ) as Address[];
+  if (schemas.length === 0) {
+    return [];
+  }
+
+  try {
+    const feedbacks: ParsedFeedback[] = [];
+
+    for (const schema of schemas) {
+      const response = await helius.zk.getCompressedAccountsByOwner({
+        owner: SATI_PROGRAM_ADDRESS,
+        filters: [
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.SAS_SCHEMA,
+              bytes: addressToBase58Bytes(schema),
+            },
+          },
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.DATA_TYPE,
+              bytes: bs58.encode(new Uint8Array([DataType.Feedback])),
+            },
+          },
+        ],
+      });
+
+      for (const account of response.value.items) {
+        const parsed = parseCompressedFeedback(account);
+        if (parsed) {
+          feedbacks.push(parsed);
+        }
+      }
+    }
+
+    return feedbacks;
+  } catch (e) {
+    console.error("Failed to list all feedbacks:", e);
+    return [];
+  }
+}
+
+/**
+ * List feedbacks submitted by a specific counterparty
+ */
+export async function listFeedbacksByCounterparty(
+  counterparty: Address,
+): Promise<ParsedFeedback[]> {
+  // Note: counterparty is in the schema data, not at a fixed offset in the compressed account
+  // We need to filter by schema first, then filter client-side by counterparty
+  try {
+    const allFeedbacks = await listAllFeedbacks();
+    return allFeedbacks.filter((f) => f.feedback.counterparty === counterparty);
+  } catch (e) {
+    console.error("Failed to list feedbacks by counterparty:", e);
+    return [];
+  }
 }
 
 /**
@@ -68,139 +307,19 @@ export interface ListAgentsResult {
 }
 
 /**
- * Efficiently list agents owned by a specific wallet.
+ * List agents owned by a specific wallet.
  *
- * Uses getTokenAccountsByOwner + batch getMultipleAccounts for optimal performance.
- * 1. Fetches all Token-2022 token accounts for owner (1 RPC call)
- * 2. Gets registry config for group mint (1 RPC call)
- * 3. Batch fetches all potential NFT mints (1 RPC call)
- * 4. Filters to agents with correct group membership
- *
- * Also returns totalAgents from registry stats (no extra RPC call).
+ * Delegates to SDK's listAgentsByOwner for Token-2022 parsing.
+ * Also returns totalAgents from registry stats.
  */
 export async function listAgentsByOwner(
-  rpc: Rpc<SolanaRpcApi>,
   owner: Address,
 ): Promise<ListAgentsResult> {
-  // Parallel fetch: token accounts + registry stats (for group mint)
-  const [tokenAccountsResult, stats] = await Promise.all([
-    rpc
-      .getTokenAccountsByOwner(
-        owner,
-        { programId: TOKEN_2022_PROGRAM_ADDRESS },
-        { encoding: "jsonParsed" },
-      )
-      .send(),
-    getSatiClient().getRegistryStats(),
+  const sati = getSatiClient();
+  const [agents, stats] = await Promise.all([
+    sati.listAgentsByOwner(owner),
+    sati.getRegistryStats(),
   ]);
-
-  const groupMint = stats.groupMint;
-
-  // Collect potential NFT mints (amount=1, decimals=0)
-  const potentialMints: Address[] = [];
-
-  for (const { account } of tokenAccountsResult.value) {
-    const parsed = account.data as {
-      parsed?: {
-        info?: {
-          mint?: string;
-          tokenAmount?: { amount: string; decimals: number };
-        };
-      };
-    };
-
-    const info = parsed.parsed?.info;
-    if (!info?.mint || !info?.tokenAmount) continue;
-
-    // NFTs have amount=1 and decimals=0
-    if (info.tokenAmount.amount !== "1" || info.tokenAmount.decimals !== 0) {
-      continue;
-    }
-
-    potentialMints.push(info.mint as Address);
-  }
-
-  if (potentialMints.length === 0) {
-    return { agents: [], totalAgents: stats.totalAgents };
-  }
-
-  // Batch fetch all potential mint accounts
-  const mintAccountsResult = await rpc
-    .getMultipleAccounts(potentialMints, { encoding: "jsonParsed" })
-    .send();
-
-  const agents: AgentIdentity[] = [];
-
-  for (let i = 0; i < potentialMints.length; i++) {
-    const mintAccount = mintAccountsResult.value[i];
-    if (!mintAccount) continue;
-
-    const parsed = mintAccount.data as {
-      parsed?: {
-        info?: {
-          extensions?: Array<{
-            extension: string;
-            state: Record<string, unknown>;
-          }>;
-        };
-      };
-    };
-
-    const extensions = parsed.parsed?.info?.extensions;
-    if (!extensions) continue;
-
-    // Find TokenGroupMember extension
-    const groupMemberExt = extensions.find(
-      (ext) => ext.extension === "tokenGroupMember",
-    );
-    if (!groupMemberExt) continue;
-
-    // Verify it belongs to the SATI registry group
-    const memberState = groupMemberExt.state as {
-      group?: string;
-      memberNumber?: number;
-    };
-    if (memberState.group !== groupMint) continue;
-
-    // Find TokenMetadata extension
-    const metadataExt = extensions.find(
-      (ext) => ext.extension === "tokenMetadata",
-    );
-    if (!metadataExt) continue;
-
-    const metadataState = metadataExt.state as {
-      name?: string;
-      symbol?: string;
-      uri?: string;
-      additionalMetadata?: Array<[string, string]>;
-    };
-
-    // Check for NonTransferable extension
-    const nonTransferableExt = extensions.find(
-      (ext) => ext.extension === "nonTransferable",
-    );
-
-    // Build additional metadata record
-    const additionalMetadata: Record<string, string> = {};
-    if (metadataState.additionalMetadata) {
-      for (const [key, value] of metadataState.additionalMetadata) {
-        additionalMetadata[key] = value;
-      }
-    }
-
-    // Construct agent identity directly from parsed data
-    agents.push({
-      mint: potentialMints[i],
-      owner, // We already know the owner
-      name: metadataState.name ?? "Unknown",
-      symbol: metadataState.symbol ?? "SATI",
-      uri: metadataState.uri ?? "",
-      memberNumber: BigInt(memberState.memberNumber ?? 0),
-      additionalMetadata,
-      nonTransferable: !!nonTransferableExt,
-    });
-  }
-
   return { agents, totalAgents: stats.totalAgents };
 }
 
@@ -208,10 +327,11 @@ export async function listAgentsByOwner(
  * Truncate an address for display
  */
 export function truncateAddress(
-  addr: string,
+  addr: string | null | undefined,
   startLen = 4,
   endLen = 4,
 ): string {
+  if (!addr) return "—";
   if (addr.length <= startLen + endLen + 3) return addr;
   return `${addr.slice(0, startLen)}...${addr.slice(-endLen)}`;
 }
@@ -230,118 +350,117 @@ export function getSolscanUrl(
   address: string,
   type: "account" | "token" | "tx" = "account",
 ): string {
-  const network = import.meta.env.VITE_SOLANA_NETWORK ?? "mainnet";
-  const cluster = network === "mainnet" ? "" : `?cluster=${network}`;
-  return `https://solscan.io/${type}/${address}${cluster}`;
+  // Currently only devnet is supported
+  // TODO: Add mainnet support (remove cluster param) after mainnet deployment
+  return `https://solscan.io/${type}/${address}?cluster=devnet`;
 }
 
-// Constants for transaction parsing
-const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
-const ATA_PROGRAM = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
-const SATI_PROGRAM = "satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF";
+/**
+ * Helius getTransactionsForAddress response types
+ */
+interface HeliusTransaction {
+  transaction: {
+    message: {
+      accountKeys: Array<
+        { pubkey: string; signer: boolean; writable: boolean } | string
+      >;
+    };
+  };
+}
+
+interface HeliusResponse {
+  result?: {
+    data?: HeliusTransaction[];
+  };
+  error?: { message: string };
+}
 
 /**
  * List all agents registered in the SATI registry.
  *
- * Uses Helius getTransactionsForAddress to scan program transactions,
- * then extracts agent mints from registerAgent transactions.
- * No storage needed - always fresh from chain.
+ * Uses Helius getTransactionsForAddress to discover mints, then SDK's loadAgent
+ * for proper ownership resolution (owner = current token holder, not registrant).
  */
-export async function listAllAgents(
-  _rpc: Rpc<SolanaRpcApi>,
-  params?: { offset?: number; limit?: number },
-): Promise<ListAgentsResult> {
+export async function listAllAgents(params?: {
+  offset?: number;
+  limit?: number;
+}): Promise<ListAgentsResult> {
   const { offset = 0, limit = 20 } = params ?? {};
 
-  // Get registry stats
-  const stats = await getSatiClient().getRegistryStats();
+  const sati = getSatiClient();
+  const stats = await sati.getRegistryStats();
   const groupMint = stats.groupMint;
 
-  const rpcUrl = import.meta.env.VITE_MAINNET_RPC;
-  if (!rpcUrl) {
-    console.error("VITE_MAINNET_RPC not configured");
-    return { agents: [], totalAgents: stats.totalAgents };
-  }
-
   try {
-    // Step 1: Get all program transactions
-    const txResponse = await fetch(rpcUrl, {
+    // Step 1: Discover mints via Helius getTransactionsForAddress
+    const response = await fetch(RPC_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
-        id: "scan-agents",
+        id: "list-agents",
         method: "getTransactionsForAddress",
         params: [
-          SATI_PROGRAM,
+          SATI_PROGRAM_ADDRESS,
           {
             transactionDetails: "full",
             encoding: "jsonParsed",
-            maxSupportedTransactionVersion: 0,
-            sortOrder: "desc", // Newest first
             limit: 100,
+            sortOrder: "desc",
             filters: { status: "succeeded" },
           },
         ],
       }),
     });
 
-    const txData = await txResponse.json();
-    if (txData.error) {
-      console.error("getTransactionsForAddress error:", txData.error);
+    const data: HeliusResponse = await response.json();
+
+    if (data.error) {
+      console.warn(
+        "Helius getTransactionsForAddress error:",
+        data.error.message,
+      );
+      return { agents: [], totalAgents: stats.totalAgents };
+    }
+
+    const transactions = data.result?.data ?? [];
+
+    if (transactions.length === 0) {
       return { agents: [], totalAgents: stats.totalAgents };
     }
 
     // Step 2: Extract agent mints from registerAgent transactions
-    // registerAgent txs have: Token-2022, ATA program, group mint, and agent mint
     const agentMints: string[] = [];
 
-    for (const tx of txData.result?.data || []) {
-      const accounts = tx.transaction?.message?.accountKeys || [];
-      const pubkeys = accounts.map(
-        (acc: { pubkey: string } | string) =>
-          typeof acc === "object" ? acc.pubkey : acc,
+    for (const tx of transactions) {
+      if (!tx?.transaction?.message) continue;
+
+      const accounts = tx.transaction.message.accountKeys;
+      const pubkeys = accounts.map((acc) =>
+        typeof acc === "object" && "pubkey" in acc ? acc.pubkey : String(acc),
       );
 
-      // Check if this is a registerAgent transaction
-      const hasToken2022 = pubkeys.includes(TOKEN_2022_PROGRAM);
-      const hasATA = pubkeys.includes(ATA_PROGRAM);
-      const hasGroupMint = pubkeys.includes(groupMint);
+      // Check if this transaction involves the group mint (indicates registerAgent)
+      if (!pubkeys.includes(groupMint)) continue;
 
-      if (hasToken2022 && hasATA && hasGroupMint) {
-        // Find the agent mint - it's a writable account that's not:
-        // - The group mint
-        // - A system program
-        // - The payer (first signer)
-        for (const acc of accounts) {
-          const pubkey = typeof acc === "object" ? acc.pubkey : acc;
-          const isWritable = typeof acc === "object" ? acc.writable : false;
+      // Find the agent mint - it's the second signer (first is payer)
+      const signerAccounts = accounts.filter(
+        (acc) => typeof acc === "object" && "signer" in acc && acc.signer,
+      );
 
-          if (
-            isWritable &&
-            pubkey !== groupMint &&
-            !pubkey.startsWith("1111") &&
-            !pubkey.startsWith("Token") &&
-            !pubkey.startsWith("sati") &&
-            !pubkey.startsWith("Sysvar") &&
-            !pubkey.startsWith("AToken") &&
-            !pubkey.startsWith("Compute") &&
-            pubkey.length === 44 // Valid base58 Solana address length
-          ) {
-            // Check if it's not already in the list and not the payer
-            const isFirstSigner =
-              accounts[0] &&
-              (typeof accounts[0] === "object"
-                ? accounts[0].pubkey
-                : accounts[0]) === pubkey;
+      if (signerAccounts.length >= 2) {
+        const agentMint =
+          typeof signerAccounts[1] === "object" && "pubkey" in signerAccounts[1]
+            ? signerAccounts[1].pubkey
+            : null;
 
-            if (!isFirstSigner && !agentMints.includes(pubkey)) {
-              // Verify it's actually a mint by checking it's not the ATA
-              // Agent mint appears before the ATA in the accounts
-              agentMints.push(pubkey);
-              break; // Only one agent mint per transaction
-            }
-          }
+        // Skip if this is the groupMint itself (from initialize transaction)
+        if (
+          agentMint &&
+          agentMint !== groupMint &&
+          !agentMints.includes(agentMint)
+        ) {
+          agentMints.push(agentMint);
         }
       }
     }
@@ -350,111 +469,64 @@ export async function listAllAgents(
       return { agents: [], totalAgents: stats.totalAgents };
     }
 
-    // Step 3: Get asset details for all mints in one batch call
-    const helius = getHeliusClient();
-    if (!helius) {
-      console.error("Helius client not configured");
-      return { agents: [], totalAgents: stats.totalAgents };
-    }
+    // Step 3: Apply pagination
+    const paginatedMints = agentMints.slice(offset, offset + limit);
 
-    const assets = await helius.getAssetBatch({
-      ids: agentMints.slice(offset, offset + limit),
-    });
+    // Step 4: Load agents via SDK (handles owner lookup correctly)
+    const agentPromises = paginatedMints.map((mint) =>
+      sati.loadAgent(mint as Address),
+    );
+    const loadedAgents = await Promise.all(agentPromises);
 
-    // Step 4: Convert to AgentIdentity
-    const agents: AgentIdentity[] = assets
-      .filter((asset) => asset && asset.id)
-      .map((asset, index) => {
-        // Helius SDK types don't include token_group_member, but it's in the response
-        const mintExtensions = asset.mint_extensions as
-          | { token_group_member?: { member_number?: number } }
-          | undefined;
-        const memberNumber = mintExtensions?.token_group_member?.member_number;
-        return {
-          mint: asset.id as Address,
-          owner: (asset.ownership?.owner ?? "") as Address,
-          name: asset.content?.metadata?.name ?? "Unknown",
-          symbol: asset.content?.metadata?.symbol ?? "SATI",
-          uri: asset.content?.json_uri ?? "",
-          memberNumber: memberNumber ? BigInt(memberNumber) : BigInt(index + 1),
-          additionalMetadata: {},
-          nonTransferable: true,
-        };
-      });
+    // Filter out nulls (failed loads)
+    const agents = loadedAgents.filter(
+      (agent): agent is AgentIdentity => agent !== null,
+    );
 
     return {
       agents,
       totalAgents: stats.totalAgents,
     };
   } catch (error) {
-    console.error("Failed to fetch agents:", error);
+    console.warn("Failed to fetch agents:", error);
     return { agents: [], totalAgents: stats.totalAgents };
   }
 }
 
 /**
- * Agent metadata from the URI (JSON file on IPFS)
+ * Agent metadata type (re-exported from SDK)
+ *
+ * Uses SDK's RegistrationFile which is ERC-8004 + Phantom compatible.
+ * The SDK handles validation, IPFS/Arweave URI conversion, and image extraction.
  */
-export interface AgentMetadata {
-  name: string;
-  symbol: string;
-  description?: string;
-  image?: string;
-  attributes?: Array<{ trait_type: string; value: string }>;
-}
+export type AgentMetadata = RegistrationFile;
 
 /**
- * Convert metadata URI to a fetchable URL.
- * - Arweave URLs (https://arweave.net/...) pass through as-is
- * - IPFS URLs are no longer supported (legacy)
- */
-export function ipfsToGatewayUrl(uri: string): string {
-  // Guard against undefined/invalid URIs
-  if (!uri || uri === "undefined" || uri.includes("undefined")) {
-    return "";
-  }
-
-  // Arweave URLs pass through as-is
-  if (uri.startsWith("https://arweave.net/")) {
-    return uri;
-  }
-
-  // Return as-is for other URLs (http/https)
-  if (uri.startsWith("http://") || uri.startsWith("https://")) {
-    return uri;
-  }
-
-  // IPFS URLs no longer supported
-  return "";
-}
-
-/**
- * Fetch agent metadata from URI
+ * Fetch agent metadata from URI.
+ *
+ * Uses SDK's fetchRegistrationFile which:
+ * - Handles IPFS/Arweave URI conversion
+ * - Validates against ERC-8004 schema
+ * - Returns null on network errors or invalid URIs (never throws)
  */
 export async function fetchAgentMetadata(
   uri: string,
 ): Promise<AgentMetadata | null> {
-  if (!uri) return null;
-
-  try {
-    const url = ipfsToGatewayUrl(uri);
-    if (!url) return null; // Invalid or unsupported URI
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    return response.json();
-  } catch {
-    return null;
-  }
+  return fetchRegistrationFile(uri);
 }
 
 /**
- * Get image URL from agent metadata
- * Handles Arweave URLs (passes through as-is)
+ * Get image URL from agent metadata.
+ *
+ * Uses SDK's getImageUrl which:
+ * - Prefers properties.files (Phantom format)
+ * - Falls back to image field
+ * - Handles IPFS/Arweave URI conversion
  */
-export function getAgentImageUrl(metadata: AgentMetadata | null): string | null {
-  if (!metadata?.image) return null;
-  const url = ipfsToGatewayUrl(metadata.image);
-  return url || null;
+export function getAgentImageUrl(
+  metadata: AgentMetadata | null,
+): string | null {
+  return getImageUrl(metadata);
 }
 
 // Re-export types

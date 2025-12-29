@@ -3,7 +3,7 @@
  */
 
 import { useForm, useFieldArray } from "react-hook-form";
-import { Plus, Trash2, Loader2 } from "lucide-react";
+import { Plus, Trash2, Loader2, Eye, EyeOff } from "lucide-react";
 import { z } from "zod";
 import { zodResolver } from "@/lib/zod-resolver";
 import { useSati } from "@/hooks/use-sati";
@@ -19,6 +19,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  buildRegistrationFile,
+  stringifyRegistrationFile,
+} from "@cascade-fyi/sati-sdk";
 
 // Byte length validation helper
 const byteLength = (str: string) => new TextEncoder().encode(str).length;
@@ -30,12 +35,24 @@ const registerAgentSchema = z.object({
     .min(1, "Name is required")
     .refine((s) => byteLength(s) <= 32, "Name must be 32 bytes or less"),
 
-  symbol: z
+  description: z
     .string()
     .optional()
     .refine(
-      (s) => !s || byteLength(s) <= 10,
-      "Symbol must be 10 bytes or less",
+      (s) => !s || s.length <= 500,
+      "Description must be 500 characters or less",
+    ),
+
+  image: z
+    .string()
+    .optional()
+    .refine(
+      (s) =>
+        !s ||
+        s.startsWith("https://") ||
+        s.startsWith("ipfs://") ||
+        s.startsWith("ar://"),
+      "Image must be a valid URL (https://, ipfs://, or ar://)",
     ),
 
   uri: z
@@ -64,6 +81,8 @@ const registerAgentSchema = z.object({
     .optional(),
 
   nonTransferable: z.boolean().default(false),
+
+  showJsonPreview: z.boolean().default(false),
 });
 
 type RegisterAgentFormData = z.infer<typeof registerAgentSchema>;
@@ -83,12 +102,27 @@ export function RegisterAgentDialog({
     resolver: zodResolver(registerAgentSchema),
     defaultValues: {
       name: "",
-      symbol: "",
+      description: "",
+      image: "",
       uri: "",
       additionalMetadata: [],
       nonTransferable: false,
+      showJsonPreview: false,
     },
   });
+
+  // Generate registration file JSON preview
+  const watchedValues = form.watch();
+  const jsonPreview = (() => {
+    const { name, description, image } = watchedValues;
+    if (!name || !description || !image) return null;
+    try {
+      const file = buildRegistrationFile({ name, description, image });
+      return stringifyRegistrationFile(file);
+    } catch {
+      return null;
+    }
+  })();
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -98,7 +132,6 @@ export function RegisterAgentDialog({
   const handleSubmit = form.handleSubmit(async (data) => {
     await registerAgent({
       name: data.name,
-      symbol: data.symbol || undefined,
       uri: data.uri || "",
       additionalMetadata: data.additionalMetadata?.length
         ? data.additionalMetadata
@@ -142,32 +175,51 @@ export function RegisterAgentDialog({
             </p>
           </div>
 
-          {/* Symbol */}
+          {/* Description */}
           <div className="space-y-2">
-            <Label htmlFor="symbol">Symbol (optional)</Label>
-            <Input
-              id="symbol"
-              placeholder="SATI"
-              {...form.register("symbol")}
+            <Label htmlFor="description">Description</Label>
+            <Textarea
+              id="description"
+              placeholder="A brief description of your agent..."
+              rows={3}
+              {...form.register("description")}
               disabled={isPending}
             />
-            {form.formState.errors.symbol && (
+            {form.formState.errors.description && (
               <p className="text-sm text-destructive">
-                {form.formState.errors.symbol.message}
+                {form.formState.errors.description.message}
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              {byteLength(form.watch("symbol") || "")}/10 bytes - defaults to
-              &quot;SATI&quot;
+              {(form.watch("description") || "").length}/500 characters
+            </p>
+          </div>
+
+          {/* Image URL */}
+          <div className="space-y-2">
+            <Label htmlFor="image">Image URL</Label>
+            <Input
+              id="image"
+              placeholder="https://arweave.net/... or ipfs://..."
+              {...form.register("image")}
+              disabled={isPending}
+            />
+            {form.formState.errors.image && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.image.message}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Agent avatar image (HTTPS, IPFS, or Arweave URL)
             </p>
           </div>
 
           {/* URI */}
           <div className="space-y-2">
-            <Label htmlFor="uri">Metadata URI (optional)</Label>
+            <Label htmlFor="uri">Metadata URI</Label>
             <Input
               id="uri"
-              placeholder="https://... or ipfs://..."
+              placeholder="https://arweave.net/..."
               {...form.register("uri")}
               disabled={isPending}
             />
@@ -177,7 +229,7 @@ export function RegisterAgentDialog({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Link to a JSON file with extended metadata (description, image, etc.)
+              Upload the JSON below to Arweave and paste the URL here
             </p>
           </div>
 
@@ -252,6 +304,46 @@ export function RegisterAgentDialog({
               </p>
             )}
           </div>
+
+          {/* JSON Preview */}
+          {jsonPreview && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Registration JSON</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    form.setValue(
+                      "showJsonPreview",
+                      !form.watch("showJsonPreview"),
+                    )
+                  }
+                >
+                  {form.watch("showJsonPreview") ? (
+                    <>
+                      <EyeOff className="h-4 w-4 mr-1" />
+                      Hide
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-4 w-4 mr-1" />
+                      Preview
+                    </>
+                  )}
+                </Button>
+              </div>
+              {form.watch("showJsonPreview") && (
+                <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto max-h-48 overflow-y-auto">
+                  {jsonPreview}
+                </pre>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Copy this JSON and upload to Arweave, then paste the URL above
+              </p>
+            </div>
+          )}
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button

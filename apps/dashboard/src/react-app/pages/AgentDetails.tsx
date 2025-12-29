@@ -1,7 +1,7 @@
 /**
  * Agent Details Page
  *
- * Displays full details for a single agent.
+ * Displays full details for a single agent including feedbacks.
  */
 
 import { useParams, useNavigate } from "react-router";
@@ -13,6 +13,8 @@ import {
   Loader2,
   Link as LinkIcon,
   Pencil,
+  MessageSquare,
+  MessageCirclePlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,15 +27,60 @@ import {
 } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { EditMetadataDialog } from "@/components/EditMetadataDialog";
-import { useAgentDetails, useAgentMetadata } from "@/hooks/use-sati";
+import { GiveFeedbackDialog } from "@/components/GiveFeedbackDialog";
+import { useQuery } from "@tanstack/react-query";
+import {
+  useAgentDetails,
+  useAgentMetadata,
+  useAgentFeedbacks,
+} from "@/hooks/use-sati";
+
+// Hook to check if agent is a demo agent (can receive feedback via echo service)
+function useDemoAgents() {
+  return useQuery({
+    queryKey: ["demo-agents"],
+    queryFn: async () => {
+      const response = await fetch("/api/demo-agents");
+      if (!response.ok) return { agents: [] };
+      return response.json() as Promise<{
+        agents: Array<{ mint: string; name: string; echoEnabled: boolean }>;
+      }>;
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+}
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { formatMemberNumber, getSolscanUrl } from "@/lib/sati";
+import { formatMemberNumber, getSolscanUrl, truncateAddress } from "@/lib/sati";
+
+// Helper to format outcome
+function formatOutcome(outcome: number): { text: string; color: string } {
+  switch (outcome) {
+    case 0:
+      return { text: "Negative", color: "text-red-500" };
+    case 1:
+      return { text: "Neutral", color: "text-yellow-500" };
+    case 2:
+      return { text: "Positive", color: "text-green-500" };
+    default:
+      return { text: "Unknown", color: "text-muted-foreground" };
+  }
+}
 
 export function AgentDetails() {
   const { mint } = useParams<{ mint: string }>();
   const navigate = useNavigate();
   const { agent, isLoading, error, refetch } = useAgentDetails(mint);
   const { metadata } = useAgentMetadata(agent?.uri);
+  const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(
+    agent?.mint,
+    agent?.owner,
+  );
+  const { data: demoAgentsData } = useDemoAgents();
+
+  // Check if this agent can receive feedback via echo service
+  const canGiveFeedback = demoAgentsData?.agents?.some(
+    (demoAgent) => demoAgent.mint === agent?.mint && demoAgent.echoEnabled,
+  );
 
   if (isLoading) {
     return (
@@ -84,8 +131,6 @@ export function AgentDetails() {
               {agent.name}
             </h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-muted-foreground">{agent.symbol}</span>
-              <span className="text-muted-foreground">·</span>
               <span className="text-muted-foreground">
                 {formatMemberNumber(agent.memberNumber)}
               </span>
@@ -169,6 +214,19 @@ export function AgentDetails() {
                 Edit Metadata
               </Button>
             </EditMetadataDialog>
+            {canGiveFeedback && (
+              <GiveFeedbackDialog
+                agentMint={agent.mint}
+                agentOwner={agent.owner}
+                agentName={agent.name}
+                onSuccess={refetch}
+              >
+                <Button variant="secondary">
+                  <MessageCirclePlus className="h-4 w-4 mr-2" />
+                  Give Feedback
+                </Button>
+              </GiveFeedbackDialog>
+            )}
             <Button variant="outline" asChild>
               <a
                 href={getSolscanUrl(agent.mint, "token")}
@@ -190,6 +248,57 @@ export function AgentDetails() {
                   View Metadata
                 </a>
               </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Feedbacks */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Feedbacks ({feedbacks.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {feedbacksLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : feedbacks.length === 0 ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                No feedbacks for this agent yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b text-left text-sm text-muted-foreground">
+                      <th className="pb-3 pr-4 font-medium">From</th>
+                      <th className="pb-3 pr-4 font-medium">Outcome</th>
+                      <th className="pb-3 font-medium text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feedbacks.map((feedback, idx) => {
+                      const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
+                      return (
+                        <tr key={idx} className="border-b">
+                          <td className="py-4 pr-4">
+                            <code className="text-sm">{truncateAddress(feedback.feedback.counterparty)}</code>
+                          </td>
+                          <td className="py-4 pr-4">
+                            <span className={outcomeColor}>{outcomeText}</span>
+                          </td>
+                          <td className="py-4 text-right">
+                            <span className="text-muted-foreground">{outcomeText}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </CardContent>
         </Card>

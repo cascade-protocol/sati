@@ -8,13 +8,15 @@
   "files": {
     "ignoreUnknown": false,
     "includes": [
+      "apps/**/*.ts",
       "tests/**/*.ts",
       "scripts/**/*.ts",
-      "sdk/**/*.ts",
+      "packages/**/*.ts",
       "**/*.json",
       "!!**/dist",
       "!**/idl.json",
-      "!sdk/**/generated"
+      "!**/*.d.ts",
+      "!packages/**/generated"
     ]
   },
   "formatter": {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Link, useLocation } from "react-router";
 import { Menu, Bot } from "lucide-react";
 import { WalletButton } from "./wallet/wallet-button";
+import { NetworkSelector } from "./NetworkSelector";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -58,19 +59,22 @@ export function Header() {
                 end
                 className={({ isActive }) => getNavLinkClasses(isActive)}
               >
-                My Agents
+                Explore
               </NavLink>
               <NavLink
-                to="/explore"
+                to="/dashboard"
                 className={({ isActive }) => getNavLinkClasses(isActive)}
               >
-                Explore
+                My Profile
               </NavLink>
             </nav>
           </div>
 
-          {/* Right group: Social icons + Wallet + Mobile menu */}
+          {/* Right group: Network selector + Social icons + Wallet + Mobile menu */}
           <div className="flex items-center gap-3 md:gap-4">
+            {/* Network selector */}
+            <NetworkSelector />
+
             {/* Desktop social icons - hidden on mobile */}
             <a
               href="https://github.com/cascade-protocol/sati"
@@ -118,15 +122,15 @@ export function Header() {
                         getMobileNavLinkClasses(isActive)
                       }
                     >
-                      My Agents
+                      Explore
                     </NavLink>
                     <NavLink
-                      to="/explore"
+                      to="/dashboard"
                       className={({ isActive }) =>
                         getMobileNavLinkClasses(isActive)
                       }
                     >
-                      Explore
+                      My Profile
                     </NavLink>
                   </nav>
                   <Separator />

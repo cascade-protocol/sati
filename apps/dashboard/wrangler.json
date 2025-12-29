@@ -13,5 +13,8 @@
     "directory": "./dist/client",
     "not_found_handling": "single-page-application"
   },
-  "routes": [{ "pattern": "sati.cascade.fyi", "custom_domain": true }]
+  "routes": [{ "pattern": "sati.cascade.fyi", "custom_domain": true }],
+  "vars": {
+    "DEMO_AGENT_MINT": "A9kWdZ59N8595vNcWdzV7yV6akpZGoV7Bdvf4Y9ApLnX"
+  }
 }

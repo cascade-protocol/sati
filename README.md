@@ -13,30 +13,44 @@ SATI enables agents to establish trust across organizational boundaries without 
 
 | Component | Purpose |
 |-----------|---------|
-| **SATI Registry** | Canonical entry point, atomic registration, collection authority |
+| **SATI Program** | Agent registration, signature verification, attestation storage routing |
 | **Token-2022** | Agent identity NFTs with metadata and collection membership |
-| **SAS** | Reputation and validation attestations (compression-ready) |
+| **Light Protocol** | ZK-compressed attestation storage (~200x cheaper) |
+| **SAS** | Regular attestation storage (ReputationScore) |
 
 ```
+┌───────────────────────────┐
+│      Token-2022           │
+│  • Identity storage       │
+│  • TokenMetadata          │
+│  • TokenGroup             │
+└───────────────────────────┘
+          ▲
+          │ (CPI: mint NFT)
 ┌─────────────────────────────────────────────────────────────────┐
-│                    SATI Registry Program                        │
-│           (satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF)         │
+│                         SATI Program                             │
+│           (satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz)          │
 ├─────────────────────────────────────────────────────────────────┤
-│  initialize()              → Create registry + TokenGroup       │
-│  register_agent()          → Token-2022 NFT + group membership  │
-│  update_registry_authority() → Transfer/renounce control        │
+│  Registry:                                                       │
+│    initialize()              → Create registry + TokenGroup      │
+│    register_agent()          → Token-2022 NFT + group membership │
+│    update_registry_authority() → Transfer/renounce control       │
+│  Attestation:                                                    │
+│    register_schema_config()  → Register schema + storage type    │
+│    create_attestation()      → Verify sigs → route to storage    │
+│    close_attestation()       → Close/nullify attestation         │
 └─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌──────────────────────────┐  ┌──────────────────────────────────┐
-│      Token-2022          │  │  Solana Attestation Service      │
-│  • Identity storage      │  │  • FeedbackAuth schema           │
-│  • TokenMetadata         │  │  • Feedback schema               │
-│  • TokenGroup            │  │  • FeedbackResponse schema       │
-│  • Direct updates/xfers  │  │  • ValidationRequest schema      │
-│                          │  │  • ValidationResponse schema     │
-│                          │  │  • Certification schema          │
-└──────────────────────────┘  └──────────────────────────────────┘
+          │                                         │
+          │ (CPI: compressed)                       │ (CPI: regular)
+          ▼                                         ▼
+┌───────────────────────────┐         ┌────────────────────────────┐
+│   Light Protocol          │         │  Solana Attestation Service│
+│   (Compressed Storage)    │         │  (Regular Storage)         │
+├───────────────────────────┤         ├────────────────────────────┤
+│ • Feedback attestations   │         │ • ReputationScore          │
+│ • Validation attestations │         │ • On-chain queryable       │
+│ • ~$0.002 per attestation │         │                            │
+└───────────────────────────┘         └────────────────────────────┘
 ```
 
 ---
@@ -101,7 +115,6 @@ const sati = new SATI({ network: "mainnet" }); // or "devnet"
 const { mint, memberNumber } = await sati.registerAgent({
   payer: keypair,
   name: "MyAgent",
-  symbol: "SATI",
   uri: "ipfs://QmRegistrationFile",
   additionalMetadata: [
     ["agentWallet", `solana:${keypair.address}`],
@@ -185,7 +198,7 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 ## Documentation
 
 - [Complete Specification](./docs/specification.md) - Full technical specification
-- [TypeScript SDK](./sdk/) - Developer SDK with generated client
+- [TypeScript SDK](./packages/sdk/) - Developer SDK with generated client
 - [Examples](./examples/) - Usage examples
 
 ---
@@ -194,8 +207,8 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
-**Deployment Status:** Mainnet and Devnet
-**On-chain Verification:** [Verified via solana-verify](https://explorer.solana.com/address/satiFVb9MDmfR4ZfRedyKPLGLCg3saQ7Wbxtx9AEeeF)
+**Deployment Status:** Ready for Devnet
+**On-chain Verification:** [Program on Solana Explorer](https://explorer.solana.com/address/satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz)
 
 ---
 
