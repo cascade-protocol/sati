@@ -708,17 +708,17 @@ describe("E2E: Compressed Attestation Offset Verification", () => {
     "verifies COMPRESSED_OFFSETS are correctly defined",
     async () => {
       // These offsets are critical for Photon memcmp filters
-      // Based on CompressedAttestation layout:
-      // [0-7]    discriminator (8 bytes)
-      // [8-39]   sas_schema (32 bytes)
-      // [40-71]  token_account (32 bytes)
-      // [72]     data_type (1 byte)
-      // [73-76]  data length (4 bytes)
-      // [77+]    data (variable)
+      // Note: Light Protocol returns discriminator as a separate field in the
+      // response, NOT prefixed to the data bytes. Data bytes start directly:
+      // [0-31]   sas_schema (32 bytes)
+      // [32-63]  token_account (32 bytes)
+      // [64]     data_type (1 byte)
+      // [65-68]  data length (4 bytes)
+      // [69+]    data (variable)
 
-      expect(COMPRESSED_OFFSETS.SAS_SCHEMA).toBe(8);
-      expect(COMPRESSED_OFFSETS.TOKEN_ACCOUNT).toBe(40);
-      expect(COMPRESSED_OFFSETS.DATA_TYPE).toBe(72);
+      expect(COMPRESSED_OFFSETS.SAS_SCHEMA).toBe(0);
+      expect(COMPRESSED_OFFSETS.TOKEN_ACCOUNT).toBe(32);
+      expect(COMPRESSED_OFFSETS.DATA_TYPE).toBe(64);
 
       // Feedback-specific offsets within data:
       // data[0-31]   taskRef (32 bytes)
