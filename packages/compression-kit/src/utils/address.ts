@@ -43,6 +43,16 @@ export function deriveAddressSeed(seeds: Uint8Array[], programId: Address): Uint
  * @param seed - 32-byte seed (typically from deriveAddressSeed)
  * @param addressMerkleTreePubkey - The address tree to derive from
  * @returns Derived address as a Solana Address
+ *
+ * @example
+ * ```typescript
+ * import { deriveAddressSeed, deriveAddress } from '@cascade-fyi/compression-kit';
+ * import { address } from '@solana/kit';
+ *
+ * const programId = address('YourProgramId...');
+ * const seed = deriveAddressSeed([new TextEncoder().encode('my-seed')], programId);
+ * const compressedAddress = deriveAddress(seed);
+ * ```
  */
 export function deriveAddress(seed: Uint8Array, addressMerkleTreePubkey?: Address): Address {
   if (seed.length !== 32) {

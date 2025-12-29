@@ -81,6 +81,19 @@ export function getSystemProgram(): Address {
 
 /**
  * Build Light System account metas (V1 layout).
+ *
+ * @param config - System account configuration
+ * @returns Array of account metas for Light System Program
+ *
+ * @example
+ * ```typescript
+ * import { getLightSystemAccountMetas, createSystemAccountConfig } from '@cascade-fyi/compression-kit';
+ * import { address } from '@solana/kit';
+ *
+ * const programId = address('YourProgramId...');
+ * const config = createSystemAccountConfig(programId);
+ * const metas = await getLightSystemAccountMetas(config);
+ * ```
  */
 export async function getLightSystemAccountMetas(config: SystemAccountMetaConfig): Promise<AccountMeta[]> {
   const cpiSigner = await getCpiSignerPda(config.selfProgram);

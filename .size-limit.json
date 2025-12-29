@@ -1,0 +1,8 @@
+[
+  {
+    "name": "@cascade-fyi/compression-kit",
+    "path": "packages/compression-kit/dist/index.mjs",
+    "limit": "25 KB",
+    "gzip": true
+  }
+]

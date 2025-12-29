@@ -11,6 +11,7 @@ test-ledger/
 node_modules/
 dist/
 *.log
+*.tgz
 
 # TypeScript build artifacts
 lib/

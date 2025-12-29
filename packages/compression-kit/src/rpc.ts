@@ -758,6 +758,14 @@ function hexToBytes(hex: string): Uint8Array {
  * @param endpoint - Photon indexer URL (e.g., "https://zk-testnet.helius.dev:8784")
  * @param headers - Optional additional headers
  * @returns PhotonRpc instance
+ *
+ * @example
+ * ```typescript
+ * import { createPhotonRpc } from '@cascade-fyi/compression-kit';
+ *
+ * const rpc = createPhotonRpc('https://mainnet.helius-rpc.com/?api-key=YOUR_KEY');
+ * const accounts = await rpc.getCompressedAccountsByOwner(ownerAddress);
+ * ```
  */
 export function createPhotonRpc(endpoint: string, headers?: Record<string, string>): PhotonRpc {
   return new PhotonRpc(endpoint, headers);
