@@ -340,13 +340,6 @@ function createApp(env: EchoEnv) {
         photonRpcUrl: env.VITE_DEVNET_RPC,
       });
 
-      // Debug: log what we're passing
-      console.log("[build-feedback-tx] Request:", {
-        sasSchema: body.sasSchema,
-        hasCounterpartySig: !!counterpartySigBytes,
-        agentAddress: body.agentAddress,
-      });
-
       // Build the transaction (server-side Light Protocol calls)
       // Use Light Protocol's devnet ALT to reduce transaction size
       const result = await sati.buildFeedbackTransaction({

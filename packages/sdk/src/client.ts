@@ -1408,14 +1408,10 @@ export class SATI {
 
     // Encode message bytes to base64 using btoa (browser-compatible)
     const messageBytes = compiledTx.messageBytes as unknown as Uint8Array;
-    console.log("[SDK] Compiled messageBytes length:", messageBytes.length);
-    console.log("[SDK] First 10 bytes:", Array.from(messageBytes.slice(0, 10)));
-
     const binaryString = Array.from(messageBytes)
       .map((byte) => String.fromCharCode(byte))
       .join("");
     const messageBase64 = btoa(binaryString);
-    console.log("[SDK] Base64 length:", messageBase64.length);
 
     return {
       attestationAddress: address(derivedAddress.toBase58()),
