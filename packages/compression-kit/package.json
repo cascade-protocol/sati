@@ -26,7 +26,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown --publint --attw",
+    "prepublishOnly": "pnpm build",
     "dev": "tsdown --watch",
     "type-check": "tsc --noEmit",
     "lint": "biome check",
@@ -47,6 +48,15 @@
   ],
   "author": "Cascade",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cascade-protocol/sati.git",
+    "directory": "packages/compression-kit"
+  },
+  "homepage": "https://github.com/cascade-protocol/sati/tree/main/packages/compression-kit#readme",
+  "bugs": {
+    "url": "https://github.com/cascade-protocol/sati/issues"
+  },
   "engines": {
     "node": ">=20.18.0"
   },
