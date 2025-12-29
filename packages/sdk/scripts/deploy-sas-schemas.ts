@@ -28,11 +28,41 @@ import path from "node:path";
 import os from "node:os";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createKeyPairSignerFromBytes } from "@solana/kit";
+import {
+  createKeyPairSignerFromBytes,
+  type Address,
+  address,
+} from "@solana/kit";
+import {
+  Connection,
+  AddressLookupTableProgram,
+  TransactionMessage,
+  VersionedTransaction,
+  Keypair,
+} from "@solana/web3.js";
 import { SATI } from "../src";
 import type { DeployedSASConfig } from "../src/types";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Load .env from project root
+import "dotenv/config";
+
+// Get RPC URL for network (uses Helius from .env, falls back to public endpoints)
+function getRpcUrl(network: string): string {
+  if (network === "devnet") {
+    return process.env.VITE_DEVNET_RPC || "https://api.devnet.solana.com";
+  }
+  if (network === "mainnet") {
+    return (
+      process.env.VITE_MAINNET_RPC || "https://api.mainnet-beta.solana.com"
+    );
+  }
+  return "http://127.0.0.1:8899"; // localnet
+}
+
+// Production authority - only this keypair can deploy to devnet/mainnet
+const PRODUCTION_AUTHORITY = "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z";
 
 // Parse command line arguments
 function parseArgs() {
@@ -81,6 +111,87 @@ function saveDeployedConfig(
   return configPath;
 }
 
+// Create Address Lookup Table for SATI transactions
+async function createAddressLookupTable(
+  sati: SATI,
+  keypairPath: string,
+  network: string,
+): Promise<Address> {
+  const rpcUrl = getRpcUrl(network);
+  const connection = new Connection(rpcUrl, "confirmed");
+
+  // Load keypair as web3.js Keypair for signing
+  const keypairData = readFileSync(keypairPath, "utf-8");
+  const secretKey = Uint8Array.from(JSON.parse(keypairData));
+  const payer = Keypair.fromSecretKey(secretKey);
+
+  // Get addresses from Light client (cast to web3.js PublicKey[] for ALT creation)
+  const light = await sati.getLightClient();
+  const addresses =
+    (await light.getLookupTableAddresses()) as unknown as import("@solana/web3.js").PublicKey[];
+  console.log(`  Including ${addresses.length} addresses`);
+
+  // Get current slot
+  const slot = await connection.getSlot("finalized");
+
+  // Create lookup table
+  const [createIx, lookupTableAddress] =
+    AddressLookupTableProgram.createLookupTable({
+      authority: payer.publicKey,
+      payer: payer.publicKey,
+      recentSlot: slot,
+    });
+
+  // Extend with addresses (max 30 per instruction)
+  const extendInstructions = [];
+  for (let i = 0; i < addresses.length; i += 30) {
+    extendInstructions.push(
+      AddressLookupTableProgram.extendLookupTable({
+        lookupTable: lookupTableAddress,
+        authority: payer.publicKey,
+        payer: payer.publicKey,
+        addresses: addresses.slice(i, i + 30),
+      }),
+    );
+  }
+
+  // Build and send transaction
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash();
+
+  const tx = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [createIx, ...extendInstructions],
+    }).compileToV0Message(),
+  );
+  tx.sign([payer]);
+
+  const signature = await connection.sendTransaction(tx);
+  console.log(`  Transaction: ${signature}`);
+
+  // Wait for confirmation
+  for (let i = 0; i < 30; i++) {
+    const status = await connection.getSignatureStatuses([signature]);
+    if (status.value[0]?.confirmationStatus === "confirmed") break;
+    if ((await connection.getBlockHeight()) > lastValidBlockHeight) {
+      throw new Error("Transaction expired");
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  // Wait for ALT to be active
+  console.log("  Waiting for lookup table activation...");
+  for (let i = 0; i < 20; i++) {
+    const lut = await connection.getAddressLookupTable(lookupTableAddress);
+    if (lut.value) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  return address(lookupTableAddress.toBase58());
+}
+
 async function main() {
   const { network, keypairPath, testMode } = parseArgs();
 
@@ -96,6 +207,25 @@ async function main() {
   console.log("\nLoading keypair...");
   const keypair = await loadKeypair(keypairPath);
   console.log(`Authority:  ${keypair.address}`);
+
+  // Verify production authority for devnet/mainnet
+  if (network !== "localnet" && keypair.address !== PRODUCTION_AUTHORITY) {
+    console.error("");
+    console.error("=".repeat(60));
+    console.error("AUTHORITY MISMATCH");
+    console.error("=".repeat(60));
+    console.error(`Expected: ${PRODUCTION_AUTHORITY}`);
+    console.error(`Got:      ${keypair.address}`);
+    console.error("");
+    console.error(
+      "Only the production authority can deploy to devnet/mainnet.",
+    );
+    console.error(
+      "Use --test flag for test deployments with different authority.",
+    );
+    console.error("=".repeat(60));
+    process.exit(1);
+  }
 
   // Initialize SATI client
   const sati = new SATI({ network });
@@ -153,15 +283,27 @@ async function main() {
 
   // Save config if successful
   if (result.success) {
+    // Create Address Lookup Table for transaction compression
+    console.log("Address Lookup Table:");
+    const lookupTable = await createAddressLookupTable(
+      sati,
+      keypairPath,
+      network,
+    );
+    console.log(`  Address: ${lookupTable}`);
+    console.log("");
+
     const deployedConfig: DeployedSASConfig = {
       network,
       authority: keypair.address,
       deployedAt: new Date().toISOString(),
-      config: result.config,
+      config: {
+        ...result.config,
+        lookupTable,
+      },
     };
 
     const configPath = saveDeployedConfig(network, deployedConfig, testMode);
-    console.log("");
     console.log(`Config saved to: ${configPath}`);
     console.log("");
     console.log(

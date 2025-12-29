@@ -124,8 +124,8 @@ export function computeValidationHash(
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
   }
-  if (!Number.isFinite(response) || response < 0 || response > 100) {
-    throw new Error("response must be 0-100");
+  if (!Number.isInteger(response) || response < 0 || response > 100) {
+    throw new Error("response must be an integer 0-100");
   }
 
   const data = new Uint8Array(
@@ -162,8 +162,8 @@ export function computeReputationHash(
   provider: Address,
   score: number,
 ): Uint8Array {
-  if (!Number.isFinite(score) || score < 0 || score > 100) {
-    throw new Error("score must be 0-100");
+  if (!Number.isInteger(score) || score < 0 || score > 100) {
+    throw new Error("score must be an integer 0-100");
   }
 
   const data = new Uint8Array(
@@ -238,14 +238,8 @@ export function computeReputationNonce(
   return keccak_256(data);
 }
 
-/**
- * Outcome values for Feedback attestations.
- */
-export enum Outcome {
-  Negative = 0,
-  Neutral = 1,
-  Positive = 2,
-}
+// Re-export Outcome from schemas (single source of truth)
+export { Outcome } from "./schemas";
 
 /**
  * Export domain separators for reference

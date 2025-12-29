@@ -26,10 +26,12 @@ import {
   appendTransactionMessageInstruction,
   appendTransactionMessageInstructions,
   compressTransactionMessageUsingAddressLookupTables,
+  compileTransaction,
   address,
   getSignatureFromTransaction,
   getAddressEncoder,
   type Address,
+  type Base58EncodedBytes,
   type KeyPairSigner,
   type AddressesByLookupTableAddress,
 } from "@solana/kit";
@@ -38,6 +40,7 @@ import {
   fetchMint as fetchToken2022Mint,
   fetchToken as fetchToken2022Token,
   getTransferInstruction,
+  getUpdateTokenMetadataUpdateAuthorityInstruction,
   type Extension,
 } from "@solana-program/token-2022";
 
@@ -92,12 +95,12 @@ import {
   type ReputationScoreData,
 } from "./schemas";
 
-// Light Protocol types (type-only imports don't trigger bundling)
+// Light Protocol types (from light-types.ts to avoid pulling in @solana/web3.js)
 import type {
   LightClient,
   ParsedAttestation,
   AttestationFilter,
-} from "./light";
+} from "./light-types";
 
 // Dynamic import helper for Light Protocol (avoids bundling Node.js deps for browser)
 async function loadLightClient(): Promise<typeof import("./light")> {
@@ -112,6 +115,9 @@ import type {
   CloseRegularAttestationParams,
   CloseAttestationResult,
   SASDeploymentResult,
+  SignatureVerificationResult,
+  UpdateAgentMetadataParams,
+  UpdateAgentMetadataResult,
 } from "./types";
 
 import { deriveReputationAttestationPda } from "./sas-pdas";
@@ -126,6 +132,9 @@ import {
   SATI_SCHEMAS,
   type SASSchemaDefinition,
 } from "./sas";
+
+import nacl from "tweetnacl";
+import bs58 from "bs58";
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
@@ -152,6 +161,13 @@ const WS_URLS = {
   devnet: "wss://api.devnet.solana.com",
   localnet: "ws://127.0.0.1:8900",
 } as const;
+
+/**
+ * Convert Uint8Array to base58 string
+ */
+function uint8ArrayToBase58(bytes: Uint8Array): string {
+  return bs58.encode(bytes);
+}
 
 /**
  * Type helper for signed transactions with blockhash lifetime.
@@ -182,6 +198,58 @@ export interface AttestationResult {
   address: Address;
   /** Transaction signature */
   signature: string;
+}
+
+/**
+ * Built transaction ready for signing
+ *
+ * Contains all the data needed for the browser wallet to sign and submit.
+ */
+export interface BuiltTransaction {
+  /** Attestation address that will be created */
+  attestationAddress: Address;
+  /** Base64-encoded transaction message bytes */
+  messageBytes: string;
+  /** Addresses that need to sign (first one is fee payer) */
+  signers: Address[];
+  /** Blockhash used for the transaction */
+  blockhash: string;
+  /** Last valid block height for the transaction */
+  lastValidBlockHeight: bigint;
+}
+
+/**
+ * Parameters for building a Feedback transaction (without signing/sending)
+ */
+export interface BuildFeedbackParams {
+  /** Fee payer address (will sign in browser) */
+  payer: Address;
+  /** SAS schema address for this feedback type */
+  sasSchema: Address;
+  /** Task reference (CAIP-220 tx hash or arbitrary ID) */
+  taskRef: Uint8Array;
+  /** Agent's token account */
+  tokenAccount: Address;
+  /** Client (feedback giver) */
+  counterparty: Address;
+  /** Hash of request/interaction data */
+  dataHash: Uint8Array;
+  /** Content format */
+  contentType?: ContentType;
+  /** Feedback outcome */
+  outcome: Outcome;
+  /** Primary tag (max 32 chars) */
+  tag1?: string;
+  /** Secondary tag (max 32 chars) */
+  tag2?: string;
+  /** Variable-length content */
+  content?: Uint8Array;
+  /** Agent's signature (blind) */
+  agentSignature: SignatureInput;
+  /** Counterparty's signature (with outcome) - optional for SingleSigner schemas */
+  counterpartySignature?: SignatureInput;
+  /** Optional address lookup table for transaction compression */
+  lookupTableAddress?: Address;
 }
 
 /**
@@ -222,8 +290,8 @@ export interface CreateFeedbackParams {
   content?: Uint8Array;
   /** Agent's signature (blind) */
   agentSignature: SignatureInput;
-  /** Counterparty's signature (with outcome) */
-  counterpartySignature: SignatureInput;
+  /** Counterparty's signature (with outcome) - optional for SingleSigner schemas */
+  counterpartySignature?: SignatureInput;
   /** Optional address lookup table for transaction compression */
   lookupTableAddress?: Address;
 }
@@ -347,10 +415,13 @@ export class SATI {
    * dependencies in browser environments.
    */
   async getLightClient(): Promise<LightClient> {
-    if (!this.lightClient) {
-      const { createLightClient } = await loadLightClient();
-      this.lightClient = createLightClient(this.photonRpcUrl);
+    if (this.lightClient) {
+      return this.lightClient;
     }
+    const { createLightClient } = await loadLightClient();
+    // Cast to LightClient interface - the actual implementation is compatible
+    // but uses @solana/web3.js types internally
+    this.lightClient = createLightClient(this.photonRpcUrl) as LightClient;
     return this.lightClient;
   }
 
@@ -609,7 +680,6 @@ export class SATI {
         mint,
         owner,
         name: metadataExt.name,
-        symbol: metadataExt.symbol,
         uri: metadataExt.uri,
         memberNumber: groupMemberExt?.memberNumber ?? 0n,
         additionalMetadata,
@@ -662,6 +732,75 @@ export class SATI {
       (msg) =>
         setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(transferIx, msg),
+    );
+
+    const signedTx = await signTransactionMessageWithSigners(tx);
+    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+      commitment: "confirmed",
+    });
+
+    const signature = getSignatureFromTransaction(signedTx);
+    return { signature: signature.toString() };
+  }
+
+  /**
+   * Transfer agent to new owner with metadata update authority
+   *
+   * Combines Token-2022 transfer with metadata authority transfer in a single
+   * transaction, ensuring the new owner has full control over the agent NFT.
+   *
+   * Use this instead of `transferAgent` when you want the new owner to be able
+   * to update the agent's metadata (name, URI, additional fields).
+   *
+   * @param params - Transfer parameters
+   */
+  async transferAgentWithAuthority(params: {
+    /** Payer for transaction fees and new ATA creation */
+    payer: KeyPairSigner;
+    /** Current owner (must sign as both token owner and metadata update authority) */
+    owner: KeyPairSigner;
+    /** Agent NFT mint address */
+    mint: Address;
+    /** New owner address */
+    newOwner: Address;
+  }): Promise<{ signature: string }> {
+    const { payer, owner, mint, newOwner } = params;
+
+    // Get source and destination ATAs
+    const [sourceAta] = await findAssociatedTokenAddress(mint, owner.address);
+    const [destAta] = await findAssociatedTokenAddress(mint, newOwner);
+
+    // Build transfer instruction
+    const transferIx = getTransferInstruction({
+      source: sourceAta,
+      destination: destAta,
+      authority: owner,
+      amount: 1n,
+    });
+
+    // Build update metadata authority instruction
+    // For Token-2022 with TokenMetadata extension, the metadata is stored on the mint itself
+    const updateAuthorityIx = getUpdateTokenMetadataUpdateAuthorityInstruction({
+      metadata: mint,
+      updateAuthority: owner,
+      newUpdateAuthority: newOwner,
+    });
+
+    // Build and send transaction with both instructions
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
+
+    const tx = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(payer.address, msg),
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) =>
+        appendTransactionMessageInstructions(
+          [transferIx, updateAuthorityIx],
+          msg,
+        ),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -829,7 +968,6 @@ export class SATI {
         mint: potentialMints[i],
         owner, // We already know the owner
         name: metadataState.name ?? "Unknown",
-        symbol: metadataState.symbol ?? "",
         uri: metadataState.uri ?? "",
         memberNumber: BigInt(memberState.memberNumber ?? 0),
         additionalMetadata,
@@ -887,19 +1025,23 @@ export class SATI {
     };
     const data = serializeFeedback(feedbackData);
 
-    // Build signatures array
+    // Build signatures array (counterpartySignature optional for SingleSigner schemas)
     const signatures: GeneratedSignatureData[] = [
       {
         pubkey: agentSignature.pubkey,
         sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
       },
-      {
+    ];
+
+    // Add counterparty signature if provided (DualSignature schemas)
+    if (counterpartySignature) {
+      signatures.push({
         pubkey: counterpartySignature.pubkey,
         sig: counterpartySignature.signature as unknown as Uint8Array & {
           length: 64;
         },
-      },
-    ];
+      });
+    }
 
     // Get schema config PDA
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
@@ -997,28 +1139,36 @@ export class SATI {
       tokenAccount,
       dataHash,
     );
-    const feedbackHash = computeFeedbackHash(
-      sasSchema,
-      taskRef,
-      tokenAccount,
-      outcome,
-    );
 
-    // Create single Ed25519 instruction verifying both signatures (saves ~100 bytes)
-    const ed25519Ix = createBatchEd25519Instruction([
+    // Build Ed25519 verification entries (counterparty optional for SingleSigner schemas)
+    const ed25519Entries = [
       {
         publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
         message: interactionHash,
         signature: agentSignature.signature,
       },
-      {
+    ];
+
+    // Add counterparty verification for DualSignature schemas
+    if (counterpartySignature) {
+      const feedbackHash = computeFeedbackHash(
+        sasSchema,
+        taskRef,
+        tokenAccount,
+        outcome,
+      );
+      ed25519Entries.push({
         publicKey: new Uint8Array(
           addressEncoder.encode(counterpartySignature.pubkey),
         ),
         message: feedbackHash,
         signature: counterpartySignature.signature,
-      },
-    ]);
+      });
+    }
+
+    // Create Ed25519 instruction verifying signature(s)
+    // Note: On-chain program verifies against raw 32-byte hashes
+    const ed25519Ix = createBatchEd25519Instruction(ed25519Entries);
 
     // Build and send transaction (Ed25519 instruction must come first)
     const signature = await this.buildAndSendTransaction(
@@ -1031,6 +1181,248 @@ export class SATI {
     return {
       address: address(derivedAddress.toBase58()),
       signature,
+    };
+  }
+
+  /**
+   * Build a Feedback transaction without signing or sending
+   *
+   * Returns a serialized transaction that can be signed by a browser wallet
+   * and submitted separately. This is useful when the payer is a browser wallet
+   * rather than a server-side keypair.
+   *
+   * @param params - Feedback parameters (payer is an Address, not KeyPairSigner)
+   * @returns Built transaction ready for wallet signing
+   */
+  async buildFeedbackTransaction(
+    params: BuildFeedbackParams,
+  ): Promise<BuiltTransaction> {
+    const {
+      payer,
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      counterparty,
+      dataHash,
+      contentType = ContentType.None,
+      outcome,
+      tag1 = "",
+      tag2 = "",
+      content = new Uint8Array(0),
+      agentSignature,
+      counterpartySignature,
+      lookupTableAddress,
+    } = params;
+
+    // Serialize feedback data
+    const feedbackData: FeedbackData = {
+      taskRef,
+      tokenAccount,
+      counterparty,
+      dataHash,
+      contentType,
+      outcome,
+      tag1,
+      tag2,
+      content,
+    };
+    const data = serializeFeedback(feedbackData);
+
+    // Build signatures array (counterpartySignature optional for SingleSigner schemas)
+    const signatures: GeneratedSignatureData[] = [
+      {
+        pubkey: agentSignature.pubkey,
+        sig: agentSignature.signature as unknown as Uint8Array & { length: 64 },
+      },
+    ];
+
+    // Add counterparty signature if provided (DualSignature schemas)
+    if (counterpartySignature) {
+      signatures.push({
+        pubkey: counterpartySignature.pubkey,
+        sig: counterpartySignature.signature as unknown as Uint8Array & {
+          length: 64;
+        },
+      });
+    }
+
+    // Get schema config PDA
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    // Get Light Protocol proof and remaining accounts
+    const light = await this.getLightClient();
+
+    // Compute seeds for address derivation
+    const addressEncoder = getAddressEncoder();
+    const nonce = computeAttestationNonce(
+      taskRef,
+      sasSchema,
+      tokenAccount,
+      counterparty,
+    );
+    const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
+    const tokenAccountBytesForSeed = new Uint8Array(
+      addressEncoder.encode(tokenAccount),
+    );
+    const seeds = [
+      new TextEncoder().encode("attestation"),
+      sasSchemaBytes,
+      tokenAccountBytesForSeed,
+      nonce,
+    ];
+
+    // Get validity proof and packed accounts for creating compressed account
+    const {
+      address: derivedAddress,
+      proof: proofResult,
+      addressTreeInfo: packedAddressTreeInfo,
+      outputStateTreeIndex,
+      remainingAccounts,
+    } = await light.prepareCreate(seeds);
+
+    // Convert Light Protocol proof format to instruction format
+    const proof: ValidityProofArgs = proofResult.compressedProof
+      ? [
+          {
+            a: new Uint8Array(proofResult.compressedProof.a),
+            b: new Uint8Array(proofResult.compressedProof.b),
+            c: new Uint8Array(proofResult.compressedProof.c),
+          },
+        ]
+      : [null];
+
+    // Address tree info from Light Protocol
+    const addressTreeInfo: PackedAddressTreeInfoArgs = {
+      addressMerkleTreePubkeyIndex:
+        packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
+      addressQueuePubkeyIndex: packedAddressTreeInfo.addressQueuePubkeyIndex,
+      rootIndex: packedAddressTreeInfo.rootIndex,
+    };
+
+    // Build base instruction
+    const baseCreateIx = await getCreateAttestationInstructionAsync({
+      payer: { address: payer } as KeyPairSigner,
+      schemaConfig: schemaConfigPda,
+      program: SATI_PROGRAM_ADDRESS,
+      dataType: DataType.Feedback,
+      data,
+      signatures,
+      outputStateTreeIndex,
+      proof,
+      addressTreeInfo,
+    });
+
+    // Append remaining accounts to the instruction
+    const createIx = {
+      ...baseCreateIx,
+      accounts: [
+        ...baseCreateIx.accounts,
+        ...remainingAccounts.map((acc) => ({
+          address: address(acc.pubkey.toBase58()),
+          role: acc.isWritable
+            ? acc.isSigner
+              ? 3 // AccountRole.WRITABLE_SIGNER
+              : 1 // AccountRole.WRITABLE
+            : acc.isSigner
+              ? 2 // AccountRole.READONLY_SIGNER
+              : 0, // AccountRole.READONLY
+        })),
+      ],
+    };
+
+    // Compute expected message hashes for Ed25519 verification
+    const interactionHash = computeInteractionHash(
+      sasSchema,
+      taskRef,
+      tokenAccount,
+      dataHash,
+    );
+
+    // Build Ed25519 verification entries (counterparty optional for SingleSigner schemas)
+    const ed25519Entries = [
+      {
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: interactionHash,
+        signature: agentSignature.signature,
+      },
+    ];
+
+    // Add counterparty verification for DualSignature schemas
+    if (counterpartySignature) {
+      const feedbackHash = computeFeedbackHash(
+        sasSchema,
+        taskRef,
+        tokenAccount,
+        outcome,
+      );
+      ed25519Entries.push({
+        publicKey: new Uint8Array(
+          addressEncoder.encode(counterpartySignature.pubkey),
+        ),
+        message: feedbackHash,
+        signature: counterpartySignature.signature,
+      });
+    }
+
+    // Create Ed25519 instruction verifying signature(s)
+    const ed25519Ix = createBatchEd25519Instruction(ed25519Entries);
+
+    // Build transaction message (without signing)
+    const { value: latestBlockhash } = await this.rpc
+      .getLatestBlockhash()
+      .send();
+
+    const computeBudgetIx = getSetComputeUnitLimitInstruction({
+      units: 400_000,
+    });
+
+    const baseTxMessage = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(payer, msg),
+      (msg) =>
+        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstruction(computeBudgetIx, msg),
+      (msg) => appendTransactionMessageInstructions([ed25519Ix, createIx], msg),
+    );
+
+    // Compress with lookup table if provided
+    const finalTxMessage = await (async () => {
+      if (!lookupTableAddress) {
+        return baseTxMessage;
+      }
+      const lookupTableAccount = await fetchAddressLookupTable(
+        this.rpc,
+        lookupTableAddress,
+      );
+      const addressesByLookupTable: AddressesByLookupTableAddress = {
+        [lookupTableAddress]: lookupTableAccount.data.addresses,
+      };
+      return compressTransactionMessageUsingAddressLookupTables(
+        baseTxMessage,
+        addressesByLookupTable,
+      );
+    })();
+
+    // Compile to transaction (gets messageBytes and signers list)
+    const compiledTx = compileTransaction(finalTxMessage);
+
+    // Encode message bytes to base64 using btoa (browser-compatible)
+    const messageBytes = compiledTx.messageBytes as unknown as Uint8Array;
+    console.log("[SDK] Compiled messageBytes length:", messageBytes.length);
+    console.log("[SDK] First 10 bytes:", Array.from(messageBytes.slice(0, 10)));
+
+    const binaryString = Array.from(messageBytes)
+      .map((byte) => String.fromCharCode(byte))
+      .join("");
+    const messageBase64 = btoa(binaryString);
+    console.log("[SDK] Base64 length:", messageBase64.length);
+
+    return {
+      attestationAddress: address(derivedAddress.toBase58()),
+      messageBytes: messageBase64,
+      signers: Object.keys(compiledTx.signatures) as Address[],
+      blockhash: latestBlockhash.blockhash,
+      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
     };
   }
 
@@ -1062,9 +1454,9 @@ export class SATI {
       lookupTableAddress,
     } = params;
 
-    // Validate response
-    if (response > 100) {
-      throw new Error("Response must be 0-100");
+    // Validate response (must be integer 0-100)
+    if (!Number.isInteger(response) || response < 0 || response > 100) {
+      throw new Error("Response must be an integer 0-100");
     }
 
     // Serialize validation data
@@ -1408,9 +1800,9 @@ export class SATI {
       expiry = 0,
     } = params;
 
-    // Validate score
-    if (score > 100) {
-      throw new Error("Score must be 0-100");
+    // Validate score (must be integer 0-100)
+    if (!Number.isInteger(score) || score < 0 || score > 100) {
+      throw new Error("Score must be an integer 0-100");
     }
 
     // Validate signature length
@@ -1492,37 +1884,50 @@ export class SATI {
   // ============================================================
 
   /**
-   * List Feedback attestations for an agent
+   * List Feedback attestations
    *
    * Queries Photon for compressed attestations.
    *
-   * @param tokenAccount - Agent's token account address
-   * @param filter - Optional filters
+   * @param filter - Query filters (tokenAccount, sasSchema, counterparty, outcome)
    * @returns Array of parsed attestations
+   *
+   * @example
+   * // All feedbacks for an agent
+   * listFeedbacks({ tokenAccount })
+   *
+   * // All feedbacks globally (by schema)
+   * listFeedbacks({ sasSchema })
+   *
+   * // Feedbacks given by a specific counterparty
+   * listFeedbacks({ sasSchema, counterparty })
    */
   async listFeedbacks(
-    tokenAccount: Address,
-    filter?: Partial<AttestationFilter>,
+    filter: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     const light = await this.getLightClient();
-    return light.listFeedbacks(tokenAccount, filter);
+    return light.listFeedbacks(filter);
   }
 
   /**
-   * List Validation attestations for an agent
+   * List Validation attestations
    *
    * Queries Photon for compressed attestations.
    *
-   * @param tokenAccount - Agent's token account address
-   * @param filter - Optional filters
+   * @param filter - Query filters (tokenAccount, sasSchema, counterparty, responseMin, responseMax)
    * @returns Array of parsed attestations
+   *
+   * @example
+   * // All validations for an agent
+   * listValidations({ tokenAccount })
+   *
+   * // All validations globally (by schema)
+   * listValidations({ sasSchema })
    */
   async listValidations(
-    tokenAccount: Address,
-    filter?: Partial<AttestationFilter>,
+    filter: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
     const light = await this.getLightClient();
-    return light.listValidations(tokenAccount, filter);
+    return light.listValidations(filter);
   }
 
   /**
@@ -1646,6 +2051,313 @@ export class SATI {
     score: number,
   ): Uint8Array {
     return computeReputationHash(sasSchema, tokenAccount, provider, score);
+  }
+
+  // ============================================================
+  // SIGNATURE VERIFICATION
+  // ============================================================
+
+  /**
+   * Verify signatures on a parsed attestation
+   *
+   * For Feedback/Validation (dual-signature):
+   * - Agent signed the interaction hash (blind to outcome/response)
+   * - Counterparty signed the feedback/validation hash (with outcome/response)
+   *
+   * @param attestation - Parsed attestation from listFeedbacks/listValidations
+   * @returns Verification result with individual signature validity
+   */
+  verifySignatures(
+    attestation: ParsedAttestation,
+  ): SignatureVerificationResult {
+    const { attestation: compressed, data } = attestation;
+    const addressEncoder = getAddressEncoder();
+
+    // Extract addresses from data
+    const sasSchema = address(uint8ArrayToBase58(compressed.sasSchema));
+    const tokenAccount = address(uint8ArrayToBase58(compressed.tokenAccount));
+
+    // Get signatures
+    const signature1 = compressed.signature1;
+    const signature2 = compressed.signature2;
+
+    // Agent pubkey is the tokenAccount (32 bytes)
+    const agentPubkey = compressed.tokenAccount;
+
+    // Determine attestation type and verify accordingly
+    if (compressed.dataType === DataType.Feedback) {
+      const feedbackData = data as FeedbackData;
+
+      // Agent signs interaction hash (blind)
+      const interactionHash = computeInteractionHash(
+        sasSchema,
+        feedbackData.taskRef,
+        tokenAccount,
+        feedbackData.dataHash,
+      );
+
+      // Counterparty signs feedback hash (with outcome)
+      const feedbackHash = computeFeedbackHash(
+        sasSchema,
+        feedbackData.taskRef,
+        tokenAccount,
+        feedbackData.outcome,
+      );
+
+      // Convert counterparty Address to bytes for verification
+      const counterpartyPubkey = new Uint8Array(
+        addressEncoder.encode(feedbackData.counterparty),
+      );
+
+      const agentValid = nacl.sign.detached.verify(
+        interactionHash,
+        signature1,
+        agentPubkey,
+      );
+
+      const counterpartyValid = nacl.sign.detached.verify(
+        feedbackHash,
+        signature2,
+        counterpartyPubkey,
+      );
+
+      return {
+        valid: agentValid && counterpartyValid,
+        agentValid,
+        counterpartyValid,
+      };
+    } else if (compressed.dataType === DataType.Validation) {
+      const validationData = data as ValidationData;
+
+      // Agent signs interaction hash (blind)
+      const interactionHash = computeInteractionHash(
+        sasSchema,
+        validationData.taskRef,
+        tokenAccount,
+        validationData.dataHash,
+      );
+
+      // Validator signs validation hash (with response)
+      const validationHash = computeValidationHash(
+        sasSchema,
+        validationData.taskRef,
+        tokenAccount,
+        validationData.response,
+      );
+
+      // Convert validator Address to bytes for verification
+      const validatorPubkey = new Uint8Array(
+        addressEncoder.encode(validationData.counterparty),
+      );
+
+      const agentValid = nacl.sign.detached.verify(
+        interactionHash,
+        signature1,
+        agentPubkey,
+      );
+
+      const counterpartyValid = nacl.sign.detached.verify(
+        validationHash,
+        signature2,
+        validatorPubkey,
+      );
+
+      return {
+        valid: agentValid && counterpartyValid,
+        agentValid,
+        counterpartyValid,
+      };
+    }
+
+    // Unknown data type
+    return {
+      valid: false,
+      agentValid: false,
+      counterpartyValid: false,
+    };
+  }
+
+  // ============================================================
+  // REPUTATION SCORE MANAGEMENT
+  // ============================================================
+
+  /**
+   * List ReputationScore attestations for an agent
+   *
+   * @param tokenAccount - Agent's token account address
+   * @param sasSchema - ReputationScore SAS schema address
+   * @returns Array of ReputationScore data
+   */
+  async listReputationScores(
+    tokenAccount: Address,
+    sasSchema: Address,
+  ): Promise<ReputationScoreData[]> {
+    // ReputationScore uses regular SAS storage (not compressed)
+    // Query using getProgramAccounts with filters
+    // Address and Base58EncodedBytes are both branded string types
+    // Cast through string to satisfy TypeScript's nominal type system
+    const response = await this.rpc
+      .getProgramAccounts(address(SATI_PROGRAM_ADDRESS), {
+        encoding: "base64",
+        filters: [
+          {
+            memcmp: {
+              offset: BigInt(8), // After discriminator
+              bytes: sasSchema as string as Base58EncodedBytes,
+              encoding: "base58",
+            },
+          },
+          {
+            memcmp: {
+              offset: BigInt(40), // After schema (32 bytes)
+              bytes: tokenAccount as string as Base58EncodedBytes,
+              encoding: "base58",
+            },
+          },
+        ],
+      })
+      .send();
+
+    const results: ReputationScoreData[] = [];
+    // Response is an array directly when withContext is not specified
+    for (const account of response) {
+      try {
+        // Decode base64 data
+        const data = account.account.data;
+        if (
+          typeof data === "object" &&
+          Array.isArray(data) &&
+          data.length >= 2
+        ) {
+          const base64Data = data[0] as string;
+          const bytes = Uint8Array.from(atob(base64Data), (c) =>
+            c.charCodeAt(0),
+          );
+
+          // Skip 8-byte discriminator + SAS header
+          const attestationData = bytes.slice(SAS_HEADER_SIZE);
+          const parsed = deserializeReputationScore(attestationData);
+          results.push(parsed);
+        }
+      } catch {}
+    }
+
+    return results;
+  }
+
+  /**
+   * Update a ReputationScore attestation (close existing + create new)
+   *
+   * Since ReputationScore uses deterministic nonce based on (provider, tokenAccount),
+   * updating requires closing the existing score and creating a new one.
+   *
+   * @param params - Same params as createReputationScore
+   * @returns Updated attestation address and signature
+   */
+  async updateReputationScore(params: CreateReputationScoreParams): Promise<{
+    address: Address;
+    signature: string;
+  }> {
+    const { payer, sasSchema, satiCredential, tokenAccount, provider } = params;
+
+    // Compute deterministic nonce
+    const nonce = computeReputationNonce(provider, tokenAccount);
+
+    // Derive the existing attestation PDA
+    const [attestationPda] = await deriveReputationAttestationPda(nonce);
+
+    // Try to close existing attestation (may fail if none exists)
+    try {
+      // closeRegularAttestation requires provider as KeyPairSigner
+      // For update, we need a KeyPairSigner version of provider
+      // This will fail if the caller doesn't have the provider signer
+      await this.closeRegularAttestation({
+        payer,
+        provider: payer, // Use payer as provider signer (must match original provider)
+        sasSchema,
+        satiCredential,
+        attestation: attestationPda,
+      });
+    } catch {
+      // No existing attestation to close, continue
+    }
+
+    // Create new attestation with updated values
+    return this.createReputationScore(params);
+  }
+
+  // ============================================================
+  // AGENT METADATA MANAGEMENT
+  // ============================================================
+
+  /**
+   * Update agent metadata (Token-2022 NFT)
+   *
+   * Updates the name, uri, or additional metadata fields on an agent NFT.
+   * The owner must be the update authority (set during registration).
+   *
+   * @param params - Update parameters
+   * @returns Transaction signature
+   */
+  async updateAgentMetadata(
+    params: UpdateAgentMetadataParams,
+  ): Promise<UpdateAgentMetadataResult> {
+    const { payer, owner, mint, updates } = params;
+
+    // Import Token-2022 types and functions
+    const { getUpdateTokenMetadataFieldInstruction, tokenMetadataField } =
+      await import("@solana-program/token-2022");
+
+    // Build instructions array
+    type UpdateInstruction = ReturnType<
+      typeof getUpdateTokenMetadataFieldInstruction
+    >;
+    const ixList: UpdateInstruction[] = [];
+
+    // Update name if provided
+    if (updates.name !== undefined) {
+      ixList.push(
+        getUpdateTokenMetadataFieldInstruction({
+          metadata: mint,
+          updateAuthority: owner,
+          field: tokenMetadataField("Name"),
+          value: updates.name,
+        }),
+      );
+    }
+
+    // Update uri if provided
+    if (updates.uri !== undefined) {
+      ixList.push(
+        getUpdateTokenMetadataFieldInstruction({
+          metadata: mint,
+          updateAuthority: owner,
+          field: tokenMetadataField("Uri"),
+          value: updates.uri,
+        }),
+      );
+    }
+
+    // Update additional metadata entries (custom key-value pairs)
+    if (updates.additionalMetadata) {
+      for (const [key, value] of updates.additionalMetadata) {
+        ixList.push(
+          getUpdateTokenMetadataFieldInstruction({
+            metadata: mint,
+            updateAuthority: owner,
+            field: tokenMetadataField("Key", [key]),
+            value,
+          }),
+        );
+      }
+    }
+
+    if (ixList.length === 0) {
+      throw new Error("No updates specified");
+    }
+
+    const signature = await this.sendTransaction(ixList, payer);
+    return { signature };
   }
 
   // ============================================================
@@ -1819,10 +2531,11 @@ export class SATI {
 
     // 3. Deploy each schema
     const schemaEntries: Array<{
-      key: "feedback" | "validation" | "reputationScore";
+      key: "feedback" | "feedbackPublic" | "validation" | "reputationScore";
       def: SASSchemaDefinition;
     }> = [
       { key: "feedback", def: SATI_SCHEMAS.feedback },
+      { key: "feedbackPublic", def: SATI_SCHEMAS.feedbackPublic },
       { key: "validation", def: SATI_SCHEMAS.validation },
       { key: "reputationScore", def: SATI_SCHEMAS.reputationScore },
     ];
@@ -1881,7 +2594,7 @@ export class SATI {
 
       // Schema configurations matching SCHEMA_CONFIGS in schemas.ts
       const schemaConfigs: Array<{
-        key: "feedback" | "validation" | "reputationScore";
+        key: "feedback" | "feedbackPublic" | "validation" | "reputationScore";
         signatureMode: 0 | 1; // 0 = DualSignature, 1 = SingleSigner
         storageType: 0 | 1; // 0 = Compressed, 1 = Regular
         closeable: boolean;
@@ -1889,6 +2602,12 @@ export class SATI {
         {
           key: "feedback",
           signatureMode: 0,
+          storageType: 0,
+          closeable: false,
+        },
+        {
+          key: "feedbackPublic",
+          signatureMode: 1, // SingleSigner - only agent signature verified
           storageType: 0,
           closeable: false,
         },
@@ -1951,6 +2670,7 @@ export class SATI {
         credential: credentialPda,
         schemas: {
           feedback: schemaPdas.feedback,
+          feedbackPublic: schemaPdas.feedbackPublic,
           validation: schemaPdas.validation,
           reputationScore: schemaPdas.reputationScore,
         },

@@ -76,6 +76,7 @@ export interface SASSchemaDefinition {
 
 // Schema name constants
 export const FEEDBACK_SCHEMA_NAME = "SATIFeedback";
+export const FEEDBACK_PUBLIC_SCHEMA_NAME = "SATIFeedbackPublic";
 export const VALIDATION_SCHEMA_NAME = "SATIValidation";
 
 /**
@@ -92,6 +93,32 @@ export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
     "Feedback attestation with dual signatures from agent and counterparty",
   // Layout types: pubkey=7, u8=0, blob=9
   layout: [7, 7, 7, 7, 0, 0, 9, 9, 9], // task_ref, token, counter, hash, contentType, outcome, tag1, tag2, content
+  fieldNames: [
+    "task_ref",
+    "token_account",
+    "counterparty",
+    "data_hash",
+    "content_type",
+    "outcome",
+    "tag1",
+    "tag2",
+    "content",
+  ],
+};
+
+/**
+ * FeedbackPublic schema definition for SAS
+ *
+ * Same data layout as Feedback but uses SingleSigner mode.
+ * Only agent signature is verified on-chain; counterparty is recorded but not
+ * cryptographically verified. Useful when wallet signing restrictions apply.
+ */
+export const FEEDBACK_PUBLIC_SAS_SCHEMA: SASSchemaDefinition = {
+  name: FEEDBACK_PUBLIC_SCHEMA_NAME,
+  description:
+    "Public feedback attestation with single agent signature (counterparty not verified)",
+  // Same layout as Feedback
+  layout: [7, 7, 7, 7, 0, 0, 9, 9, 9],
   fieldNames: [
     "task_ref",
     "token_account",
@@ -156,6 +183,7 @@ export const REPUTATION_SCORE_SAS_SCHEMA: SASSchemaDefinition = {
  */
 export const SATI_SCHEMAS = {
   feedback: FEEDBACK_SAS_SCHEMA,
+  feedbackPublic: FEEDBACK_PUBLIC_SAS_SCHEMA,
   validation: VALIDATION_SAS_SCHEMA,
   reputationScore: REPUTATION_SCORE_SAS_SCHEMA,
 } as const;

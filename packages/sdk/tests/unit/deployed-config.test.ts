@@ -13,9 +13,9 @@ import { join } from "node:path";
 import { SATI } from "../../src";
 import type { DeployedSASConfig, SATISASConfig } from "../../src/types";
 
-// Load devnet test config
-function loadTestConfig(): SATISASConfig | null {
-  const configPath = join(__dirname, "../../src/deployed/devnet-test.json");
+// Load devnet config
+function loadDevnetConfig(): SATISASConfig | null {
+  const configPath = join(__dirname, "../../src/deployed/devnet.json");
   if (!existsSync(configPath)) {
     return null;
   }
@@ -26,25 +26,29 @@ function loadTestConfig(): SATISASConfig | null {
 }
 
 describe("Deployed Config Structure", () => {
-  let testConfig: SATISASConfig | null;
+  let devnetConfig: SATISASConfig | null;
 
   beforeAll(() => {
-    testConfig = loadTestConfig();
+    devnetConfig = loadDevnetConfig();
   });
 
-  describe("Test Schema Config", () => {
-    test("test schemas config has required fields", () => {
-      expect(testConfig).not.toBeNull();
-      if (!testConfig) return;
+  describe("Devnet Schema Config", () => {
+    test("devnet config has required fields", () => {
+      expect(devnetConfig).not.toBeNull();
+      if (!devnetConfig) return;
 
       // Verify all schema addresses are present
-      expect(testConfig.credential).toBeDefined();
-      expect(testConfig.schemas.feedbackAuth).toBeDefined();
-      expect(testConfig.schemas.feedback).toBeDefined();
-      expect(testConfig.schemas.feedbackResponse).toBeDefined();
-      expect(testConfig.schemas.validationRequest).toBeDefined();
-      expect(testConfig.schemas.validationResponse).toBeDefined();
-      expect(testConfig.schemas.certification).toBeDefined();
+      expect(devnetConfig.credential).toBeDefined();
+      expect(devnetConfig.schemas.feedback).toBeDefined();
+      expect(devnetConfig.schemas.validation).toBeDefined();
+      expect(devnetConfig.schemas.reputationScore).toBeDefined();
+    });
+
+    test("devnet config has lookup table", () => {
+      expect(devnetConfig).not.toBeNull();
+      if (!devnetConfig) return;
+
+      expect(devnetConfig.lookupTable).toBeDefined();
     });
   });
 });

@@ -329,8 +329,8 @@ describe("E2E: Attestation Flow", () => {
         // Use agent's wallet address as identity (matches attestation data)
         const tokenAccount = agentOwner.address;
 
-        // listFeedbacks takes tokenAccount as first arg
-        const result = await sati.listFeedbacks(tokenAccount);
+        // listFeedbacks takes filter object with tokenAccount
+        const result = await sati.listFeedbacks({ tokenAccount });
 
         expect(Array.isArray(result)).toBe(true);
       },
@@ -345,7 +345,8 @@ describe("E2E: Attestation Flow", () => {
         // Use agent's wallet address as identity
         const tokenAccount = agentOwner.address;
 
-        const result = await sati.listFeedbacks(tokenAccount, {
+        const result = await sati.listFeedbacks({
+          tokenAccount,
           outcome: Outcome.Positive,
         });
 

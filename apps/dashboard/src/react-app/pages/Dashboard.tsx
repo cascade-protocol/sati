@@ -1,21 +1,37 @@
 /**
- * Dashboard - My Agents
+ * My Profile - My Agents & Feedbacks
  *
- * Shows the current user's registered agents and allows registration of new agents.
+ * Shows the current user's registered agents, submitted feedbacks, and allows registration of new agents.
  */
 
 import { useState } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
-import { Bot, Plus, Wallet } from "lucide-react";
+import { Bot, Plus, Wallet, MessageSquare, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentTable } from "@/components/AgentTable";
 import { RegisterAgentDialog } from "@/components/RegisterAgentDialog";
-import { useSati } from "@/hooks/use-sati";
+import { useSati, useMyFeedbacks } from "@/hooks/use-sati";
+import { truncateAddress } from "@/lib/sati";
+
+// Helper to format outcome
+function formatOutcome(outcome: number): { text: string; color: string } {
+  switch (outcome) {
+    case 0:
+      return { text: "Negative", color: "text-red-500" };
+    case 1:
+      return { text: "Neutral", color: "text-yellow-500" };
+    case 2:
+      return { text: "Positive", color: "text-green-500" };
+    default:
+      return { text: "Unknown", color: "text-muted-foreground" };
+  }
+}
 
 export function Dashboard() {
   const { connected } = useWalletConnection();
   const { myAgents, myAgentsLoading, totalAgents } = useSati();
+  const { myFeedbacks, isLoading: feedbacksLoading } = useMyFeedbacks();
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
 
   // Not connected state
@@ -25,10 +41,10 @@ export function Dashboard() {
         <div className="space-y-6">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              My Agents
+              My Profile
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Register and manage your AI agents on SATI
+              Your registered agents and submitted feedbacks
             </p>
           </div>
 
@@ -55,12 +71,10 @@ export function Dashboard() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              My Agents
+              My Profile
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {totalAgents > 0n
-                ? `${totalAgents.toLocaleString()} agents in registry`
-                : "Register your first agent"}
+              Your registered agents and submitted feedbacks
             </p>
           </div>
           <Button onClick={() => setRegisterDialogOpen(true)}>
@@ -69,8 +83,8 @@ export function Dashboard() {
           </Button>
         </div>
 
-        {/* Stats Card */}
-        <div className="grid gap-4 md:grid-cols-2">
+        {/* Stats Cards */}
+        <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Your Agents</CardTitle>
@@ -80,6 +94,18 @@ export function Dashboard() {
               <div className="text-2xl font-bold">{myAgents.length}</div>
               <p className="text-xs text-muted-foreground">
                 Registered in your wallet
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Your Feedbacks</CardTitle>
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{myFeedbacks.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Feedbacks you've submitted
               </p>
             </CardContent>
           </Card>
@@ -110,6 +136,54 @@ export function Dashboard() {
               isLoading={myAgentsLoading}
               emptyMessage="You haven't registered any agents yet. Click 'Register Agent' to get started."
             />
+          </CardContent>
+        </Card>
+
+        {/* My Feedbacks Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Your Feedbacks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {feedbacksLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : myFeedbacks.length === 0 ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                You haven't submitted any feedbacks yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b text-left text-sm text-muted-foreground">
+                      <th className="pb-3 pr-4 font-medium">Agent</th>
+                      <th className="pb-3 pr-4 font-medium">Outcome</th>
+                      <th className="pb-3 font-medium text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myFeedbacks.map((feedback, idx) => {
+                      const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
+                      return (
+                        <tr key={idx} className="border-b">
+                          <td className="py-4 pr-4">
+                            <code className="text-sm">{truncateAddress(feedback.feedback.tokenAccount)}</code>
+                          </td>
+                          <td className="py-4 pr-4">
+                            <span className={outcomeColor}>{outcomeText}</span>
+                          </td>
+                          <td className="py-4 text-right">
+                            <span className="text-muted-foreground">{outcomeText}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

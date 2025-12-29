@@ -155,7 +155,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const agent = await sati.loadAgent(agentMint);
         expect(agent).not.toBeNull();
         expect(agent?.name).toBe(name);
-        expect(agent?.symbol).toBe(""); // empty (vestigial field)
+        // symbol field was removed from AgentIdentity (vestigial from fungible tokens)
       },
       TEST_TIMEOUT,
     );
@@ -343,8 +343,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         if (!tokenAccount) return;
 
-        // listFeedbacks takes tokenAccount as first arg
-        const result = await sati.listFeedbacks(tokenAccount);
+        // listFeedbacks takes filter object with tokenAccount
+        const result = await sati.listFeedbacks({ tokenAccount });
 
         expect(Array.isArray(result)).toBe(true);
 
@@ -364,7 +364,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
         if (!tokenAccount) return;
 
         // Query positive feedbacks for this agent
-        const result = await sati.listFeedbacks(tokenAccount, {
+        const result = await sati.listFeedbacks({
+          tokenAccount,
           outcome: Outcome.Positive,
         });
 
@@ -385,7 +386,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         if (!tokenAccount) return;
 
-        const result = await sati.listFeedbacks(tokenAccount, {
+        const result = await sati.listFeedbacks({
+          tokenAccount,
           sasSchema,
         });
 
@@ -406,7 +408,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         if (!tokenAccount) return;
 
-        const result = await sati.listFeedbacks(tokenAccount);
+        const result = await sati.listFeedbacks({ tokenAccount });
 
         if (result.length > 0) {
           const feedback = result[0];

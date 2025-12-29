@@ -26,7 +26,8 @@ import {
   addressQueue as ADDRESS_QUEUE_V1,
 } from "@lightprotocol/stateless.js";
 import type { Address } from "@solana/kit";
-import { getAddressEncoder } from "@solana/kit";
+import { address, getAddressEncoder } from "@solana/kit";
+import type { MerkleProofWithContext } from "./types";
 import { PublicKey } from "@solana/web3.js";
 import {
   DataType,
@@ -84,6 +85,8 @@ export interface AttestationFilter {
   sasSchema?: Address;
   /** Filter by agent token account */
   tokenAccount?: Address;
+  /** Filter by counterparty (feedback giver or validator) */
+  counterparty?: Address;
   /** Filter by data type (Feedback=0, Validation=1) */
   dataType?: DataType;
   /** Filter by feedback outcome (Feedback only) */
@@ -310,41 +313,214 @@ export class LightClient {
   }
 
   /**
-   * List Feedback attestations for an agent
+   * Get a compressed attestation with its Merkle proof
    *
-   * @param tokenAccount - Agent's token account address
-   * @param filter - Optional filters (outcome, etc.)
-   * @returns Array of parsed Feedback attestations
+   * Returns both the parsed attestation data and the Merkle proof needed
+   * to verify the attestation's inclusion in the state tree.
+   *
+   * @param attestationAddress - Compressed account address (32 bytes)
+   * @returns Attestation with proof, or null if not found
    */
-  async listFeedbacks(
-    tokenAccount: Address,
-    filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
-    const accounts = await this.queryByOwnerWithFilters(tokenAccount, {
-      ...filter,
-      dataType: DataType.Feedback,
-    });
-    return accounts.filter((a) => a.attestation.dataType === DataType.Feedback);
+  async getAttestationWithProof(attestationAddress: Uint8Array): Promise<{
+    attestation: ParsedAttestation;
+    proof: MerkleProofWithContext;
+  } | null> {
+    // Get the account first to get its hash
+    const account = await this.rpc.getCompressedAccount(bn(attestationAddress));
+    if (!account) return null;
+
+    // Parse the attestation
+    const attestation = this.parseCompressedAccount(account);
+    if (!attestation) return null;
+
+    // Get the Merkle proof using the account hash
+    const proofResult = await this.rpc.getCompressedAccountProof(account.hash);
+
+    // Convert to our MerkleProofWithContext type
+    const proof: MerkleProofWithContext = {
+      hash: new Uint8Array(proofResult.hash.toArray("be", 32)),
+      leafIndex: proofResult.leafIndex,
+      merkleProof: proofResult.merkleProof.map(
+        (p) => new Uint8Array(p.toArray("be", 32)),
+      ),
+      root: new Uint8Array(proofResult.root.toArray("be", 32)),
+      rootSeq: proofResult.rootIndex,
+      merkleTree: address(proofResult.treeInfo.tree.toBase58()),
+    };
+
+    return { attestation, proof };
   }
 
   /**
-   * List Validation attestations for an agent
+   * Verify Merkle proof structure
    *
-   * @param tokenAccount - Agent's token account address
-   * @param filter - Optional filters (responseMin, responseMax, etc.)
+   * Validates that the proof has correct structure for Light Protocol state trees.
+   * Note: Full cryptographic verification (Poseidon hashing) requires Light Protocol WASM.
+   *
+   * @param proof - Merkle proof from getAttestationWithProof
+   * @param expectedRoot - Optional expected root to verify against
+   * @returns True if proof structure is valid
+   */
+  verifyProof(
+    proof: MerkleProofWithContext,
+    expectedRoot?: Uint8Array,
+  ): boolean {
+    // Light Protocol uses depth-26 state trees
+    const TREE_DEPTH = 26;
+    const MAX_LEAVES = 2 ** TREE_DEPTH;
+
+    // 1. Validate proof structure
+    if (proof.merkleProof.length !== TREE_DEPTH) {
+      return false;
+    }
+
+    // 2. Validate leaf index is within bounds
+    if (proof.leafIndex < 0 || proof.leafIndex >= MAX_LEAVES) {
+      return false;
+    }
+
+    // 3. Validate hash is non-zero (account exists)
+    const isZero = proof.hash.every((b) => b === 0);
+    if (isZero) {
+      return false;
+    }
+
+    // 4. If expectedRoot provided, check it matches
+    if (expectedRoot) {
+      if (expectedRoot.length !== proof.root.length) {
+        return false;
+      }
+      for (let i = 0; i < expectedRoot.length; i++) {
+        if (expectedRoot[i] !== proof.root[i]) {
+          return false;
+        }
+      }
+    }
+
+    // 5. Verify proof siblings are all 32 bytes
+    for (const sibling of proof.merkleProof) {
+      if (sibling.length !== 32) {
+        return false;
+      }
+    }
+
+    // Note: Full cryptographic verification would require Poseidon hashing
+    // to compute: hash(sibling, current) up the tree and compare to root.
+    // This requires @lightprotocol/stateless.js WASM module.
+    // For now, we validate structure only.
+
+    return true;
+  }
+
+  /**
+   * List Feedback attestations
+   *
+   * @param filter - Query filters (tokenAccount, sasSchema, counterparty, outcome)
+   * @returns Array of parsed Feedback attestations
+   *
+   * @example
+   * // All feedbacks for an agent
+   * listFeedbacks({ tokenAccount })
+   *
+   * // All feedbacks globally (by schema)
+   * listFeedbacks({ sasSchema })
+   *
+   * // Feedbacks given by a specific counterparty
+   * listFeedbacks({ sasSchema, counterparty })
+   */
+  async listFeedbacks(
+    filter: Partial<AttestationFilter>,
+  ): Promise<ParsedAttestation[]> {
+    let accounts: ParsedAttestation[];
+
+    if (filter.tokenAccount) {
+      // Query by token account
+      accounts = await this.queryByOwnerWithFilters(filter.tokenAccount, {
+        ...filter,
+        dataType: DataType.Feedback,
+      });
+    } else if (filter.sasSchema) {
+      // Query all by schema
+      accounts = await this.queryProgramAccounts({
+        ...filter,
+        dataType: DataType.Feedback,
+      });
+    } else {
+      throw new Error(
+        "Either tokenAccount or sasSchema must be provided in filter",
+      );
+    }
+
+    // Filter by dataType
+    let results = accounts.filter(
+      (a) => a.attestation.dataType === DataType.Feedback,
+    );
+
+    // Apply counterparty filter client-side if specified
+    if (filter.counterparty) {
+      const counterpartyBytes = addressToBytes(filter.counterparty);
+      results = results.filter((attestation) => {
+        const data = attestation.data as FeedbackData;
+        const feedbackCounterpartyBytes = addressToBytes(data.counterparty);
+        return arraysEqual(counterpartyBytes, feedbackCounterpartyBytes);
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * List Validation attestations
+   *
+   * @param filter - Query filters (tokenAccount, sasSchema, counterparty, responseMin, responseMax)
    * @returns Array of parsed Validation attestations
+   *
+   * @example
+   * // All validations for an agent
+   * listValidations({ tokenAccount })
+   *
+   * // All validations globally (by schema)
+   * listValidations({ sasSchema })
    */
   async listValidations(
-    tokenAccount: Address,
-    filter?: Partial<AttestationFilter>,
+    filter: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
-    const accounts = await this.queryByOwnerWithFilters(tokenAccount, {
-      ...filter,
-      dataType: DataType.Validation,
-    });
-    return accounts.filter(
+    let accounts: ParsedAttestation[];
+
+    if (filter.tokenAccount) {
+      // Query by token account
+      accounts = await this.queryByOwnerWithFilters(filter.tokenAccount, {
+        ...filter,
+        dataType: DataType.Validation,
+      });
+    } else if (filter.sasSchema) {
+      // Query all by schema
+      accounts = await this.queryProgramAccounts({
+        ...filter,
+        dataType: DataType.Validation,
+      });
+    } else {
+      throw new Error(
+        "Either tokenAccount or sasSchema must be provided in filter",
+      );
+    }
+
+    // Filter by dataType
+    let results = accounts.filter(
       (a) => a.attestation.dataType === DataType.Validation,
     );
+
+    // Apply counterparty filter client-side if specified
+    if (filter.counterparty) {
+      const counterpartyBytes = addressToBytes(filter.counterparty);
+      results = results.filter((attestation) => {
+        const data = attestation.data as ValidationData;
+        const validationCounterpartyBytes = addressToBytes(data.counterparty);
+        return arraysEqual(counterpartyBytes, validationCounterpartyBytes);
+      });
+    }
+
+    return results;
   }
 
   /**
@@ -358,7 +534,10 @@ export class LightClient {
     tokenAccount: Address,
     filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
-    return this.queryByOwnerWithFilters(tokenAccount, filter);
+    return this.queryByOwnerWithFilters(tokenAccount, {
+      ...filter,
+      tokenAccount, // Filter by tokenAccount at offset 40
+    });
   }
 
   /**
@@ -810,6 +989,23 @@ export class LightClient {
     // 8. System program
     addresses.push(new PublicKey("11111111111111111111111111111111"));
 
+    // 9. Instructions sysvar (required for Ed25519 signature introspection)
+    addresses.push(
+      new PublicKey("Sysvar1nstructions1111111111111111111111111"),
+    );
+
+    // 10. Event authority PDA (Anchor __event_authority seed)
+    const [eventAuthority] = PublicKey.findProgramAddressSync(
+      [new TextEncoder().encode("__event_authority")],
+      this.programId,
+    );
+    addresses.push(eventAuthority);
+
+    // 11. Compute Budget program (used for setting compute units)
+    addresses.push(
+      new PublicKey("ComputeBudget111111111111111111111111111111"),
+    );
+
     // Remove duplicates
     const seen = new Set<string>();
     return addresses.filter((addr) => {
@@ -828,12 +1024,10 @@ export class LightClient {
    * Query compressed accounts by owner with memcmp filters
    */
   private async queryByOwnerWithFilters(
-    owner: Address,
+    _owner: Address,
     filter?: Partial<AttestationFilter>,
   ): Promise<ParsedAttestation[]> {
-    const _ownerPubkey = new PublicKey(owner);
-
-    // Build memcmp filters
+    // Build memcmp filters (tokenAccount should be passed in filter)
     const filters = this.buildMemcmpFilters(filter);
 
     // Query accounts owned by the program
@@ -849,11 +1043,6 @@ export class LightClient {
     for (const account of response.items) {
       const parsed = this.parseCompressedAccount(account);
       if (parsed) {
-        // Additional filter: check if tokenAccount matches owner
-        const tokenAccountBytes = parsed.attestation.tokenAccount;
-        const _tokenAccountPubkey = new PublicKey(tokenAccountBytes);
-        // Note: This filters by the tokenAccount field in the attestation data
-        // which may or may not equal the "owner" passed in depending on your schema
         results.push(parsed);
       }
     }
@@ -895,7 +1084,7 @@ export class LightClient {
 
     if (!filter) return filters;
 
-    // SAS schema filter at offset 8 (after 8-byte discriminator)
+    // SAS schema filter at offset 0
     if (filter.sasSchema) {
       filters.push({
         memcmp: {
@@ -905,7 +1094,7 @@ export class LightClient {
       });
     }
 
-    // Token account filter at offset 40
+    // Token account filter at offset 32
     if (filter.tokenAccount) {
       filters.push({
         memcmp: {
@@ -915,7 +1104,7 @@ export class LightClient {
       });
     }
 
-    // Data type filter at offset 72
+    // Data type filter at offset 64
     if (filter.dataType !== undefined) {
       filters.push({
         memcmp: {
@@ -936,13 +1125,14 @@ export class LightClient {
   ): ParsedAttestation | null {
     try {
       const data = account.data;
-      if (!data || data.data.length < 73) return null; // Minimum size check
+      // Minimum: 32 (sasSchema) + 32 (tokenAccount) + 1 (dataType) = 65 bytes
+      if (!data || data.data.length < 65) return null;
 
       const bytes = new Uint8Array(data.data);
 
       // Parse CompressedAttestation structure
-      // Skip 8-byte discriminator
-      let offset = 8;
+      // Note: Light Protocol returns discriminator separately, data starts at 0
+      let offset = 0;
 
       const sasSchema = bytes.slice(offset, offset + 32);
       offset += 32;
@@ -965,7 +1155,11 @@ export class LightClient {
       const numSignatures = bytes[offset++];
       const signature1 = bytes.slice(offset, offset + 64);
       offset += 64;
-      const signature2 = bytes.slice(offset, offset + 64);
+      // Only read signature2 if numSignatures >= 2, otherwise zero-fill (SingleSigner)
+      const signature2 =
+        numSignatures >= 2
+          ? bytes.slice(offset, offset + 64)
+          : new Uint8Array(64);
 
       const attestation: CompressedAttestation = {
         sasSchema,
@@ -1012,6 +1206,17 @@ export class LightClient {
 function addressToBytes(address: Address): Uint8Array {
   const encoder = getAddressEncoder();
   return new Uint8Array(encoder.encode(address));
+}
+
+/**
+ * Compare two byte arrays for equality
+ */
+function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 /**

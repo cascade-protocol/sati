@@ -257,7 +257,7 @@ fn validate_schema_fields(params: &CreateParams) -> Result<()> {
     Ok(())
 }
 
-/// Build expected message hashes based on data type
+/// Build expected message hashes based on data type and signature mode
 fn build_expected_messages(
     params: &CreateParams,
     schema_config: &SchemaConfig,
@@ -269,33 +269,36 @@ fn build_expected_messages(
         .try_into()
         .map_err(|_| SatiError::InvalidDataLayout)?;
 
+    // Compute interaction hash (always needed - agent's signature)
+    let interaction_hash = compute_interaction_hash(
+        &schema_config.sas_schema,
+        task_ref,
+        token_account,
+        &data_hash,
+    )
+    .to_vec();
+
+    // For SingleSigner mode, only the interaction hash is verified
+    if schema_config.signature_mode == SignatureMode::SingleSigner {
+        return Ok(vec![interaction_hash]);
+    }
+
+    // DualSignature mode: include both hashes
     match params.data_type {
         0 => {
-            // Feedback
+            // Feedback: interaction_hash (agent) + feedback_hash (counterparty)
             let outcome = params.data[129];
             Ok(vec![
-                compute_interaction_hash(
-                    &schema_config.sas_schema,
-                    task_ref,
-                    token_account,
-                    &data_hash,
-                )
-                .to_vec(),
+                interaction_hash,
                 compute_feedback_hash(&schema_config.sas_schema, task_ref, token_account, outcome)
                     .to_vec(),
             ])
         }
         1 => {
-            // Validation
+            // Validation: interaction_hash (agent) + validation_hash (counterparty)
             let response = params.data[130];
             Ok(vec![
-                compute_interaction_hash(
-                    &schema_config.sas_schema,
-                    task_ref,
-                    token_account,
-                    &data_hash,
-                )
-                .to_vec(),
+                interaction_hash,
                 compute_validation_hash(
                     &schema_config.sas_schema,
                     task_ref,
@@ -306,5 +309,145 @@ fn build_expected_messages(
             ])
         }
         _ => Err(SatiError::InvalidDataType.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use light_sdk::instruction::PackedAddressTreeInfo;
+
+    /// Create minimal test CreateParams with proper data layout
+    fn make_test_params(data_type: u8, outcome_or_response: u8) -> CreateParams {
+        // Minimum data layout: 132 bytes for Feedback, 131 for Validation
+        // [0-32]: task_ref, [32-64]: token_account, [64-96]: counterparty
+        // [96-128]: data_hash, [128]: content_type, [129]: outcome/validation_type, [130]: response (validation only)
+        let mut data = vec![0u8; 135];
+
+        // Set outcome at offset 129 (Feedback) or response at offset 130 (Validation)
+        if data_type == 0 {
+            data[129] = outcome_or_response; // outcome for Feedback
+        } else {
+            data[130] = outcome_or_response; // response for Validation
+        }
+
+        CreateParams {
+            data_type,
+            data,
+            signatures: vec![],
+            proof: Default::default(),
+            address_tree_info: PackedAddressTreeInfo::default(),
+            output_state_tree_index: 0,
+        }
+    }
+
+    fn make_test_schema_config(signature_mode: SignatureMode) -> SchemaConfig {
+        SchemaConfig {
+            sas_schema: Pubkey::new_unique(),
+            signature_mode,
+            storage_type: StorageType::Compressed,
+            closeable: false,
+            bump: 255,
+        }
+    }
+
+    #[test]
+    fn test_build_expected_messages_single_signer_feedback_returns_one_hash() {
+        let params = make_test_params(0, 2); // Feedback with Positive outcome
+        let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
+        let task_ref = [1u8; 32];
+        let token_account = Pubkey::new_unique();
+
+        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        assert!(result.is_ok());
+
+        let messages = result.unwrap();
+        assert_eq!(
+            messages.len(),
+            1,
+            "SingleSigner mode should return exactly 1 message (interaction_hash only)"
+        );
+    }
+
+    #[test]
+    fn test_build_expected_messages_single_signer_validation_returns_one_hash() {
+        let params = make_test_params(1, 50); // Validation with response=50
+        let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
+        let task_ref = [1u8; 32];
+        let token_account = Pubkey::new_unique();
+
+        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        assert!(result.is_ok());
+
+        let messages = result.unwrap();
+        assert_eq!(
+            messages.len(),
+            1,
+            "SingleSigner mode should return exactly 1 message regardless of data_type"
+        );
+    }
+
+    #[test]
+    fn test_build_expected_messages_dual_signature_feedback_returns_two_hashes() {
+        let params = make_test_params(0, 2); // Feedback with Positive outcome
+        let schema_config = make_test_schema_config(SignatureMode::DualSignature);
+        let task_ref = [1u8; 32];
+        let token_account = Pubkey::new_unique();
+
+        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        assert!(result.is_ok());
+
+        let messages = result.unwrap();
+        assert_eq!(
+            messages.len(),
+            2,
+            "DualSignature mode should return 2 messages (interaction_hash + feedback_hash)"
+        );
+    }
+
+    #[test]
+    fn test_build_expected_messages_dual_signature_validation_returns_two_hashes() {
+        let params = make_test_params(1, 50); // Validation with response=50
+        let schema_config = make_test_schema_config(SignatureMode::DualSignature);
+        let task_ref = [1u8; 32];
+        let token_account = Pubkey::new_unique();
+
+        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        assert!(result.is_ok());
+
+        let messages = result.unwrap();
+        assert_eq!(
+            messages.len(),
+            2,
+            "DualSignature mode should return 2 messages (interaction_hash + validation_hash)"
+        );
+    }
+
+    #[test]
+    fn test_build_expected_messages_single_signer_returns_interaction_hash() {
+        let params = make_test_params(0, 2);
+        let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
+        let task_ref = [1u8; 32];
+        let token_account = Pubkey::new_unique();
+
+        // Extract data_hash from params.data[96..128]
+        let data_hash: [u8; 32] = params.data[96..128].try_into().unwrap();
+
+        // Compute expected interaction hash
+        let expected_hash = compute_interaction_hash(
+            &schema_config.sas_schema,
+            &task_ref,
+            &token_account,
+            &data_hash,
+        );
+
+        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        let messages = result.unwrap();
+
+        assert_eq!(
+            messages[0],
+            expected_hash.to_vec(),
+            "SingleSigner should return the interaction_hash"
+        );
     }
 }

@@ -13,8 +13,16 @@ import {
   fetchRegistrationFile,
   getImageUrl,
   type RegistrationFile,
+  // Schema types and deserialization
+  deserializeFeedback,
+  type FeedbackData,
+  DataType,
+  COMPRESSED_OFFSETS,
+  loadDeployedConfig,
 } from "@cascade-fyi/sati-sdk";
 import type { Address } from "@solana/kit";
+import { createHelius, type HeliusClient } from "helius-sdk";
+import bs58 from "bs58";
 
 // RPC URL from env var or fallback to public devnet
 // Currently restricted to devnet only (mainnet will be enabled after deployment)
@@ -42,6 +50,252 @@ export function getSatiClient(): SATI {
  */
 export function resetSatiClient(): void {
   satiClient = null;
+}
+
+// =============================================================================
+// Helius Client for ZK Compression (Photon) Queries
+// =============================================================================
+
+// Helius API key from env var
+const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY as
+  | string
+  | undefined;
+
+// Singleton Helius client instance
+let heliusClient: HeliusClient | null = null;
+
+/**
+ * Get or create the Helius client singleton for ZK compression queries
+ */
+export function getHeliusClient(): HeliusClient | null {
+  if (!HELIUS_API_KEY) {
+    console.warn(
+      "VITE_HELIUS_API_KEY not set - ZK compression queries disabled",
+    );
+    return null;
+  }
+  if (!heliusClient) {
+    heliusClient = createHelius({
+      apiKey: HELIUS_API_KEY,
+      network: "devnet",
+    });
+  }
+  return heliusClient;
+}
+
+// Get deployed feedback schema addresses (both DualSignature and SingleSigner)
+const deployedConfig = loadDeployedConfig("devnet");
+const FEEDBACK_SCHEMA = deployedConfig?.schemas?.feedback;
+const FEEDBACK_PUBLIC_SCHEMA = deployedConfig?.schemas?.feedbackPublic;
+
+/**
+ * Parsed feedback attestation from ZK compression
+ */
+export interface ParsedFeedback {
+  /** Compressed account hash (identifier) */
+  hash: string;
+  /** Compressed account address */
+  address?: string;
+  /** Slot when created */
+  slotCreated: number;
+  /** Decoded feedback data */
+  feedback: FeedbackData;
+}
+
+/**
+ * Convert Address to base58-encoded bytes for memcmp filter
+ */
+function addressToBase58Bytes(address: Address): string {
+  return address; // Address is already base58
+}
+
+/**
+ * Parse a compressed account into a ParsedFeedback
+ */
+function parseCompressedFeedback(account: {
+  hash: string;
+  address?: string;
+  slotCreated: number;
+  data?: { data: string; discriminator: number };
+}): ParsedFeedback | null {
+  try {
+    if (!account.data?.data) return null;
+
+    // Decode base64 data
+    const binaryString = atob(account.data.data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    // Data layout (no discriminator prefix - Light Protocol separates it):
+    //   - bytes 0-31:  sasSchema (32 bytes)
+    //   - bytes 32-63: tokenAccount (32 bytes)
+    //   - byte 64:     dataType (1 byte)
+    //   - bytes 65-68: schemaData length (4 bytes, little-endian u32)
+    //   - bytes 69+:   schemaData
+    const dataTypeOffset = COMPRESSED_OFFSETS.DATA_TYPE; // 64
+    const dataType = bytes[dataTypeOffset];
+
+    if (dataType !== DataType.Feedback) {
+      return null; // Not a feedback attestation
+    }
+
+    // Schema data Vec<u8>: 4-byte length prefix at offset 65
+    const schemaDataLenOffset = 65;
+    const view = new DataView(bytes.buffer, bytes.byteOffset);
+    const schemaDataLen = view.getUint32(schemaDataLenOffset, true);
+    const schemaData = bytes.slice(
+      schemaDataLenOffset + 4,
+      schemaDataLenOffset + 4 + schemaDataLen,
+    );
+
+    const feedback = deserializeFeedback(schemaData);
+
+    return {
+      hash: account.hash,
+      address: account.address,
+      slotCreated: account.slotCreated,
+      feedback,
+    };
+  } catch (e) {
+    console.error("Failed to parse compressed feedback:", e);
+    return null;
+  }
+}
+
+/**
+ * List all feedbacks for a specific agent (by token account)
+ * Queries both Feedback (DualSignature) and FeedbackPublic (SingleSigner) schemas
+ */
+export async function listAgentFeedbacks(
+  tokenAccount: Address,
+): Promise<ParsedFeedback[]> {
+  const helius = getHeliusClient();
+  if (!helius) {
+    return [];
+  }
+
+  const schemas = [FEEDBACK_SCHEMA, FEEDBACK_PUBLIC_SCHEMA].filter(
+    Boolean,
+  ) as Address[];
+  if (schemas.length === 0) {
+    return [];
+  }
+
+  try {
+    const feedbacks: ParsedFeedback[] = [];
+
+    // Query each schema
+    for (const schema of schemas) {
+      const response = await helius.zk.getCompressedAccountsByOwner({
+        owner: SATI_PROGRAM_ADDRESS,
+        filters: [
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.SAS_SCHEMA,
+              bytes: addressToBase58Bytes(schema),
+            },
+          },
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.TOKEN_ACCOUNT,
+              bytes: addressToBase58Bytes(tokenAccount),
+            },
+          },
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.DATA_TYPE,
+              bytes: bs58.encode(new Uint8Array([DataType.Feedback])),
+            },
+          },
+        ],
+      });
+
+      for (const account of response.value.items) {
+        const parsed = parseCompressedFeedback(account);
+        if (parsed) {
+          feedbacks.push(parsed);
+        }
+      }
+    }
+
+    return feedbacks;
+  } catch (e) {
+    console.error("Failed to list agent feedbacks:", e);
+    return [];
+  }
+}
+
+/**
+ * List all feedbacks globally (by schema)
+ * Queries both Feedback (DualSignature) and FeedbackPublic (SingleSigner) schemas
+ */
+export async function listAllFeedbacks(): Promise<ParsedFeedback[]> {
+  const helius = getHeliusClient();
+  if (!helius) {
+    return [];
+  }
+
+  const schemas = [FEEDBACK_SCHEMA, FEEDBACK_PUBLIC_SCHEMA].filter(
+    Boolean,
+  ) as Address[];
+  if (schemas.length === 0) {
+    return [];
+  }
+
+  try {
+    const feedbacks: ParsedFeedback[] = [];
+
+    for (const schema of schemas) {
+      const response = await helius.zk.getCompressedAccountsByOwner({
+        owner: SATI_PROGRAM_ADDRESS,
+        filters: [
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.SAS_SCHEMA,
+              bytes: addressToBase58Bytes(schema),
+            },
+          },
+          {
+            memcmp: {
+              offset: COMPRESSED_OFFSETS.DATA_TYPE,
+              bytes: bs58.encode(new Uint8Array([DataType.Feedback])),
+            },
+          },
+        ],
+      });
+
+      for (const account of response.value.items) {
+        const parsed = parseCompressedFeedback(account);
+        if (parsed) {
+          feedbacks.push(parsed);
+        }
+      }
+    }
+
+    return feedbacks;
+  } catch (e) {
+    console.error("Failed to list all feedbacks:", e);
+    return [];
+  }
+}
+
+/**
+ * List feedbacks submitted by a specific counterparty
+ */
+export async function listFeedbacksByCounterparty(
+  counterparty: Address,
+): Promise<ParsedFeedback[]> {
+  // Note: counterparty is in the schema data, not at a fixed offset in the compressed account
+  // We need to filter by schema first, then filter client-side by counterparty
+  try {
+    const allFeedbacks = await listAllFeedbacks();
+    return allFeedbacks.filter((f) => f.feedback.counterparty === counterparty);
+  } catch (e) {
+    console.error("Failed to list feedbacks by counterparty:", e);
+    return [];
+  }
 }
 
 /**

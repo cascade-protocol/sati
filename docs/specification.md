@@ -485,22 +485,32 @@ type Tag = string;
 
 | Category | Method | Returns |
 |----------|--------|---------|
-| **Registry** | `registerAgent(params)` | `{ mint, memberNumber }` |
+| **Registry** | `registerAgent(params)` | `{ mint, memberNumber, signature }` |
 | **Identity** | `loadAgent(mint)` | `AgentIdentity` |
-| | `updateAgentMetadata(mint, updates)` | void |
-| | `transferAgent(mint, newOwner)` | void |
+| | `listAgentsByOwner(owner)` | `AgentIdentity[]` |
+| | `updateAgentMetadata(params)` | `{ signature }` |
+| | `transferAgent(params)` | `{ signature }` |
 | **Compressed** | `createFeedback(params)` | `{ address, signature }` |
 | | `createFeedbackBatch(params[])` | `{ addresses, signature }` |
 | | `createValidation(params)` | `{ address, signature }` |
+| | `closeCompressedAttestation(params)` | `{ signature }` |
 | **Regular** | `createReputationScore(params)` | `{ address, signature }` |
 | | `updateReputationScore(params)` | `{ address, signature }` |
-| **Query (Compressed)** | `listFeedbacks(tokenAccount, params?)` | `Feedback[]` |
-| | `listValidations(tokenAccount, params?)` | `Validation[]` |
+| | `closeRegularAttestation(params)` | `{ signature }` |
+| **Query (Compressed)** | `listFeedbacks(filter)` | `ParsedAttestation[]` |
+| | `listValidations(filter)` | `ParsedAttestation[]` |
 | | `getAttestationWithProof(address)` | `{ attestation, proof }` |
 | **Query (Regular)** | `getReputationScore(provider, tokenAccount)` | `ReputationScore \| null` |
 | | `listReputationScores(tokenAccount)` | `ReputationScore[]` |
-| **Verify** | `verifyAttestation(attestation, proof)` | boolean |
-| | `verifySignatures(attestation)` | boolean |
+| **Verify** | `verifyProof(proof, expectedRoot?)` | boolean |
+| | `verifySignatures(attestation)` | `SignatureVerificationResult` |
+| **Setup** | `setupSASSchemas(params)` | `SASDeploymentResult` |
+| | `registerSchemaConfig(params)` | `{ signature }` |
+| | `getSchemaConfig(sasSchema)` | `SchemaConfig \| null` |
+| **Hashing** | `computeInteractionHash(...)` | `Uint8Array` |
+| | `computeFeedbackHash(...)` | `Uint8Array` |
+| | `computeValidationHash(...)` | `Uint8Array` |
+| | `computeReputationHash(...)` | `Uint8Array` |
 
 ### createFeedback Example
 

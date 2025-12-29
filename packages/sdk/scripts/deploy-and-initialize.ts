@@ -82,6 +82,9 @@ const PRODUCTION_PROGRAM_ID = address(
   "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
 );
 
+// Production authority - only this keypair can deploy to devnet/mainnet
+const PRODUCTION_AUTHORITY = "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z";
+
 // REQUIRED keypair filenames - NEVER use sati-keypair.json for production!
 const PROGRAM_KEYPAIR_FILENAME =
   "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json";
@@ -375,6 +378,22 @@ async function main() {
   console.log("\nLoading keypair...");
   const authority = await loadKeypair(walletKeypairPath);
   console.log(`Authority: ${authority.address}`);
+
+  // Verify production authority for devnet/mainnet
+  if (network !== "localnet" && authority.address !== PRODUCTION_AUTHORITY) {
+    console.error("");
+    console.error("=".repeat(60));
+    console.error("AUTHORITY MISMATCH");
+    console.error("=".repeat(60));
+    console.error(`Expected: ${PRODUCTION_AUTHORITY}`);
+    console.error(`Got:      ${authority.address}`);
+    console.error("");
+    console.error(
+      "Only the production authority can deploy to devnet/mainnet.",
+    );
+    console.error("=".repeat(60));
+    process.exit(1);
+  }
 
   // Setup RPC
   const rpcUrl = RPC_ENDPOINTS[network];

@@ -24,11 +24,11 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.10",
-    "@lightprotocol/stateless.js": "0.22.1-alpha.5",
     "@coral-xyz/anchor": "^0.32.1",
+    "@lightprotocol/stateless.js": "0.22.1-alpha.5",
     "@solana-program/system": "^0.10.0",
     "@solana-program/token": "^0.8.0",
-    "@solana/kit": "^5.0.0",
+    "@solana/kit": "^5.1.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "@swc-node/register": "^1.11.1",

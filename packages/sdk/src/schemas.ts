@@ -628,20 +628,23 @@ export interface CompressedAttestation {
 }
 
 /**
- * Light Protocol compressed account discriminator offset
- */
-export const COMPRESSED_DISCRIMINATOR_SIZE = 8;
-
-/**
- * Fixed offsets in CompressedAttestation (after discriminator)
+ * Fixed offsets in CompressedAttestation data for memcmp filters.
+ *
+ * Note: Light Protocol returns the discriminator as a separate field in the
+ * response, NOT prefixed to the data bytes. The data bytes start directly
+ * with the attestation fields:
+ *   - bytes 0-31:  sasSchema (Pubkey)
+ *   - bytes 32-63: tokenAccount (Pubkey)
+ *   - byte 64:     dataType (u8)
+ *   - bytes 65+:   schemaData (Vec<u8>)
  */
 export const COMPRESSED_OFFSETS = {
   /** SAS schema pubkey offset for memcmp */
-  SAS_SCHEMA: COMPRESSED_DISCRIMINATOR_SIZE,
+  SAS_SCHEMA: 0,
   /** Token account pubkey offset for memcmp */
-  TOKEN_ACCOUNT: COMPRESSED_DISCRIMINATOR_SIZE + 32,
+  TOKEN_ACCOUNT: 32,
   /** Data type byte offset */
-  DATA_TYPE: COMPRESSED_DISCRIMINATOR_SIZE + 64,
+  DATA_TYPE: 64,
 } as const;
 
 // ============================================================================
@@ -668,6 +671,11 @@ export interface SchemaConfig {
 export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
   Feedback: {
     signatureMode: SignatureMode.DualSignature,
+    storageType: StorageType.Compressed,
+    closeable: false,
+  },
+  FeedbackPublic: {
+    signatureMode: SignatureMode.SingleSigner,
     storageType: StorageType.Compressed,
     closeable: false,
   },

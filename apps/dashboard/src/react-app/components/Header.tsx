@@ -59,13 +59,13 @@ export function Header() {
                 end
                 className={({ isActive }) => getNavLinkClasses(isActive)}
               >
-                My Agents
+                Explore
               </NavLink>
               <NavLink
-                to="/explore"
+                to="/dashboard"
                 className={({ isActive }) => getNavLinkClasses(isActive)}
               >
-                Explore
+                My Profile
               </NavLink>
             </nav>
           </div>
@@ -122,15 +122,15 @@ export function Header() {
                         getMobileNavLinkClasses(isActive)
                       }
                     >
-                      My Agents
+                      Explore
                     </NavLink>
                     <NavLink
-                      to="/explore"
+                      to="/dashboard"
                       className={({ isActive }) =>
                         getMobileNavLinkClasses(isActive)
                       }
                     >
-                      Explore
+                      My Profile
                     </NavLink>
                   </nav>
                   <Separator />

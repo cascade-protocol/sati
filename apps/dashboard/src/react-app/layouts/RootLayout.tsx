@@ -23,7 +23,7 @@ export function RootLayout() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs bg-muted px-2 py-0.5 rounded">
-              Solana Mainnet
+              Solana Devnet
             </span>
           </div>
         </div>

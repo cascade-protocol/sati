@@ -9,8 +9,10 @@ export const router = createBrowserRouter([
     path: "/",
     element: <RootLayout />,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: "explore", element: <Explore /> },
+      // Explore is the home page
+      { index: true, element: <Explore /> },
+      // My Profile (formerly just Dashboard)
+      { path: "dashboard", element: <Dashboard /> },
       { path: "agent/:mint", element: <AgentDetails /> },
     ],
   },

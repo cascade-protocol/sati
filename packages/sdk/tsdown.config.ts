@@ -10,7 +10,8 @@ export default defineConfig({
   dts: true,
   clean: true,
   treeshake: true,
-  // Mark Light Protocol dependencies as external to avoid bundling Node.js-only code
-  // These are only used by the ./light entry point which should only be imported server-side
-  external: ["@lightprotocol/stateless.js", "@solana/web3.js"],
+  // Mark dependencies as external to avoid bundling Node.js-only code
+  // - Light Protocol: only used by ./light entry point (server-side)
+  // - tweetnacl: has CommonJS Node.js fallbacks that break browser builds
+  external: ["@lightprotocol/stateless.js", "@solana/web3.js", "tweetnacl"],
 });

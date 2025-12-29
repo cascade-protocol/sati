@@ -321,7 +321,7 @@ describe("computeValidationHash", () => {
 
     expect(() =>
       computeValidationHash(sasSchema, taskRef, tokenAccount, 101),
-    ).toThrow("response must be 0-100");
+    ).toThrow("response must be an integer 0-100");
   });
 });
 
@@ -376,7 +376,7 @@ describe("computeReputationHash", () => {
 
     expect(() =>
       computeReputationHash(sasSchema, tokenAccount, provider, 101),
-    ).toThrow("score must be 0-100");
+    ).toThrow("score must be an integer 0-100");
   });
 });
 
@@ -589,19 +589,19 @@ describe("Boundary Values", () => {
     test("rejects score 101 (just above valid range)", () => {
       expect(() =>
         computeValidationHash(sasSchema, taskRef, tokenAccount, 101),
-      ).toThrow("response must be 0-100");
+      ).toThrow("response must be an integer 0-100");
       expect(() =>
         computeReputationHash(sasSchema, tokenAccount, provider, 101),
-      ).toThrow("score must be 0-100");
+      ).toThrow("score must be an integer 0-100");
     });
 
     test("rejects score 255 (max u8)", () => {
       expect(() =>
         computeValidationHash(sasSchema, taskRef, tokenAccount, 255),
-      ).toThrow("response must be 0-100");
+      ).toThrow("response must be an integer 0-100");
       expect(() =>
         computeReputationHash(sasSchema, tokenAccount, provider, 255),
-      ).toThrow("score must be 0-100");
+      ).toThrow("score must be an integer 0-100");
     });
   });
 });
@@ -638,13 +638,13 @@ describe("TypeScript Enum Bypass Protection", () => {
     test("rejects -1 as response score", () => {
       expect(() =>
         computeValidationHash(sasSchema, taskRef, tokenAccount, -1),
-      ).toThrow("response must be 0-100");
+      ).toThrow("response must be an integer 0-100");
     });
 
     test("rejects -50 as reputation score", () => {
       expect(() =>
         computeReputationHash(sasSchema, tokenAccount, provider, -50),
-      ).toThrow("score must be 0-100");
+      ).toThrow("score must be an integer 0-100");
     });
   });
 
@@ -663,18 +663,18 @@ describe("TypeScript Enum Bypass Protection", () => {
       ).toThrow("outcome must be 0, 1, or 2");
     });
 
-    test("accepts fractional score (50.5) - score allows decimals", () => {
-      // Score/response can be fractional as it's serialized to u8 (truncated on write)
-      // The validation only checks finite and range 0-100
+    test("rejects fractional score (50.5) - score must be integer", () => {
+      // Score/response must be an integer per specification
       const fractionalScore = 50.5;
 
-      const hash = computeValidationHash(
-        sasSchema,
-        taskRef,
-        tokenAccount,
-        fractionalScore,
-      );
-      expect(hash.length).toBe(32);
+      expect(() =>
+        computeValidationHash(
+          sasSchema,
+          taskRef,
+          tokenAccount,
+          fractionalScore,
+        ),
+      ).toThrow("response must be an integer 0-100");
     });
   });
 

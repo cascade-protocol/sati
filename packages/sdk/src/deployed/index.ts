@@ -8,27 +8,21 @@
 
 import type { SATISASConfig } from "../types";
 
-// Import deployed configs (null if not yet deployed)
-// These files are created/updated by the deployment script
-let devnetConfig: SATISASConfig | null = null;
-let mainnetConfig: SATISASConfig | null = null;
+// Static imports for bundler compatibility (no require())
+import devnetJson from "./devnet.json";
+import mainnetJson from "./mainnet.json";
 
-// Try to load devnet config
-try {
-  // Dynamic import would be cleaner but we need synchronous loading
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  devnetConfig = require("./devnet.json") as SATISASConfig;
-} catch {
-  // Config not deployed yet
-}
+// Extract config (handles placeholder files with null config)
+type DeployedJson = {
+  network: string;
+  authority: string | null;
+  deployedAt: string | null;
+  config: SATISASConfig | null;
+};
 
-// Try to load mainnet config
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  mainnetConfig = require("./mainnet.json") as SATISASConfig;
-} catch {
-  // Config not deployed yet
-}
+const devnetConfig: SATISASConfig | null = (devnetJson as DeployedJson).config;
+const mainnetConfig: SATISASConfig | null = (mainnetJson as DeployedJson)
+  .config;
 
 const configs: Record<string, SATISASConfig | null> = {
   devnet: devnetConfig,

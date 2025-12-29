@@ -5,6 +5,7 @@
  */
 
 import type { Address, KeyPairSigner } from "@solana/kit";
+import type { ParsedAttestation } from "./light-types";
 
 /**
  * Agent identity information retrieved from Token-2022 NFT
@@ -16,8 +17,6 @@ export interface AgentIdentity {
   owner: Address;
   /** Agent name from metadata */
   name: string;
-  /** Agent symbol from metadata */
-  symbol: string;
   /** Registration file URI (IPFS/HTTP) */
   uri: string;
   /** Token group member number */
@@ -26,95 +25,6 @@ export interface AgentIdentity {
   additionalMetadata: Record<string, string>;
   /** Whether the agent is non-transferable (soulbound) */
   nonTransferable: boolean;
-}
-
-/**
- * Feedback attestation data from SAS
- */
-export interface Feedback {
-  /** Feedback attestation address */
-  attestation: Address;
-  /** Agent mint receiving feedback */
-  agentMint: Address;
-  /** Feedback score (0-100) */
-  score: number;
-  /** Optional categorization tags */
-  tag1?: string;
-  tag2?: string;
-  /** URI to off-chain feedback details */
-  fileUri?: string;
-  /** SHA-256 hash of feedback file */
-  fileHash?: Uint8Array;
-  /** x402 payment proof reference */
-  paymentProof?: string;
-  /** Feedback giver's address */
-  issuer: Address;
-  /** Attestation expiry timestamp (0 = no expiry) */
-  expiry: number;
-  /** Whether attestation is revoked */
-  revoked: boolean;
-}
-
-/**
- * Feedback authorization attestation data from SAS
- */
-export interface FeedbackAuthorization {
-  /** Authorization attestation address */
-  attestation: Address;
-  /** Agent mint that authorized feedback */
-  agentMint: Address;
-  /** Authorized client address */
-  client: Address;
-  /** Maximum feedback index allowed (ERC-8004 indexLimit) */
-  indexLimit: number;
-  /** Expiration timestamp (0 = no expiry) */
-  expiry: number;
-  /** Whether authorization is revoked */
-  revoked: boolean;
-}
-
-/**
- * Validation request attestation data from SAS
- */
-export interface ValidationRequest {
-  /** Request attestation address */
-  attestation: Address;
-  /** Agent mint requesting validation */
-  agentMint: Address;
-  /** Validator address */
-  validator: Address;
-  /** Validation method ("tee", "zkml", "restake") */
-  methodId: string;
-  /** URI to validation request data */
-  requestUri: string;
-  /** SHA-256 hash of request content */
-  requestHash?: Uint8Array;
-  /** Request timestamp */
-  timestamp: number;
-}
-
-/**
- * Validation status and response
- */
-export interface ValidationStatus {
-  /** Request attestation address */
-  requestAttestation: Address;
-  /** Response attestation address (if responded) */
-  responseAttestation?: Address;
-  /** Validation score (0-100, where 0=fail, 100=pass) */
-  response?: number;
-  /** URI to validation evidence */
-  responseUri?: string;
-  /** SHA-256 hash of response content */
-  responseHash?: Uint8Array;
-  /** Optional categorization tag */
-  tag?: string;
-  /** Validator address */
-  validator: Address;
-  /** Whether validation is complete */
-  completed: boolean;
-  /** Response attestation expiry timestamp */
-  responseExpiry?: number;
 }
 
 /**
@@ -155,11 +65,15 @@ export interface SATISASConfig {
   schemas: {
     /** Feedback schema (compressed, dual signature) */
     feedback: Address;
+    /** FeedbackPublic schema (compressed, single signer - agent only) */
+    feedbackPublic?: Address;
     /** Validation schema (compressed, dual signature) */
     validation: Address;
     /** ReputationScore schema (regular SAS, single signer) */
     reputationScore: Address;
   };
+  /** Address Lookup Table for transaction compression (optional, created after schemas) */
+  lookupTable?: Address;
 }
 
 /**
@@ -253,4 +167,80 @@ export interface CloseRegularAttestationParams {
 export interface CloseAttestationResult {
   /** Transaction signature */
   signature: string;
+}
+
+// ============ SIGNATURE VERIFICATION TYPES ============
+
+/**
+ * Result of signature verification on an attestation
+ */
+export interface SignatureVerificationResult {
+  /** Whether all signatures are valid */
+  valid: boolean;
+  /** Whether agent signature is valid */
+  agentValid: boolean;
+  /** Whether counterparty signature is valid (client/validator/provider) */
+  counterpartyValid: boolean;
+}
+
+// ============ AGENT METADATA UPDATE TYPES ============
+
+/**
+ * Parameters for updating agent metadata
+ */
+export interface UpdateAgentMetadataParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** Current owner (must be update authority) */
+  owner: KeyPairSigner;
+  /** Agent NFT mint address */
+  mint: Address;
+  /** Updates to apply */
+  updates: {
+    /** New name (optional) */
+    name?: string;
+    /** New URI (optional) */
+    uri?: string;
+    /** Additional metadata entries to add/update */
+    additionalMetadata?: Array<[string, string]>;
+  };
+}
+
+/**
+ * Result of updating agent metadata
+ */
+export interface UpdateAgentMetadataResult {
+  /** Transaction signature */
+  signature: string;
+}
+
+// ============ MERKLE PROOF TYPES ============
+
+/**
+ * Merkle proof with context from Light Protocol
+ * Used for verifying compressed account inclusion in state tree
+ */
+export interface MerkleProofWithContext {
+  /** Account hash (leaf in the Merkle tree) */
+  hash: Uint8Array;
+  /** Position in the tree */
+  leafIndex: number;
+  /** Sibling hashes (26 elements for depth-26 tree) */
+  merkleProof: Uint8Array[];
+  /** Current Merkle root */
+  root: Uint8Array;
+  /** Root sequence number */
+  rootSeq: number;
+  /** State tree account pubkey */
+  merkleTree: Address;
+}
+
+/**
+ * Result of getAttestationWithProof
+ */
+export interface AttestationWithProof {
+  /** Parsed attestation data */
+  attestation: ParsedAttestation;
+  /** Merkle proof for verification */
+  proof: MerkleProofWithContext;
 }

@@ -56,7 +56,7 @@ export {
 export * from "./hashes";
 
 // Light Protocol / Photon types only (runtime values available via @cascade-fyi/sati-sdk/light)
-// This avoids bundling Node.js dependencies in browser environments
+// Uses light-types.ts which has no @solana/web3.js runtime dependencies
 export type {
   LightClient,
   AttestationFilter,
@@ -67,9 +67,10 @@ export type {
   MutationProofResult,
   PackedAddressTreeInfo,
   PackedStateTreeInfo,
-  CompressedAccountWithMerkleContext,
+  CompressedAccount,
+  PublicKeyLike,
   Rpc,
-} from "./light";
+} from "./light-types";
 
 // SAS integration helpers
 export * from "./sas";
@@ -97,6 +98,9 @@ export * from "./helpers";
 // Ed25519 signature verification instruction builder
 export * from "./ed25519";
 
+// Off-chain message signing (SRFC-00003 format for Phantom/wallet signing)
+export * from "./offchain-signing";
+
 // Type definitions
 export * from "./types";
 
@@ -111,8 +115,10 @@ export {
 export {
   SATI,
   type AttestationResult,
+  type BuiltTransaction,
   type SignatureInput,
   type CreateFeedbackParams,
+  type BuildFeedbackParams,
   type CreateValidationParams,
   type CreateReputationScoreParams,
 } from "./client";

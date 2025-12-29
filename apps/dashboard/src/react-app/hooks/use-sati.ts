@@ -30,16 +30,30 @@ import {
   findRegistryConfigPda,
   fetchRegistryConfig,
   findAssociatedTokenAddress,
+  loadDeployedConfig,
+  type ParsedAttestation,
+  type FeedbackData,
 } from "@cascade-fyi/sati-sdk";
 import {
   getSatiClient,
   listAgentsByOwner,
   listAllAgents,
+  listAgentFeedbacks,
+  listAllFeedbacks,
+  listFeedbacksByCounterparty,
   type AgentIdentity,
+  type ParsedFeedback,
 } from "@/lib/sati";
+
+// Get deployed feedback schema address (devnet only for now)
+const deployedConfig = loadDeployedConfig("devnet");
+const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as
+  | Address
+  | undefined;
 
 const QUERY_KEY = ["sati"];
 const AGENTS_KEY = [...QUERY_KEY, "agents"];
+const FEEDBACKS_KEY = [...QUERY_KEY, "feedbacks"];
 const PAGE_SIZE = 20;
 
 export interface RegisterAgentParams {
@@ -344,3 +358,116 @@ export function useUpdateAgentMetadata() {
     isPending: mutation.isPending,
   };
 }
+
+// ============================================================
+// FEEDBACK HOOKS
+// ============================================================
+// Uses Helius SDK's ZK compression methods (browser-compatible)
+// to query compressed feedback attestations from Photon indexer.
+
+/**
+ * Hook for all feedbacks globally (Explore page)
+ *
+ * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters.
+ */
+export function useAllFeedbacks() {
+  const query = useQuery({
+    queryKey: [...FEEDBACKS_KEY, "all"],
+    queryFn: async () => {
+      return listAllFeedbacks();
+    },
+    staleTime: 30_000, // 30 seconds
+  });
+
+  return {
+    feedbacks: query.data ?? [],
+    feedbacksCount: query.data?.length ?? 0,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Hook for feedbacks submitted by current user (My Feedbacks)
+ *
+ * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters,
+ * then filters client-side by counterparty address.
+ */
+export function useMyFeedbacks() {
+  const session = useWalletSession();
+  const userAddress = session?.account?.address as Address | undefined;
+
+  const query = useQuery({
+    queryKey: [...FEEDBACKS_KEY, "my", userAddress],
+    queryFn: async () => {
+      if (!userAddress) return [];
+      return listFeedbacksByCounterparty(userAddress);
+    },
+    enabled: !!userAddress,
+    staleTime: 30_000,
+  });
+
+  return {
+    myFeedbacks: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Hook for feedbacks on a specific agent (Agent Details page)
+ *
+ * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters
+ * on sasSchema and tokenAccount.
+ */
+export function useAgentFeedbacks(
+  mint: Address | string | undefined,
+  owner: Address | string | undefined,
+) {
+  // Derive token account from mint and owner
+  const tokenAccountQuery = useQuery({
+    queryKey: ["tokenAccount", mint, owner],
+    queryFn: async () => {
+      if (!mint || !owner) return null;
+      const [tokenAccount] = await findAssociatedTokenAddress(
+        mint as Address,
+        owner as Address,
+      );
+      return tokenAccount;
+    },
+    enabled: !!mint && !!owner,
+    staleTime: Infinity, // Token account address is deterministic
+  });
+
+  const tokenAccount = tokenAccountQuery.data;
+
+  const feedbacksQuery = useQuery({
+    queryKey: [...FEEDBACKS_KEY, "agent", tokenAccount],
+    queryFn: async () => {
+      if (!tokenAccount) return [];
+      return listAgentFeedbacks(tokenAccount as Address);
+    },
+    enabled: !!tokenAccount,
+    staleTime: 30_000,
+  });
+
+  return {
+    feedbacks: feedbacksQuery.data ?? [],
+    isLoading: tokenAccountQuery.isLoading || feedbacksQuery.isLoading,
+    error: feedbacksQuery.error,
+    refetch: feedbacksQuery.refetch,
+  };
+}
+
+/**
+ * Get the deployed feedback schema address
+ */
+export function useFeedbackSchemaAddress(): Address | undefined {
+  return FEEDBACK_SCHEMA_ADDRESS;
+}
+
+// Re-export types for convenience
+export type { ParsedAttestation, FeedbackData };
+export type { ParsedFeedback };

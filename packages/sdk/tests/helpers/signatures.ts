@@ -106,6 +106,7 @@ export function createFeedbackSignatures(
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
   // Counterparty signs feedback hash (includes outcome)
+  // On-chain program verifies against raw 32-byte hash
   const feedbackHash = computeFeedbackHash(
     sasSchema,
     taskRef,
