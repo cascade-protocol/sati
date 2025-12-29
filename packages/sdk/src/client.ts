@@ -63,11 +63,7 @@ import {
   type CompressedAccountMetaArgs,
 } from "./generated";
 
-import {
-  findAssociatedTokenAddress,
-  findRegistryConfigPda,
-  findSchemaConfigPda,
-} from "./helpers";
+import { findAssociatedTokenAddress, findRegistryConfigPda, findSchemaConfigPda } from "./helpers";
 
 import {
   computeInteractionHash,
@@ -96,11 +92,7 @@ import {
 } from "./schemas";
 
 // Light Protocol types (from light-types.ts to avoid pulling in @solana/web3.js)
-import type {
-  LightClient,
-  ParsedAttestation,
-  AttestationFilter,
-} from "./light-types";
+import type { LightClient, ParsedAttestation, AttestationFilter } from "./light-types";
 
 // Dynamic import helper for Light Protocol (avoids bundling Node.js deps for browser)
 async function loadLightClient(): Promise<typeof import("./light")> {
@@ -180,9 +172,7 @@ type Signature64 = Uint8Array & { length: 64 };
  */
 function assertSignature64(sig: Uint8Array): Signature64 {
   if (sig.length !== 64) {
-    throw new Error(
-      `Invalid signature length: expected 64 bytes, got ${sig.length}`,
-    );
+    throw new Error(`Invalid signature length: expected 64 bytes, got ${sig.length}`);
   }
   return sig as Signature64;
 }
@@ -190,18 +180,14 @@ function assertSignature64(sig: Uint8Array): Signature64 {
 /**
  * Type helper for signed transactions with blockhash lifetime.
  */
-type SignedBlockhashTransaction = Awaited<
-  ReturnType<typeof signTransactionMessageWithSigners>
-> & {
+type SignedBlockhashTransaction = Awaited<ReturnType<typeof signTransactionMessageWithSigners>> & {
   lifetimeConstraint: { lastValidBlockHeight: bigint; blockhash: string };
 };
 
 /**
  * Helper to unwrap Option type from @solana/kit
  */
-function unwrapOption<T>(
-  option: { __option: "Some"; value: T } | { __option: "None" },
-): T | null {
+function unwrapOption<T>(option: { __option: "Some"; value: T } | { __option: "None" }): T | null {
   if (option.__option === "Some") {
     return option.value;
   }
@@ -464,9 +450,7 @@ export class SATI {
     lookupTableAddress?: Address,
     computeUnits: number = 400_000,
   ): Promise<string> {
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     // Add compute budget instruction for Light Protocol operations
     const computeBudgetIx = getSetComputeUnitLimitInstruction({
@@ -476,8 +460,7 @@ export class SATI {
     const baseTx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(computeBudgetIx, msg),
       (msg) => appendTransactionMessageInstructions(instructions, msg),
     );
@@ -487,17 +470,11 @@ export class SATI {
       if (!lookupTableAddress) {
         return baseTx;
       }
-      const lookupTableAccount = await fetchAddressLookupTable(
-        this.rpc,
-        lookupTableAddress,
-      );
+      const lookupTableAccount = await fetchAddressLookupTable(this.rpc, lookupTableAddress);
       const addressesByLookupTable: AddressesByLookupTableAddress = {
         [lookupTableAddress]: lookupTableAccount.data.addresses,
       };
-      return compressTransactionMessageUsingAddressLookupTables(
-        baseTx,
-        addressesByLookupTable,
-      );
+      return compressTransactionMessageUsingAddressLookupTables(baseTx, addressesByLookupTable);
     })();
 
     const signedTx = await signTransactionMessageWithSigners(finalTx);
@@ -534,30 +511,17 @@ export class SATI {
     /** Owner of the agent NFT (default: payer) */
     owner?: Address;
   }): Promise<RegisterAgentResult> {
-    const {
-      payer,
-      name,
-      uri,
-      additionalMetadata,
-      nonTransferable = false,
-      owner,
-    } = params;
+    const { payer, name, uri, additionalMetadata, nonTransferable = false, owner } = params;
 
     // Generate new mint keypair
     const agentMint = await generateKeyPairSigner();
 
     // Fetch registry config to get the actual group mint
     const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(
-      this.rpc,
-      registryConfigAddress,
-    );
+    const registryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
     const groupMint = registryConfig.data.groupMint;
     const ownerAddress = owner ?? payer.address;
-    const [agentTokenAccount] = await findAssociatedTokenAddress(
-      agentMint.address,
-      ownerAddress,
-    );
+    const [agentTokenAccount] = await findAssociatedTokenAddress(agentMint.address, ownerAddress);
 
     // Build instruction
     const registerIx = await getRegisterAgentInstructionAsync({
@@ -574,15 +538,12 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(registerIx, msg),
     );
 
@@ -592,10 +553,7 @@ export class SATI {
     });
 
     // Re-fetch registry config to get the updated member number
-    const updatedRegistryConfig = await fetchRegistryConfig(
-      this.rpc,
-      registryConfigAddress,
-    );
+    const updatedRegistryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
     const memberNumber = updatedRegistryConfig.data.totalAgents;
 
     // Extract signature from signed transaction
@@ -618,13 +576,9 @@ export class SATI {
     isImmutable: boolean;
   }> {
     const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(
-      this.rpc,
-      registryConfigAddress,
-    );
+    const registryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
 
-    const isImmutable =
-      registryConfig.data.authority === "11111111111111111111111111111111";
+    const isImmutable = registryConfig.data.authority === "11111111111111111111111111111111";
 
     return {
       groupMint: registryConfig.data.groupMint,
@@ -653,9 +607,7 @@ export class SATI {
 
       // Unwrap extensions Option
       const extensions = unwrapOption(
-        mintAccount.data.extensions as
-          | { __option: "Some"; value: Extension[] }
-          | { __option: "None" },
+        mintAccount.data.extensions as { __option: "Some"; value: Extension[] } | { __option: "None" },
       );
 
       if (!extensions) {
@@ -664,8 +616,7 @@ export class SATI {
 
       // Find TokenMetadata extension
       const metadataExt = extensions.find(
-        (ext: Extension): ext is Extension & { __kind: "TokenMetadata" } =>
-          ext.__kind === "TokenMetadata",
+        (ext: Extension): ext is Extension & { __kind: "TokenMetadata" } => ext.__kind === "TokenMetadata",
       );
 
       if (!metadataExt) {
@@ -674,14 +625,11 @@ export class SATI {
 
       // Find TokenGroupMember extension for member number
       const groupMemberExt = extensions.find(
-        (ext: Extension): ext is Extension & { __kind: "TokenGroupMember" } =>
-          ext.__kind === "TokenGroupMember",
+        (ext: Extension): ext is Extension & { __kind: "TokenGroupMember" } => ext.__kind === "TokenGroupMember",
       );
 
       // Find NonTransferable extension
-      const nonTransferableExt = extensions.find(
-        (ext: Extension) => ext.__kind === "NonTransferable",
-      );
+      const nonTransferableExt = extensions.find((ext: Extension) => ext.__kind === "NonTransferable");
 
       // Get owner by finding the token account
       const owner = await this.getAgentOwner(mint);
@@ -706,10 +654,7 @@ export class SATI {
     } catch (error) {
       // Return null only for account-not-found errors, re-throw others
       const message = error instanceof Error ? error.message : String(error);
-      if (
-        message.includes("could not find account") ||
-        message.includes("Account not found")
-      ) {
+      if (message.includes("could not find account") || message.includes("Account not found")) {
         return null;
       }
       throw error;
@@ -748,15 +693,12 @@ export class SATI {
     });
 
     // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(transferIx, msg),
     );
 
@@ -813,20 +755,13 @@ export class SATI {
     });
 
     // Build and send transaction with both instructions
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) =>
-        appendTransactionMessageInstructions(
-          [transferIx, updateAuthorityIx],
-          msg,
-        ),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstructions([transferIx, updateAuthorityIx], msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -848,28 +783,21 @@ export class SATI {
    */
   async getAgentOwner(mint: Address): Promise<Address> {
     // For NFTs (supply=1), we can use getTokenLargestAccounts to find the holder
-    const response = await this.rpc
-      .getTokenLargestAccounts(mint, { commitment: "confirmed" })
-      .send();
+    const response = await this.rpc.getTokenLargestAccounts(mint, { commitment: "confirmed" }).send();
 
     if (!response.value || response.value.length === 0) {
       throw new Error(`No token accounts found for mint ${mint}`);
     }
 
     // Find the account with balance > 0 (the holder)
-    const holderAccount = response.value.find(
-      (acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n,
-    );
+    const holderAccount = response.value.find((acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n);
 
     if (!holderAccount) {
       throw new Error(`No holder found for agent ${mint}`);
     }
 
     // Fetch the token account to get its owner
-    const tokenAccount = await fetchToken2022Token(
-      this.rpc,
-      address(holderAccount.address),
-    );
+    const tokenAccount = await fetchToken2022Token(this.rpc, address(holderAccount.address));
 
     return tokenAccount.data.owner;
   }
@@ -926,9 +854,7 @@ export class SATI {
     }
 
     // Batch fetch all potential mint accounts
-    const mintAccountsResult = await this.rpc
-      .getMultipleAccounts(potentialMints, { encoding: "jsonParsed" })
-      .send();
+    const mintAccountsResult = await this.rpc.getMultipleAccounts(potentialMints, { encoding: "jsonParsed" }).send();
 
     const agents: AgentIdentity[] = [];
 
@@ -951,9 +877,7 @@ export class SATI {
       if (!extensions) continue;
 
       // Find TokenGroupMember extension
-      const groupMemberExt = extensions.find(
-        (ext) => ext.extension === "tokenGroupMember",
-      );
+      const groupMemberExt = extensions.find((ext) => ext.extension === "tokenGroupMember");
       if (!groupMemberExt) continue;
 
       // Verify it belongs to the SATI registry group
@@ -964,9 +888,7 @@ export class SATI {
       if (memberState.group !== groupMint) continue;
 
       // Find TokenMetadata extension
-      const metadataExt = extensions.find(
-        (ext) => ext.extension === "tokenMetadata",
-      );
+      const metadataExt = extensions.find((ext) => ext.extension === "tokenMetadata");
       if (!metadataExt) continue;
 
       const metadataState = metadataExt.state as {
@@ -977,9 +899,7 @@ export class SATI {
       };
 
       // Check for NonTransferable extension
-      const nonTransferableExt = extensions.find(
-        (ext) => ext.extension === "nonTransferable",
-      );
+      const nonTransferableExt = extensions.find((ext) => ext.extension === "nonTransferable");
 
       // Build additional metadata record
       const additionalMetadata: Record<string, string> = {};
@@ -1017,9 +937,7 @@ export class SATI {
    * @param params - Feedback parameters
    * @returns Attestation address and signature
    */
-  async createFeedback(
-    params: CreateFeedbackParams,
-  ): Promise<AttestationResult> {
+  async createFeedback(params: CreateFeedbackParams): Promise<AttestationResult> {
     const {
       payer,
       sasSchema,
@@ -1078,22 +996,10 @@ export class SATI {
     //   ["attestation", sas_schema, token_account, nonce]
     // where nonce = compute_attestation_nonce(task_ref, sas_schema, token_account, counterparty)
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(
-      taskRef,
-      sasSchema,
-      tokenAccount,
-      counterparty,
-    );
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
     const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
-    const tokenAccountBytesForSeed = new Uint8Array(
-      addressEncoder.encode(tokenAccount),
-    );
-    const seeds = [
-      new TextEncoder().encode("attestation"),
-      sasSchemaBytes,
-      tokenAccountBytesForSeed,
-      nonce,
-    ];
+    const tokenAccountBytesForSeed = new Uint8Array(addressEncoder.encode(tokenAccount));
+    const seeds = [new TextEncoder().encode("attestation"), sasSchemaBytes, tokenAccountBytesForSeed, nonce];
 
     // Get validity proof and packed accounts for creating compressed account
     const {
@@ -1118,8 +1024,7 @@ export class SATI {
 
     // Address tree info from Light Protocol
     const addressTreeInfo: PackedAddressTreeInfoArgs = {
-      addressMerkleTreePubkeyIndex:
-        packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
+      addressMerkleTreePubkeyIndex: packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
       addressQueuePubkeyIndex: packedAddressTreeInfo.addressQueuePubkeyIndex,
       rootIndex: packedAddressTreeInfo.rootIndex,
     };
@@ -1157,12 +1062,7 @@ export class SATI {
     };
 
     // Compute expected message hashes for Ed25519 verification
-    const interactionHash = computeInteractionHash(
-      sasSchema,
-      taskRef,
-      tokenAccount,
-      dataHash,
-    );
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
 
     // Build Ed25519 verification entries (counterparty optional for SingleSigner schemas)
     const ed25519Entries = [
@@ -1175,16 +1075,9 @@ export class SATI {
 
     // Add counterparty verification for DualSignature schemas
     if (counterpartySignature) {
-      const feedbackHash = computeFeedbackHash(
-        sasSchema,
-        taskRef,
-        tokenAccount,
-        outcome,
-      );
+      const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
       ed25519Entries.push({
-        publicKey: new Uint8Array(
-          addressEncoder.encode(counterpartySignature.pubkey),
-        ),
+        publicKey: new Uint8Array(addressEncoder.encode(counterpartySignature.pubkey)),
         message: feedbackHash,
         signature: counterpartySignature.signature,
       });
@@ -1195,11 +1088,7 @@ export class SATI {
     const ed25519Ix = createBatchEd25519Instruction(ed25519Entries);
 
     // Build and send transaction (Ed25519 instruction must come first)
-    const signature = await this.buildAndSendTransaction(
-      [ed25519Ix, createIx],
-      payer,
-      lookupTableAddress,
-    );
+    const signature = await this.buildAndSendTransaction([ed25519Ix, createIx], payer, lookupTableAddress);
 
     // Return the derived compressed account address
     return {
@@ -1218,9 +1107,7 @@ export class SATI {
    * @param params - Feedback parameters (payer is an Address, not KeyPairSigner)
    * @returns Built transaction ready for wallet signing
    */
-  async buildFeedbackTransaction(
-    params: BuildFeedbackParams,
-  ): Promise<BuiltTransaction> {
+  async buildFeedbackTransaction(params: BuildFeedbackParams): Promise<BuiltTransaction> {
     const {
       payer,
       sasSchema,
@@ -1276,22 +1163,10 @@ export class SATI {
 
     // Compute seeds for address derivation
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(
-      taskRef,
-      sasSchema,
-      tokenAccount,
-      counterparty,
-    );
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
     const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
-    const tokenAccountBytesForSeed = new Uint8Array(
-      addressEncoder.encode(tokenAccount),
-    );
-    const seeds = [
-      new TextEncoder().encode("attestation"),
-      sasSchemaBytes,
-      tokenAccountBytesForSeed,
-      nonce,
-    ];
+    const tokenAccountBytesForSeed = new Uint8Array(addressEncoder.encode(tokenAccount));
+    const seeds = [new TextEncoder().encode("attestation"), sasSchemaBytes, tokenAccountBytesForSeed, nonce];
 
     // Get validity proof and packed accounts for creating compressed account
     const {
@@ -1315,8 +1190,7 @@ export class SATI {
 
     // Address tree info from Light Protocol
     const addressTreeInfo: PackedAddressTreeInfoArgs = {
-      addressMerkleTreePubkeyIndex:
-        packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
+      addressMerkleTreePubkeyIndex: packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
       addressQueuePubkeyIndex: packedAddressTreeInfo.addressQueuePubkeyIndex,
       rootIndex: packedAddressTreeInfo.rootIndex,
     };
@@ -1353,12 +1227,7 @@ export class SATI {
     };
 
     // Compute expected message hashes for Ed25519 verification
-    const interactionHash = computeInteractionHash(
-      sasSchema,
-      taskRef,
-      tokenAccount,
-      dataHash,
-    );
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
 
     // Build Ed25519 verification entries (counterparty optional for SingleSigner schemas)
     const ed25519Entries = [
@@ -1371,16 +1240,9 @@ export class SATI {
 
     // Add counterparty verification for DualSignature schemas
     if (counterpartySignature) {
-      const feedbackHash = computeFeedbackHash(
-        sasSchema,
-        taskRef,
-        tokenAccount,
-        outcome,
-      );
+      const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
       ed25519Entries.push({
-        publicKey: new Uint8Array(
-          addressEncoder.encode(counterpartySignature.pubkey),
-        ),
+        publicKey: new Uint8Array(addressEncoder.encode(counterpartySignature.pubkey)),
         message: feedbackHash,
         signature: counterpartySignature.signature,
       });
@@ -1390,9 +1252,7 @@ export class SATI {
     const ed25519Ix = createBatchEd25519Instruction(ed25519Entries);
 
     // Build transaction message (without signing)
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     const computeBudgetIx = getSetComputeUnitLimitInstruction({
       units: 400_000,
@@ -1401,8 +1261,7 @@ export class SATI {
     const baseTxMessage = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(computeBudgetIx, msg),
       (msg) => appendTransactionMessageInstructions([ed25519Ix, createIx], msg),
     );
@@ -1412,17 +1271,11 @@ export class SATI {
       if (!lookupTableAddress) {
         return baseTxMessage;
       }
-      const lookupTableAccount = await fetchAddressLookupTable(
-        this.rpc,
-        lookupTableAddress,
-      );
+      const lookupTableAccount = await fetchAddressLookupTable(this.rpc, lookupTableAddress);
       const addressesByLookupTable: AddressesByLookupTableAddress = {
         [lookupTableAddress]: lookupTableAccount.data.addresses,
       };
-      return compressTransactionMessageUsingAddressLookupTables(
-        baseTxMessage,
-        addressesByLookupTable,
-      );
+      return compressTransactionMessageUsingAddressLookupTables(baseTxMessage, addressesByLookupTable);
     })();
 
     // Compile to transaction (gets messageBytes and signers list)
@@ -1453,9 +1306,7 @@ export class SATI {
    * @param params - Validation parameters
    * @returns Attestation address and signature
    */
-  async createValidation(
-    params: CreateValidationParams,
-  ): Promise<AttestationResult> {
+  async createValidation(params: CreateValidationParams): Promise<AttestationResult> {
     const {
       payer,
       sasSchema,
@@ -1513,12 +1364,7 @@ export class SATI {
     //   ["attestation", sas_schema, token_account, nonce]
     // where nonce = compute_attestation_nonce(task_ref, sas_schema, token_account, counterparty)
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(
-      taskRef,
-      sasSchema,
-      tokenAccount,
-      counterparty,
-    );
+    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
     const seeds = [
       new TextEncoder().encode("attestation"),
       new Uint8Array(addressEncoder.encode(sasSchema)),
@@ -1548,8 +1394,7 @@ export class SATI {
 
     // Address tree info from Light Protocol
     const addressTreeInfo: PackedAddressTreeInfoArgs = {
-      addressMerkleTreePubkeyIndex:
-        packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
+      addressMerkleTreePubkeyIndex: packedAddressTreeInfo.addressMerkleTreePubkeyIndex,
       addressQueuePubkeyIndex: packedAddressTreeInfo.addressQueuePubkeyIndex,
       rootIndex: packedAddressTreeInfo.rootIndex,
     };
@@ -1586,18 +1431,8 @@ export class SATI {
     };
 
     // Compute expected message hashes for Ed25519 verification
-    const interactionHash = computeInteractionHash(
-      sasSchema,
-      taskRef,
-      tokenAccount,
-      dataHash,
-    );
-    const validationHash = computeValidationHash(
-      sasSchema,
-      taskRef,
-      tokenAccount,
-      response,
-    );
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
 
     // Create single Ed25519 instruction verifying both signatures (saves ~100 bytes)
     const ed25519Ix = createBatchEd25519Instruction([
@@ -1607,20 +1442,14 @@ export class SATI {
         signature: agentSignature.signature,
       },
       {
-        publicKey: new Uint8Array(
-          addressEncoder.encode(validatorSignature.pubkey),
-        ),
+        publicKey: new Uint8Array(addressEncoder.encode(validatorSignature.pubkey)),
         message: validationHash,
         signature: validatorSignature.signature,
       },
     ]);
 
     // Build and send transaction (Ed25519 instruction must come first)
-    const signature = await this.buildAndSendTransaction(
-      [ed25519Ix, createIx],
-      payer,
-      lookupTableAddress,
-    );
+    const signature = await this.buildAndSendTransaction([ed25519Ix, createIx], payer, lookupTableAddress);
 
     // Return the derived compressed account address
     return {
@@ -1639,21 +1468,12 @@ export class SATI {
    * @param params - Close parameters
    * @returns Transaction signature
    */
-  async closeCompressedAttestation(
-    params: CloseCompressedAttestationParams,
-  ): Promise<CloseAttestationResult> {
-    const {
-      payer,
-      counterparty,
-      sasSchema,
-      attestationAddress,
-      lookupTableAddress,
-    } = params;
+  async closeCompressedAttestation(params: CloseCompressedAttestationParams): Promise<CloseAttestationResult> {
+    const { payer, counterparty, sasSchema, attestationAddress, lookupTableAddress } = params;
 
     // 1. Fetch the attestation by address
     const light = await this.getLightClient();
-    const parsedAttestation =
-      await light.getAttestationByAddress(attestationAddress);
+    const parsedAttestation = await light.getAttestationByAddress(attestationAddress);
 
     if (!parsedAttestation) {
       throw new Error(`Attestation not found at address ${attestationAddress}`);
@@ -1663,21 +1483,15 @@ export class SATI {
     // Counterparty is at offset 64-96 in the attestation data
     const addressEncoder = getAddressEncoder();
     const counterpartyBytes = parsedAttestation.attestation.data.slice(64, 96);
-    const expectedCounterpartyBytes = new Uint8Array(
-      addressEncoder.encode(counterparty.address),
-    );
+    const expectedCounterpartyBytes = new Uint8Array(addressEncoder.encode(counterparty.address));
 
     // Compare byte arrays
     const isCounterparty =
       counterpartyBytes.length === expectedCounterpartyBytes.length &&
-      counterpartyBytes.every(
-        (byte, i) => byte === expectedCounterpartyBytes[i],
-      );
+      counterpartyBytes.every((byte, i) => byte === expectedCounterpartyBytes[i]);
 
     if (!isCounterparty) {
-      throw new Error(
-        "Signer must be the counterparty from the original attestation",
-      );
+      throw new Error("Signer must be the counterparty from the original attestation");
     }
 
     // 3. Get mutation proof from Light Protocol
@@ -1688,8 +1502,7 @@ export class SATI {
       treeInfo: {
         rootIndex: mutationResult.stateTreeInfo.rootIndex,
         proveByIndex: true,
-        merkleTreePubkeyIndex:
-          mutationResult.stateTreeInfo.merkleTreePubkeyIndex,
+        merkleTreePubkeyIndex: mutationResult.stateTreeInfo.merkleTreePubkeyIndex,
         queuePubkeyIndex: mutationResult.stateTreeInfo.queuePubkeyIndex,
         leafIndex: mutationResult.stateTreeInfo.leafIndex,
       },
@@ -1745,11 +1558,7 @@ export class SATI {
     };
 
     // 9. Build and send transaction
-    const signature = await this.buildAndSendTransaction(
-      [closeIx],
-      payer,
-      lookupTableAddress,
-    );
+    const signature = await this.buildAndSendTransaction([closeIx], payer, lookupTableAddress);
 
     return { signature };
   }
@@ -1763,9 +1572,7 @@ export class SATI {
    * @param params - Close parameters
    * @returns Transaction signature
    */
-  async closeRegularAttestation(
-    params: CloseRegularAttestationParams,
-  ): Promise<CloseAttestationResult> {
+  async closeRegularAttestation(params: CloseRegularAttestationParams): Promise<CloseAttestationResult> {
     const { payer, provider, sasSchema, satiCredential, attestation } = params;
 
     // Get schema config PDA
@@ -1800,9 +1607,7 @@ export class SATI {
    * @param params - ReputationScore parameters
    * @returns Attestation address and signature
    */
-  async createReputationScore(
-    params: CreateReputationScoreParams,
-  ): Promise<AttestationResult> {
+  async createReputationScore(params: CreateReputationScoreParams): Promise<AttestationResult> {
     const {
       payer,
       provider,
@@ -1841,12 +1646,7 @@ export class SATI {
     const data = serializeReputationScore(reputationData);
 
     // Compute message hash that provider signed
-    const messageHash = computeReputationHash(
-      sasSchema,
-      tokenAccount,
-      provider,
-      score,
-    );
+    const messageHash = computeReputationHash(sasSchema, tokenAccount, provider, score);
 
     // Derive the attestation PDA using the nonce
     const [attestationPda] = await deriveReputationAttestationPda(nonce);
@@ -1884,10 +1684,7 @@ export class SATI {
     });
 
     // Build and send transaction (Ed25519 instruction must come first)
-    const signature = await this.buildAndSendTransaction(
-      [ed25519Ix, createIx],
-      payer,
-    );
+    const signature = await this.buildAndSendTransaction([ed25519Ix, createIx], payer);
 
     return {
       address: attestationPda,
@@ -1917,9 +1714,7 @@ export class SATI {
    * // Feedbacks given by a specific counterparty
    * listFeedbacks({ sasSchema, counterparty })
    */
-  async listFeedbacks(
-    filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     const light = await this.getLightClient();
     return light.listFeedbacks(filter);
   }
@@ -1939,9 +1734,7 @@ export class SATI {
    * // All validations globally (by schema)
    * listValidations({ sasSchema })
    */
-  async listValidations(
-    filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     const light = await this.getLightClient();
     return light.listValidations(filter);
   }
@@ -1955,10 +1748,7 @@ export class SATI {
    * @param tokenAccount - Agent's token account address
    * @returns ReputationScore data or null if not found
    */
-  async getReputationScore(
-    provider: Address,
-    tokenAccount: Address,
-  ): Promise<ReputationScoreData | null> {
+  async getReputationScore(provider: Address, tokenAccount: Address): Promise<ReputationScoreData | null> {
     // Compute deterministic nonce (same as on-chain)
     const nonce = computeReputationNonce(provider, tokenAccount);
 
@@ -1966,9 +1756,7 @@ export class SATI {
     const [attestationPda] = await deriveReputationAttestationPda(nonce);
 
     // Fetch the account
-    const accountInfo = await this.rpc
-      .getAccountInfo(attestationPda, { encoding: "base64" })
-      .send();
+    const accountInfo = await this.rpc.getAccountInfo(attestationPda, { encoding: "base64" }).send();
 
     if (!accountInfo.value) {
       return null;
@@ -2024,12 +1812,7 @@ export class SATI {
    * @param outcome - Feedback outcome
    * @returns 32-byte keccak256 hash
    */
-  buildFeedbackHash(
-    sasSchema: Address,
-    taskRef: Uint8Array,
-    tokenAccount: Address,
-    outcome: Outcome,
-  ): Uint8Array {
+  buildFeedbackHash(sasSchema: Address, taskRef: Uint8Array, tokenAccount: Address, outcome: Outcome): Uint8Array {
     return computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
   }
 
@@ -2042,12 +1825,7 @@ export class SATI {
    * @param response - Validation response (0-100)
    * @returns 32-byte keccak256 hash
    */
-  buildValidationHash(
-    sasSchema: Address,
-    taskRef: Uint8Array,
-    tokenAccount: Address,
-    response: number,
-  ): Uint8Array {
+  buildValidationHash(sasSchema: Address, taskRef: Uint8Array, tokenAccount: Address, response: number): Uint8Array {
     return computeValidationHash(sasSchema, taskRef, tokenAccount, response);
   }
 
@@ -2060,12 +1838,7 @@ export class SATI {
    * @param score - Reputation score (0-100)
    * @returns 32-byte keccak256 hash
    */
-  buildReputationHash(
-    sasSchema: Address,
-    tokenAccount: Address,
-    provider: Address,
-    score: number,
-  ): Uint8Array {
+  buildReputationHash(sasSchema: Address, tokenAccount: Address, provider: Address, score: number): Uint8Array {
     return computeReputationHash(sasSchema, tokenAccount, provider, score);
   }
 
@@ -2083,9 +1856,7 @@ export class SATI {
    * @param attestation - Parsed attestation from listFeedbacks/listValidations
    * @returns Verification result with individual signature validity
    */
-  verifySignatures(
-    attestation: ParsedAttestation,
-  ): SignatureVerificationResult {
+  verifySignatures(attestation: ParsedAttestation): SignatureVerificationResult {
     const { attestation: compressed, data } = attestation;
     const addressEncoder = getAddressEncoder();
 
@@ -2113,29 +1884,14 @@ export class SATI {
       );
 
       // Counterparty signs feedback hash (with outcome)
-      const feedbackHash = computeFeedbackHash(
-        sasSchema,
-        feedbackData.taskRef,
-        tokenAccount,
-        feedbackData.outcome,
-      );
+      const feedbackHash = computeFeedbackHash(sasSchema, feedbackData.taskRef, tokenAccount, feedbackData.outcome);
 
       // Convert counterparty Address to bytes for verification
-      const counterpartyPubkey = new Uint8Array(
-        addressEncoder.encode(feedbackData.counterparty),
-      );
+      const counterpartyPubkey = new Uint8Array(addressEncoder.encode(feedbackData.counterparty));
 
-      const agentValid = nacl.sign.detached.verify(
-        interactionHash,
-        signature1,
-        agentPubkey,
-      );
+      const agentValid = nacl.sign.detached.verify(interactionHash, signature1, agentPubkey);
 
-      const counterpartyValid = nacl.sign.detached.verify(
-        feedbackHash,
-        signature2,
-        counterpartyPubkey,
-      );
+      const counterpartyValid = nacl.sign.detached.verify(feedbackHash, signature2, counterpartyPubkey);
 
       return {
         valid: agentValid && counterpartyValid,
@@ -2162,21 +1918,11 @@ export class SATI {
       );
 
       // Convert validator Address to bytes for verification
-      const validatorPubkey = new Uint8Array(
-        addressEncoder.encode(validationData.counterparty),
-      );
+      const validatorPubkey = new Uint8Array(addressEncoder.encode(validationData.counterparty));
 
-      const agentValid = nacl.sign.detached.verify(
-        interactionHash,
-        signature1,
-        agentPubkey,
-      );
+      const agentValid = nacl.sign.detached.verify(interactionHash, signature1, agentPubkey);
 
-      const counterpartyValid = nacl.sign.detached.verify(
-        validationHash,
-        signature2,
-        validatorPubkey,
-      );
+      const counterpartyValid = nacl.sign.detached.verify(validationHash, signature2, validatorPubkey);
 
       return {
         valid: agentValid && counterpartyValid,
@@ -2204,10 +1950,7 @@ export class SATI {
    * @param sasSchema - ReputationScore SAS schema address
    * @returns Array of ReputationScore data
    */
-  async listReputationScores(
-    tokenAccount: Address,
-    sasSchema: Address,
-  ): Promise<ReputationScoreData[]> {
+  async listReputationScores(tokenAccount: Address, sasSchema: Address): Promise<ReputationScoreData[]> {
     // ReputationScore uses regular SAS storage (not compressed)
     // Query using getProgramAccounts with filters
     // Address and Base58EncodedBytes are both branded string types
@@ -2240,15 +1983,9 @@ export class SATI {
       try {
         // Decode base64 data
         const data = account.account.data;
-        if (
-          typeof data === "object" &&
-          Array.isArray(data) &&
-          data.length >= 2
-        ) {
+        if (typeof data === "object" && Array.isArray(data) && data.length >= 2) {
           const base64Data = data[0] as string;
-          const bytes = Uint8Array.from(atob(base64Data), (c) =>
-            c.charCodeAt(0),
-          );
+          const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
 
           // Skip 8-byte discriminator + SAS header
           const attestationData = bytes.slice(SAS_HEADER_SIZE);
@@ -2315,19 +2052,14 @@ export class SATI {
    * @param params - Update parameters
    * @returns Transaction signature
    */
-  async updateAgentMetadata(
-    params: UpdateAgentMetadataParams,
-  ): Promise<UpdateAgentMetadataResult> {
+  async updateAgentMetadata(params: UpdateAgentMetadataParams): Promise<UpdateAgentMetadataResult> {
     const { payer, owner, mint, updates } = params;
 
     // Import Token-2022 types and functions
-    const { getUpdateTokenMetadataFieldInstruction, tokenMetadataField } =
-      await import("@solana-program/token-2022");
+    const { getUpdateTokenMetadataFieldInstruction, tokenMetadataField } = await import("@solana-program/token-2022");
 
     // Build instructions array
-    type UpdateInstruction = ReturnType<
-      typeof getUpdateTokenMetadataFieldInstruction
-    >;
+    type UpdateInstruction = ReturnType<typeof getUpdateTokenMetadataFieldInstruction>;
     const ixList: UpdateInstruction[] = [];
 
     // Update name if provided
@@ -2401,14 +2133,7 @@ export class SATI {
     /** Whether attestations can be closed */
     closeable: boolean;
   }): Promise<{ signature: string }> {
-    const {
-      payer,
-      authority,
-      sasSchema,
-      signatureMode,
-      storageType,
-      closeable,
-    } = params;
+    const { payer, authority, sasSchema, signatureMode, storageType, closeable } = params;
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
@@ -2422,15 +2147,12 @@ export class SATI {
       closeable,
     });
 
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     const tx = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(registerIx, msg),
     );
 
@@ -2460,10 +2182,8 @@ export class SATI {
       const schemaConfig = await fetchSchemaConfig(this.rpc, schemaConfigPda);
 
       // Parse enum values from IDL format
-      const signatureMode = schemaConfig.data
-        .signatureMode as unknown as SignatureMode;
-      const storageType = schemaConfig.data
-        .storageType as unknown as StorageType;
+      const signatureMode = schemaConfig.data.signatureMode as unknown as SignatureMode;
+      const storageType = schemaConfig.data.storageType as unknown as StorageType;
 
       return {
         signatureMode,
@@ -2473,10 +2193,7 @@ export class SATI {
     } catch (error) {
       // Return null only for account-not-found errors, re-throw others
       const message = error instanceof Error ? error.message : String(error);
-      if (
-        message.includes("could not find account") ||
-        message.includes("Account not found")
-      ) {
+      if (message.includes("could not find account") || message.includes("Account not found")) {
         return null;
       }
       throw error;
@@ -2529,10 +2246,7 @@ export class SATI {
     let credentialDeployed = false;
 
     // 2. Check if credential exists
-    const existingCredential = await fetchMaybeCredential(
-      this.rpc,
-      credentialPda,
-    );
+    const existingCredential = await fetchMaybeCredential(this.rpc, credentialPda);
 
     if (existingCredential) {
       credentialExisted = true;
@@ -2567,11 +2281,7 @@ export class SATI {
     const schemaPdas: Record<string, Address> = {};
 
     for (const { key, def } of schemaEntries) {
-      const [schemaPda] = await deriveSatiSchemaPda(
-        credentialPda,
-        def.name,
-        schemaVersion,
-      );
+      const [schemaPda] = await deriveSatiSchemaPda(credentialPda, def.name, schemaVersion);
       schemaPdas[key] = schemaPda;
 
       // Check if schema exists
@@ -2676,9 +2386,7 @@ export class SATI {
         }
       }
     } else {
-      console.log(
-        "\nSkipping SATI schema config registration (not registry authority)",
-      );
+      console.log("\nSkipping SATI schema config registration (not registry authority)");
     }
 
     return {
@@ -2710,15 +2418,12 @@ export class SATI {
     instructions: Parameters<typeof appendTransactionMessageInstructions>[0],
     payer: KeyPairSigner,
   ): Promise<string> {
-    const { value: latestBlockhash } = await this.rpc
-      .getLatestBlockhash()
-      .send();
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
 
     const txMessage = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) =>
-        setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstructions(instructions, msg),
     );
 

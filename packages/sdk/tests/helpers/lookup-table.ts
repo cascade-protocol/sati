@@ -72,12 +72,11 @@ export async function createSatiLookupTable(
   const slot = await connection.getSlot("finalized");
 
   // Create lookup table instruction
-  const [createIx, lookupTableAddress] =
-    AddressLookupTableProgram.createLookupTable({
-      authority: payer.publicKey,
-      payer: payer.publicKey,
-      recentSlot: slot,
-    });
+  const [createIx, lookupTableAddress] = AddressLookupTableProgram.createLookupTable({
+    authority: payer.publicKey,
+    payer: payer.publicKey,
+    recentSlot: slot,
+  });
 
   // Extend lookup table with addresses (max 30 per instruction)
   const extendInstructions = [];
@@ -94,8 +93,7 @@ export async function createSatiLookupTable(
   }
 
   // Build and send transaction
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
 
   const messageV0 = new TransactionMessage({
     payerKey: payer.publicKey,
@@ -144,9 +142,7 @@ async function confirmTransaction(
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  throw new Error(
-    `Transaction ${signature} confirmation timed out after ${maxAttempts} attempts`,
-  );
+  throw new Error(`Transaction ${signature} confirmation timed out after ${maxAttempts} attempts`);
 }
 
 /**
@@ -163,8 +159,7 @@ async function waitForLookupTableActive(
 ): Promise<void> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const lutAccount =
-        await connection.getAddressLookupTable(lookupTableAddress);
+      const lutAccount = await connection.getAddressLookupTable(lookupTableAddress);
       if (lutAccount.value) {
         return; // Table is active
       }
@@ -173,7 +168,5 @@ async function waitForLookupTableActive(
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  throw new Error(
-    `Lookup table ${lookupTableAddress.toBase58()} did not become active after ${maxAttempts} attempts`,
-  );
+  throw new Error(`Lookup table ${lookupTableAddress.toBase58()} did not become active after ${maxAttempts} attempts`);
 }

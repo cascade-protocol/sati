@@ -7,12 +7,7 @@ import { Bot, Copy, ExternalLink } from "lucide-react";
 import type { AgentIdentity } from "@cascade-fyi/sati-sdk";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { truncateAddress, formatMemberNumber, getSolscanUrl } from "@/lib/sati";
 
@@ -36,9 +31,7 @@ export function AgentCard({ agent }: AgentCardProps) {
               <CardTitle className="text-lg">{agent.name}</CardTitle>
             </div>
           </div>
-          <span className="text-sm text-muted-foreground">
-            {formatMemberNumber(agent.memberNumber)}
-          </span>
+          <span className="text-sm text-muted-foreground">{formatMemberNumber(agent.memberNumber)}</span>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -49,18 +42,11 @@ export function AgentCard({ agent }: AgentCardProps) {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => copyToClipboard(agent.mint)}
-                  >
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(agent.mint)}>
                     <Copy className={`h-3 w-3 ${isCopied ? "text-green-500" : ""}`} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>
-                  {isCopied ? "Copied!" : "Copy mint address"}
-                </TooltipContent>
+                <TooltipContent>{isCopied ? "Copied!" : "Copy mint address"}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
             <TooltipProvider>
@@ -83,17 +69,11 @@ export function AgentCard({ agent }: AgentCardProps) {
 
         {agent.nonTransferable && (
           <div className="flex items-center gap-2">
-            <span className="text-xs bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded">
-              Non-transferable
-            </span>
+            <span className="text-xs bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded">Non-transferable</span>
           </div>
         )}
 
-        <Button
-          className="w-full"
-          variant="outline"
-          onClick={() => navigate(`/agent/${agent.mint}`)}
-        >
+        <Button className="w-full" variant="outline" onClick={() => navigate(`/agent/${agent.mint}`)}>
           View Details
         </Button>
       </CardContent>

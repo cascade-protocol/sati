@@ -26,14 +26,8 @@ function formatOutcome(outcome: number): { text: string; color: string } {
 }
 
 export function Explore() {
-  const {
-    exploreAgents,
-    exploreLoading,
-    exploreHasMore,
-    explorePage,
-    setExplorePage,
-    totalAgents,
-  } = useExploreAgents();
+  const { exploreAgents, exploreLoading, exploreHasMore, explorePage, setExplorePage, totalAgents } =
+    useExploreAgents();
 
   const { feedbacks, feedbacksCount, isLoading: feedbacksLoading } = useAllFeedbacks();
 
@@ -41,9 +35,7 @@ export function Explore() {
     <main className="flex-1 container mx-auto px-4 py-6 md:py-8 max-w-4xl">
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-            Explore
-          </h1>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Explore</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Browse all agents and feedbacks registered in the SATI registry
           </p>
@@ -57,12 +49,8 @@ export function Explore() {
               <Bot className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {totalAgents.toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Registered in SATI registry
-              </p>
+              <div className="text-2xl font-bold">{totalAgents.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">Registered in SATI registry</p>
             </CardContent>
           </Card>
 
@@ -72,12 +60,8 @@ export function Explore() {
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {feedbacksCount.toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Attestations on-chain
-              </p>
+              <div className="text-2xl font-bold">{feedbacksCount.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">Attestations on-chain</p>
             </CardContent>
           </Card>
         </div>
@@ -86,16 +70,10 @@ export function Explore() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>All Agents</CardTitle>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              Page {explorePage + 1}
-            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">Page {explorePage + 1}</div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <AgentTable
-              agents={exploreAgents}
-              isLoading={exploreLoading}
-              emptyMessage="No agents registered yet."
-            />
+            <AgentTable agents={exploreAgents} isLoading={exploreLoading} emptyMessage="No agents registered yet." />
 
             {/* Pagination */}
             <div className="flex items-center justify-between pt-4">
@@ -108,9 +86,7 @@ export function Explore() {
                 <ChevronLeft className="h-4 w-4 mr-1" />
                 Previous
               </Button>
-              <span className="text-sm text-muted-foreground">
-                Page {explorePage + 1}
-              </span>
+              <span className="text-sm text-muted-foreground">Page {explorePage + 1}</span>
               <Button
                 variant="outline"
                 size="sm"
@@ -135,9 +111,7 @@ export function Explore() {
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : feedbacks.length === 0 ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                No feedbacks yet.
-              </div>
+              <div className="flex items-center justify-center py-12 text-muted-foreground">No feedbacks yet.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -150,10 +124,10 @@ export function Explore() {
                     </tr>
                   </thead>
                   <tbody>
-                    {feedbacks.slice(0, 20).map((feedback, idx) => {
+                    {feedbacks.slice(0, 20).map((feedback) => {
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
                       return (
-                        <tr key={idx} className="border-b">
+                        <tr key={feedback.hash} className="border-b">
                           <td className="py-4 pr-4">
                             <code className="text-sm">{truncateAddress(feedback.feedback.tokenAccount)}</code>
                           </td>

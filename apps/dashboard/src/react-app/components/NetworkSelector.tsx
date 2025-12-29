@@ -46,9 +46,7 @@ export function NetworkSelector() {
           >
             <span className={`h-2 w-2 rounded-full ${network.color}`} />
             <span>{network.label}</span>
-            {network.id === currentNetwork && (
-              <Check className="ml-auto h-4 w-4" />
-            )}
+            {network.id === currentNetwork && <Check className="ml-auto h-4 w-4" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

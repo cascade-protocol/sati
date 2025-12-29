@@ -90,9 +90,7 @@ export function getTestKeypair(seed: number): Keypair {
 /**
  * Create a KeyPairSigner from a Keypair (for @solana/kit compatibility)
  */
-export async function keypairToSigner(
-  keypair: Keypair,
-): Promise<KeyPairSigner> {
+export async function keypairToSigner(keypair: Keypair): Promise<KeyPairSigner> {
   return createKeyPairSignerFromBytes(keypair.secretKey);
 }
 
@@ -113,13 +111,9 @@ export function sleep(ms: number): Promise<void> {
  * For Light Protocol Photon indexer, this ensures compressed
  * accounts are queryable after creation.
  */
-export async function waitForIndexer(
-  connection?: Connection,
-  delayMs: number = 1000,
-): Promise<void> {
+export async function waitForIndexer(connection?: Connection, delayMs: number = 1000): Promise<void> {
   // Use provided connection or create default for localnet
-  const conn =
-    connection ?? new Connection("http://127.0.0.1:8899", "confirmed");
+  const conn = connection ?? new Connection("http://127.0.0.1:8899", "confirmed");
 
   // Get current slot to verify connection
   const _slot = await conn.getSlot();
@@ -135,11 +129,7 @@ export async function waitForIndexer(
 /**
  * Retry a function until it succeeds or max attempts reached
  */
-export async function retry<T>(
-  fn: () => Promise<T>,
-  maxAttempts: number = 5,
-  delayMs: number = 500,
-): Promise<T> {
+export async function retry<T>(fn: () => Promise<T>, maxAttempts: number = 5, delayMs: number = 500): Promise<T> {
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

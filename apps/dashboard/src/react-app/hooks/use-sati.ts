@@ -17,13 +17,7 @@ import { useCallback, useState } from "react";
 import { useSolanaClient, useWalletSession } from "@solana/react-hooks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  generateKeyPairSigner,
-  type Address,
-  type KeyPairSigner,
-  type Rpc,
-  type SolanaRpcApi,
-} from "@solana/kit";
+import { generateKeyPairSigner, type Address, type KeyPairSigner, type Rpc, type SolanaRpcApi } from "@solana/kit";
 import { getUpdateTokenMetadataFieldInstruction } from "@solana-program/token-2022";
 import {
   getRegisterAgentInstructionAsync,
@@ -48,9 +42,7 @@ import { getNetwork } from "@/lib/network";
 
 // Get deployed feedback schema address for current network
 const deployedConfig = loadDeployedConfig(getNetwork());
-const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as
-  | Address
-  | undefined;
+const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as Address | undefined;
 
 const QUERY_KEY = ["sati"];
 const AGENTS_KEY = [...QUERY_KEY, "agents"];
@@ -80,9 +72,7 @@ export interface UseSatiReturn {
   setExplorePage: (page: number) => void;
 
   // Actions
-  registerAgent: (
-    params: RegisterAgentParams,
-  ) => Promise<{ mint: Address; signature: string }>;
+  registerAgent: (params: RegisterAgentParams) => Promise<{ mint: Address; signature: string }>;
   isPending: boolean;
 
   // Refresh
@@ -191,7 +181,10 @@ export function useExploreAgents() {
 /**
  * Hook for agent registration mutation
  */
-export function useRegisterAgent() {
+export function useRegisterAgent(): {
+  registerAgent: (params: RegisterAgentParams) => Promise<{ mint: Address; signature: string }>;
+  isPending: boolean;
+} {
   const queryClient = useQueryClient();
   const solanaClient = useSolanaClient();
   const session = useWalletSession();
@@ -207,17 +200,11 @@ export function useRegisterAgent() {
         const rpc = solanaClient.runtime.rpc as Rpc<SolanaRpcApi>;
 
         const [registryConfigAddress] = await findRegistryConfigPda();
-        const registryConfig = await fetchRegistryConfig(
-          rpc,
-          registryConfigAddress,
-        );
+        const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
         const groupMint = registryConfig.data.groupMint;
 
         const ownerAddress = session.account.address;
-        const [agentTokenAccount] = await findAssociatedTokenAddress(
-          agentMint.address,
-          ownerAddress,
-        );
+        const [agentTokenAccount] = await findAssociatedTokenAddress(agentMint.address, ownerAddress);
 
         const instruction = await getRegisterAgentInstructionAsync({
           payer: { address: ownerAddress } as KeyPairSigner,
@@ -232,20 +219,17 @@ export function useRegisterAgent() {
           nonTransferable: params.nonTransferable ?? false,
         });
 
-        const signature = await solanaClient.helpers.transaction.prepareAndSend(
-          {
-            authority: session,
-            instructions: [instruction],
-            commitment: "confirmed",
-          },
-        );
+        const signature = await solanaClient.helpers.transaction.prepareAndSend({
+          authority: session,
+          instructions: [instruction],
+          commitment: "confirmed",
+        });
 
         toast.success("Agent registered!", { id: toastId });
         return { mint: agentMint.address, signature: signature.toString() };
       } catch (error) {
         toast.dismiss(toastId);
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
+        const message = error instanceof Error ? error.message : "Unknown error";
         toast.error(`Failed: ${message}`);
         throw error;
       }
@@ -322,26 +306,20 @@ export function useUpdateAgentMetadata() {
           value: newUri,
         });
 
-        const signature = await solanaClient.helpers.transaction.prepareAndSend(
-          {
-            authority: session,
-            instructions: [instruction],
-            commitment: "confirmed",
-          },
-        );
+        const signature = await solanaClient.helpers.transaction.prepareAndSend({
+          authority: session,
+          instructions: [instruction],
+          commitment: "confirmed",
+        });
 
         toast.success("Metadata updated!", { id: toastId });
         return { signature: signature.toString() };
       } catch (error) {
         toast.dismiss(toastId);
-        const message =
-          error instanceof Error ? error.message : "Unknown error";
+        const message = error instanceof Error ? error.message : "Unknown error";
 
         // Check for authority error
-        if (
-          message.includes("custom program error") ||
-          message.includes("0x35c2b5c0")
-        ) {
+        if (message.includes("custom program error") || message.includes("0x35c2b5c0")) {
           toast.error("You are not the update authority for this agent");
         } else {
           toast.error(`Failed: ${message}`);
@@ -423,19 +401,13 @@ export function useMyFeedbacks() {
  * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters
  * on sasSchema and tokenAccount.
  */
-export function useAgentFeedbacks(
-  mint: Address | string | undefined,
-  owner: Address | string | undefined,
-) {
+export function useAgentFeedbacks(mint: Address | string | undefined, owner: Address | string | undefined) {
   // Derive token account from mint and owner
   const tokenAccountQuery = useQuery({
     queryKey: ["tokenAccount", mint, owner],
     queryFn: async () => {
       if (!mint || !owner) return null;
-      const [tokenAccount] = await findAssociatedTokenAddress(
-        mint as Address,
-        owner as Address,
-      );
+      const [tokenAccount] = await findAssociatedTokenAddress(mint as Address, owner as Address);
       return tokenAccount;
     },
     enabled: !!mint && !!owner,

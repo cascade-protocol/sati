@@ -63,10 +63,7 @@ export interface FeedbackSigningMessage {
  * const signature = await wallet.signMessage(messageBytes);
  * ```
  */
-export function buildFeedbackSigningMessage(
-  feedbackHash: Uint8Array,
-  outcome: Outcome,
-): FeedbackSigningMessage {
+export function buildFeedbackSigningMessage(feedbackHash: Uint8Array, outcome: Outcome): FeedbackSigningMessage {
   if (feedbackHash.length !== 32) {
     throw new Error("feedbackHash must be 32 bytes");
   }

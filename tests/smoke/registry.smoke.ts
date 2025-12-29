@@ -43,17 +43,11 @@ function getCluster(): Cluster {
 }
 
 function getConnection(cluster: Cluster): Connection {
-  const url =
-    cluster === "mainnet"
-      ? clusterApiUrl("mainnet-beta")
-      : clusterApiUrl("devnet");
+  const url = cluster === "mainnet" ? clusterApiUrl("mainnet-beta") : clusterApiUrl("devnet");
   return new Connection(url, "confirmed");
 }
 
-function getProgram(
-  connection: Connection,
-  wallet: anchor.Wallet,
-): Program<Sati> {
+function getProgram(connection: Connection, wallet: anchor.Wallet): Program<Sati> {
   const provider = new anchor.AnchorProvider(connection, wallet, {
     commitment: "confirmed",
   });
@@ -88,21 +82,15 @@ describe("sati-registry: smoke tests", () => {
     connection = getConnection(cluster);
 
     // Load wallet from default location or ANCHOR_WALLET
-    const walletPath =
-      process.env.ANCHOR_WALLET || `${process.env.HOME}/.config/solana/id.json`;
-    const keypairData = await import("node:fs").then((fs) =>
-      JSON.parse(fs.readFileSync(walletPath, "utf-8")),
-    );
+    const walletPath = process.env.ANCHOR_WALLET || `${process.env.HOME}/.config/solana/id.json`;
+    const keypairData = await import("node:fs").then((fs) => JSON.parse(fs.readFileSync(walletPath, "utf-8")));
     const keypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
     wallet = new anchor.Wallet(keypair);
 
     program = getProgram(connection, wallet);
 
     // Derive PDAs
-    [registryConfig] = PublicKey.findProgramAddressSync(
-      [Buffer.from("registry")],
-      PROGRAM_ID,
-    );
+    [registryConfig] = PublicKey.findProgramAddressSync([Buffer.from("registry")], PROGRAM_ID);
 
     console.log(`  Wallet: ${wallet.publicKey.toBase58()}`);
     console.log(`  Registry Config: ${registryConfig.toBase58()}`);
@@ -132,19 +120,12 @@ describe("sati-registry: smoke tests", () => {
 
     test("group mint is valid Token-2022 mint", async () => {
       const config = await program.account.registryConfig.fetch(registryConfig);
-      const mintInfo = await getMint(
-        connection,
-        config.groupMint,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
+      const mintInfo = await getMint(connection, config.groupMint, undefined, TOKEN_2022_PROGRAM_ID);
 
       expect(mintInfo).toBeDefined();
       expect(mintInfo.decimals).toBe(0);
       // Group mint authority should be the registry PDA
-      expect(mintInfo.mintAuthority?.toBase58()).toBe(
-        registryConfig.toBase58(),
-      );
+      expect(mintInfo.mintAuthority?.toBase58()).toBe(registryConfig.toBase58());
     });
   });
 
@@ -200,27 +181,16 @@ describe("sati-registry: smoke tests", () => {
       await connection.confirmTransaction(tx, "confirmed");
 
       // Verify counter incremented
-      const configAfter =
-        await program.account.registryConfig.fetch(registryConfig);
+      const configAfter = await program.account.registryConfig.fetch(registryConfig);
       expect(configAfter.totalAgents.toNumber()).toBe(countBefore + 1);
 
       // Verify NFT minted to owner
-      const tokenAccount = await getAccount(
-        connection,
-        agentTokenAccount,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
+      const tokenAccount = await getAccount(connection, agentTokenAccount, undefined, TOKEN_2022_PROGRAM_ID);
       expect(tokenAccount.amount.toString()).toBe("1");
       expect(tokenAccount.owner.toBase58()).toBe(wallet.publicKey.toBase58());
 
       // Verify mint properties
-      const mintInfo = await getMint(
-        connection,
-        agentMint.publicKey,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
+      const mintInfo = await getMint(connection, agentMint.publicKey, undefined, TOKEN_2022_PROGRAM_ID);
       expect(mintInfo.supply.toString()).toBe("1");
       expect(mintInfo.decimals).toBe(0);
       expect(mintInfo.mintAuthority).toBeNull(); // renounced
@@ -235,9 +205,7 @@ describe("sati-registry: smoke tests", () => {
       const additionalMap = new Map(metadata?.additionalMetadata || []);
       expect(additionalMap.get("test")).toBe("smoke");
 
-      console.log(
-        `    Agent #${configAfter.totalAgents} registered successfully`,
-      );
+      console.log(`    Agent #${configAfter.totalAgents} registered successfully`);
     });
 
     test("registers non-transferable (soulbound) agent", async () => {
@@ -276,17 +244,10 @@ describe("sati-registry: smoke tests", () => {
       await connection.confirmTransaction(tx, "confirmed");
 
       // Verify NFT was minted
-      const tokenAccount = await getAccount(
-        connection,
-        agentTokenAccount,
-        undefined,
-        TOKEN_2022_PROGRAM_ID,
-      );
+      const tokenAccount = await getAccount(connection, agentTokenAccount, undefined, TOKEN_2022_PROGRAM_ID);
       expect(tokenAccount.amount.toString()).toBe("1");
 
-      console.log(
-        `    Soulbound agent registered: ${agentMint.publicKey.toBase58()}`,
-      );
+      console.log(`    Soulbound agent registered: ${agentMint.publicKey.toBase58()}`);
     });
   });
 

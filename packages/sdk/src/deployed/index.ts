@@ -21,8 +21,7 @@ type DeployedJson = {
 };
 
 const devnetConfig: SATISASConfig | null = (devnetJson as DeployedJson).config;
-const mainnetConfig: SATISASConfig | null = (mainnetJson as DeployedJson)
-  .config;
+const mainnetConfig: SATISASConfig | null = (mainnetJson as DeployedJson).config;
 
 const configs: Record<string, SATISASConfig | null> = {
   devnet: devnetConfig,

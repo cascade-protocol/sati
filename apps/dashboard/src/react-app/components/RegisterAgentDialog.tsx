@@ -20,10 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  buildRegistrationFile,
-  stringifyRegistrationFile,
-} from "@cascade-fyi/sati-sdk";
+import { buildRegistrationFile, stringifyRegistrationFile } from "@cascade-fyi/sati-sdk";
 
 // Byte length validation helper
 const byteLength = (str: string) => new TextEncoder().encode(str).length;
@@ -38,20 +35,13 @@ const registerAgentSchema = z.object({
   description: z
     .string()
     .optional()
-    .refine(
-      (s) => !s || s.length <= 500,
-      "Description must be 500 characters or less",
-    ),
+    .refine((s) => !s || s.length <= 500, "Description must be 500 characters or less"),
 
   image: z
     .string()
     .optional()
     .refine(
-      (s) =>
-        !s ||
-        s.startsWith("https://") ||
-        s.startsWith("ipfs://") ||
-        s.startsWith("ar://"),
+      (s) => !s || s.startsWith("https://") || s.startsWith("ipfs://") || s.startsWith("ar://"),
       "Image must be a valid URL (https://, ipfs://, or ar://)",
     ),
 
@@ -71,10 +61,7 @@ const registerAgentSchema = z.object({
         value: z
           .string()
           .min(1, "Value is required")
-          .refine(
-            (s) => byteLength(s) <= 200,
-            "Value must be 200 bytes or less",
-          ),
+          .refine((s) => byteLength(s) <= 200, "Value must be 200 bytes or less"),
       }),
     )
     .max(10, "Maximum 10 metadata entries")
@@ -92,10 +79,7 @@ interface RegisterAgentDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function RegisterAgentDialog({
-  open,
-  onOpenChange,
-}: RegisterAgentDialogProps) {
+export function RegisterAgentDialog({ open, onOpenChange }: RegisterAgentDialogProps) {
   const { registerAgent, isPending } = useSati();
 
   const form = useForm<RegisterAgentFormData>({
@@ -133,9 +117,7 @@ export function RegisterAgentDialog({
     await registerAgent({
       name: data.name,
       uri: data.uri || "",
-      additionalMetadata: data.additionalMetadata?.length
-        ? data.additionalMetadata
-        : undefined,
+      additionalMetadata: data.additionalMetadata?.length ? data.additionalMetadata : undefined,
       nonTransferable: data.nonTransferable,
     });
 
@@ -150,8 +132,7 @@ export function RegisterAgentDialog({
         <DialogHeader>
           <DialogTitle>Register New Agent</DialogTitle>
           <DialogDescription>
-            Create a new agent identity on the SATI registry. This will mint a
-            Token-2022 NFT representing your agent.
+            Create a new agent identity on the SATI registry. This will mint a Token-2022 NFT representing your agent.
           </DialogDescription>
         </DialogHeader>
 
@@ -159,20 +140,11 @@ export function RegisterAgentDialog({
           {/* Name */}
           <div className="space-y-2">
             <Label htmlFor="name">Name *</Label>
-            <Input
-              id="name"
-              placeholder="My Agent"
-              {...form.register("name")}
-              disabled={isPending}
-            />
+            <Input id="name" placeholder="My Agent" {...form.register("name")} disabled={isPending} />
             {form.formState.errors.name && (
-              <p className="text-sm text-destructive">
-                {form.formState.errors.name.message}
-              </p>
+              <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
             )}
-            <p className="text-xs text-muted-foreground">
-              {byteLength(form.watch("name") || "")}/32 bytes
-            </p>
+            <p className="text-xs text-muted-foreground">{byteLength(form.watch("name") || "")}/32 bytes</p>
           </div>
 
           {/* Description */}
@@ -186,13 +158,9 @@ export function RegisterAgentDialog({
               disabled={isPending}
             />
             {form.formState.errors.description && (
-              <p className="text-sm text-destructive">
-                {form.formState.errors.description.message}
-              </p>
+              <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
             )}
-            <p className="text-xs text-muted-foreground">
-              {(form.watch("description") || "").length}/500 characters
-            </p>
+            <p className="text-xs text-muted-foreground">{(form.watch("description") || "").length}/500 characters</p>
           </div>
 
           {/* Image URL */}
@@ -205,48 +173,31 @@ export function RegisterAgentDialog({
               disabled={isPending}
             />
             {form.formState.errors.image && (
-              <p className="text-sm text-destructive">
-                {form.formState.errors.image.message}
-              </p>
+              <p className="text-sm text-destructive">{form.formState.errors.image.message}</p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Agent avatar image (HTTPS, IPFS, or Arweave URL)
-            </p>
+            <p className="text-xs text-muted-foreground">Agent avatar image (HTTPS, IPFS, or Arweave URL)</p>
           </div>
 
           {/* URI */}
           <div className="space-y-2">
             <Label htmlFor="uri">Metadata URI</Label>
-            <Input
-              id="uri"
-              placeholder="https://arweave.net/..."
-              {...form.register("uri")}
-              disabled={isPending}
-            />
+            <Input id="uri" placeholder="https://arweave.net/..." {...form.register("uri")} disabled={isPending} />
             {form.formState.errors.uri && (
-              <p className="text-sm text-destructive">
-                {form.formState.errors.uri.message}
-              </p>
+              <p className="text-sm text-destructive">{form.formState.errors.uri.message}</p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Upload the JSON below to Arweave and paste the URL here
-            </p>
+            <p className="text-xs text-muted-foreground">Upload the JSON below to Arweave and paste the URL here</p>
           </div>
 
           {/* Non-transferable toggle */}
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5">
               <Label htmlFor="nonTransferable">Non-transferable</Label>
-              <p className="text-xs text-muted-foreground">
-                Make this agent soulbound (cannot be transferred)
-              </p>
+              <p className="text-xs text-muted-foreground">Make this agent soulbound (cannot be transferred)</p>
             </div>
             <Switch
               id="nonTransferable"
               checked={form.watch("nonTransferable")}
-              onCheckedChange={(checked) =>
-                form.setValue("nonTransferable", checked)
-              }
+              onCheckedChange={(checked) => form.setValue("nonTransferable", checked)}
               disabled={isPending}
             />
           </div>
@@ -269,40 +220,25 @@ export function RegisterAgentDialog({
 
             {fields.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                No additional metadata. Click &quot;Add&quot; to include custom
-                key-value pairs.
+                No additional metadata. Click &quot;Add&quot; to include custom key-value pairs.
               </p>
             )}
 
             {fields.map((field, index) => (
               <div key={field.id} className="flex gap-2">
-                <Input
-                  placeholder="Key"
-                  {...form.register(`additionalMetadata.${index}.key`)}
-                  disabled={isPending}
-                />
+                <Input placeholder="Key" {...form.register(`additionalMetadata.${index}.key`)} disabled={isPending} />
                 <Input
                   placeholder="Value"
                   {...form.register(`additionalMetadata.${index}.value`)}
                   disabled={isPending}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => remove(index)}
-                  disabled={isPending}
-                >
+                <Button type="button" variant="ghost" size="icon" onClick={() => remove(index)} disabled={isPending}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ))}
 
-            {fields.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {fields.length}/10 entries
-              </p>
-            )}
+            {fields.length > 0 && <p className="text-xs text-muted-foreground">{fields.length}/10 entries</p>}
           </div>
 
           {/* JSON Preview */}
@@ -314,12 +250,7 @@ export function RegisterAgentDialog({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() =>
-                    form.setValue(
-                      "showJsonPreview",
-                      !form.watch("showJsonPreview"),
-                    )
-                  }
+                  onClick={() => form.setValue("showJsonPreview", !form.watch("showJsonPreview"))}
                 >
                   {form.watch("showJsonPreview") ? (
                     <>
@@ -346,12 +277,7 @@ export function RegisterAgentDialog({
           )}
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isPending}
-            >
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
               Cancel
             </Button>
             <Button type="submit" disabled={isPending}>

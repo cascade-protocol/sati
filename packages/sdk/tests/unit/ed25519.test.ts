@@ -53,11 +53,7 @@ describe("Ed25519 Instruction Builder", () => {
       };
 
       const ix = createEd25519Instruction(params);
-      const view = new DataView(
-        ix.data.buffer,
-        ix.data.byteOffset,
-        ix.data.byteLength,
-      );
+      const view = new DataView(ix.data.buffer, ix.data.byteOffset, ix.data.byteLength);
 
       // Offsets start at byte 2
       // Data starts at byte 16 (2 header + 14 offsets)
@@ -233,9 +229,7 @@ describe("Ed25519 Instruction Builder", () => {
         },
       ];
 
-      expect(() => createBatchEd25519Instruction(invalidSigs)).toThrow(
-        "32 bytes",
-      );
+      expect(() => createBatchEd25519Instruction(invalidSigs)).toThrow("32 bytes");
     });
 
     test("handles varying message sizes", () => {
@@ -268,9 +262,7 @@ describe("Ed25519 Instruction Builder", () => {
 
   describe("ED25519_PROGRAM_ADDRESS", () => {
     test("is the correct Ed25519 precompile address", () => {
-      expect(ED25519_PROGRAM_ADDRESS).toBe(
-        "Ed25519SigVerify111111111111111111111111111",
-      );
+      expect(ED25519_PROGRAM_ADDRESS).toBe("Ed25519SigVerify111111111111111111111111111");
     });
   });
 });

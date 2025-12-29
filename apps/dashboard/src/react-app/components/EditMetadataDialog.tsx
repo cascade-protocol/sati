@@ -93,9 +93,7 @@ export function EditMetadataDialog({
         name: currentName,
         description: description || `SATI Agent: ${currentName}`,
         image: `ipfs://${imageCid}`,
-        attributes: [
-          { trait_type: "Registry", value: "SATI Mainnet" },
-        ],
+        attributes: [{ trait_type: "Registry", value: "SATI Mainnet" }],
         properties: {
           category: "agent",
           files: [
@@ -142,8 +140,8 @@ export function EditMetadataDialog({
         <DialogHeader>
           <DialogTitle>Edit Agent Metadata</DialogTitle>
           <DialogDescription>
-            Upload a new image and update the metadata for {currentName}.
-            You must be the update authority to make changes.
+            Upload a new image and update the metadata for {currentName}. You must be the update authority to make
+            changes.
           </DialogDescription>
         </DialogHeader>
 
@@ -154,11 +152,7 @@ export function EditMetadataDialog({
             <div className="flex items-center gap-4">
               {imagePreview ? (
                 <div className="relative w-24 h-24 rounded-lg overflow-hidden border">
-                  <img
-                    src={imagePreview}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
                 </div>
               ) : (
                 <div className="w-24 h-24 rounded-lg border-2 border-dashed flex items-center justify-center text-muted-foreground">
@@ -166,16 +160,8 @@ export function EditMetadataDialog({
                 </div>
               )}
               <div className="flex-1">
-                <Input
-                  id="image"
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  disabled={isLoading}
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  PNG, JPG, GIF, or SVG. Max 10MB.
-                </p>
+                <Input id="image" type="file" accept="image/*" onChange={handleImageChange} disabled={isLoading} />
+                <p className="text-xs text-muted-foreground mt-1">PNG, JPG, GIF, or SVG. Max 10MB.</p>
               </div>
             </div>
           </div>
@@ -194,12 +180,7 @@ export function EditMetadataDialog({
           </div>
 
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={isLoading}
-            >
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isLoading}>
               Cancel
             </Button>
             <Button type="submit" disabled={isLoading || !session || !imageFile}>
@@ -218,11 +199,7 @@ export function EditMetadataDialog({
           </DialogFooter>
         </form>
 
-        {!session && (
-          <p className="text-sm text-amber-500 text-center">
-            Connect your wallet to update metadata
-          </p>
-        )}
+        {!session && <p className="text-sm text-amber-500 text-center">Connect your wallet to update metadata</p>}
       </DialogContent>
     </Dialog>
   );

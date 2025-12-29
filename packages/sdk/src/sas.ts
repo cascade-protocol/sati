@@ -89,8 +89,7 @@ export const VALIDATION_SCHEMA_NAME = "SATIValidation";
  */
 export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
   name: FEEDBACK_SCHEMA_NAME,
-  description:
-    "Feedback attestation with dual signatures from agent and counterparty",
+  description: "Feedback attestation with dual signatures from agent and counterparty",
   // Layout types: pubkey=7, u8=0, blob=9
   layout: [7, 7, 7, 7, 0, 0, 9, 9, 9], // task_ref, token, counter, hash, contentType, outcome, tag1, tag2, content
   fieldNames: [
@@ -115,8 +114,7 @@ export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
  */
 export const FEEDBACK_PUBLIC_SAS_SCHEMA: SASSchemaDefinition = {
   name: FEEDBACK_PUBLIC_SCHEMA_NAME,
-  description:
-    "Public feedback attestation with single agent signature (counterparty not verified)",
+  description: "Public feedback attestation with single agent signature (counterparty not verified)",
   // Same layout as Feedback
   layout: [7, 7, 7, 7, 0, 0, 9, 9, 9],
   fieldNames: [
@@ -140,8 +138,7 @@ export const FEEDBACK_PUBLIC_SAS_SCHEMA: SASSchemaDefinition = {
  */
 export const VALIDATION_SAS_SCHEMA: SASSchemaDefinition = {
   name: VALIDATION_SCHEMA_NAME,
-  description:
-    "Validation attestation with dual signatures from agent and validator",
+  description: "Validation attestation with dual signatures from agent and validator",
   // Layout types: pubkey=7, u8=0, blob=9
   layout: [7, 7, 7, 7, 0, 0, 0, 9], // task_ref, token, counter, hash, contentType, validationType, response, content
   fieldNames: [
@@ -164,18 +161,10 @@ export const VALIDATION_SAS_SCHEMA: SASSchemaDefinition = {
  */
 export const REPUTATION_SCORE_SAS_SCHEMA: SASSchemaDefinition = {
   name: REPUTATION_SCORE_SCHEMA_NAME,
-  description:
-    "Reputation score from an authorized provider for a SATI-registered agent",
+  description: "Reputation score from an authorized provider for a SATI-registered agent",
   // Layout types: pubkey=7, u8=0, blob=9
   layout: [7, 7, 7, 0, 0, 9], // task_ref, token, counter, score, contentType, content
-  fieldNames: [
-    "task_ref",
-    "token_account",
-    "counterparty",
-    "score",
-    "content_type",
-    "content",
-  ],
+  fieldNames: ["task_ref", "token_account", "counterparty", "score", "content_type", "content"],
 };
 
 /**
@@ -194,9 +183,7 @@ export const SATI_SCHEMAS = {
  * @param authority - Credential authority address
  * @returns Credential PDA and bump
  */
-export async function deriveSatiCredentialPda(
-  authority: Address,
-): Promise<readonly [Address, number]> {
+export async function deriveSatiCredentialPda(authority: Address): Promise<readonly [Address, number]> {
   return deriveCredentialPda({
     authority,
     name: SATI_CREDENTIAL_NAME,
@@ -299,10 +286,7 @@ export function getCreateSatiSchemaInstruction(params: {
  * @param tokenAccount - Agent's token account address
  * @returns Nonce as Address (base58)
  */
-export function computeReputationScoreNonce(
-  provider: Address,
-  tokenAccount: Address,
-): Address {
+export function computeReputationScoreNonce(provider: Address, tokenAccount: Address): Address {
   const data = new TextEncoder().encode(`${provider}${tokenAccount}`);
   const hash = keccak_256(data);
   return address(bs58.encode(hash));

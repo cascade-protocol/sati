@@ -52,11 +52,7 @@ const RegistrationEntrySchema = z.object({
   agentRegistry: z.string(),
 });
 
-const TrustMechanismSchema = z.enum([
-  "reputation",
-  "crypto-economic",
-  "tee-attestation",
-]);
+const TrustMechanismSchema = z.enum(["reputation", "crypto-economic", "tee-attestation"]);
 
 const RegistrationFileSchema = z.object({
   type: z.literal("https://eips.ethereum.org/EIPS/eip-8004#registration-v1"),
@@ -102,10 +98,7 @@ export interface RegistrationEntry {
 }
 
 /** Trust mechanism type */
-export type TrustMechanism =
-  | "reputation"
-  | "crypto-economic"
-  | "tee-attestation";
+export type TrustMechanism = "reputation" | "crypto-economic" | "tee-attestation";
 
 /**
  * Registration file schema (ERC-8004 + Phantom compatible)
@@ -184,9 +177,7 @@ export function inferMimeType(url: string): string {
  *
  * @throws Error if required fields are missing or invalid
  */
-export function buildRegistrationFile(
-  params: RegistrationFileParams,
-): RegistrationFile {
+export function buildRegistrationFile(params: RegistrationFileParams): RegistrationFile {
   const mimeType = params.imageMimeType ?? inferMimeType(params.image);
 
   const file = {
@@ -223,9 +214,7 @@ export function buildRegistrationFile(
  * - Validates structure, logs warnings for non-conforming files
  * - Never throws
  */
-export async function fetchRegistrationFile(
-  uri: string,
-): Promise<RegistrationFile | null> {
+export async function fetchRegistrationFile(uri: string): Promise<RegistrationFile | null> {
   if (!uri) return null;
 
   // Convert IPFS/Arweave URIs to gateway URLs
@@ -241,9 +230,7 @@ export async function fetchRegistrationFile(
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      console.warn(
-        `[SATI] Failed to fetch metadata from ${url}: ${response.status}`,
-      );
+      console.warn(`[SATI] Failed to fetch metadata from ${url}: ${response.status}`);
       return null;
     }
 
@@ -252,10 +239,7 @@ export async function fetchRegistrationFile(
 
     if (!result.success) {
       // Log validation issues but return data anyway for backwards compatibility
-      console.warn(
-        `[SATI] Registration file validation issues:`,
-        result.error.issues,
-      );
+      console.warn(`[SATI] Registration file validation issues:`, result.error.issues);
       return data as RegistrationFile;
     }
 
@@ -272,9 +256,7 @@ export async function fetchRegistrationFile(
  * Prefers properties.files (Phantom format), falls back to image field.
  * Handles IPFS/Arweave URI conversion.
  */
-export function getImageUrl(
-  file: RegistrationFile | null | undefined,
-): string | null {
+export function getImageUrl(file: RegistrationFile | null | undefined): string | null {
   if (!file) return null;
 
   // Prefer properties.files (Phantom format)
@@ -300,9 +282,6 @@ export function getImageUrl(
 /**
  * Serialize a registration file to JSON string.
  */
-export function stringifyRegistrationFile(
-  file: RegistrationFile,
-  space = 2,
-): string {
+export function stringifyRegistrationFile(file: RegistrationFile, space = 2): string {
   return JSON.stringify(file, null, space);
 }

@@ -82,11 +82,7 @@ describe("Ed25519 Core Operations", () => {
       const message = randomBytes32();
 
       const signature = signMessage(message, keypair.secretKey);
-      const isValid = verifySignature(
-        message,
-        signature,
-        keypair.publicKey.toBytes(),
-      );
+      const isValid = verifySignature(message, signature, keypair.publicKey.toBytes());
 
       expect(isValid).toBe(true);
     });
@@ -97,11 +93,7 @@ describe("Ed25519 Core Operations", () => {
       const wrongMessage = randomBytes32();
 
       const signature = signMessage(message, keypair.secretKey);
-      const isValid = verifySignature(
-        wrongMessage,
-        signature,
-        keypair.publicKey.toBytes(),
-      );
+      const isValid = verifySignature(wrongMessage, signature, keypair.publicKey.toBytes());
 
       expect(isValid).toBe(false);
     });
@@ -112,11 +104,7 @@ describe("Ed25519 Core Operations", () => {
       const message = randomBytes32();
 
       const signature = signMessage(message, keypair.secretKey);
-      const isValid = verifySignature(
-        message,
-        signature,
-        wrongKeypair.publicKey.toBytes(),
-      );
+      const isValid = verifySignature(message, signature, wrongKeypair.publicKey.toBytes());
 
       expect(isValid).toBe(false);
     });
@@ -131,11 +119,7 @@ describe("Ed25519 Core Operations", () => {
       const tamperedSig = new Uint8Array(signature);
       tamperedSig[0] ^= 0xff;
 
-      const isValid = verifySignature(
-        message,
-        tamperedSig,
-        keypair.publicKey.toBytes(),
-      );
+      const isValid = verifySignature(message, tamperedSig, keypair.publicKey.toBytes());
 
       expect(isValid).toBe(false);
     });
@@ -155,14 +139,7 @@ describe("createFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
     expect(signatures).toHaveLength(2);
   });
@@ -171,14 +148,7 @@ describe("createFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
     expect(signatures[0].pubkey).toBe(agent.address);
   });
@@ -187,14 +157,7 @@ describe("createFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
     expect(signatures[1].pubkey).toBe(counterparty.address);
   });
@@ -203,28 +166,12 @@ describe("createFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
     // Agent signs interaction hash (blind to outcome)
-    const interactionHash = computeInteractionHash(
-      sasSchema,
-      taskRef,
-      agent.address,
-      dataHash,
-    );
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, agent.address, dataHash);
 
-    const isValid = verifySignature(
-      interactionHash,
-      signatures[0].sig,
-      agent.publicKey.toBytes(),
-    );
+    const isValid = verifySignature(interactionHash, signatures[0].sig, agent.publicKey.toBytes());
 
     expect(isValid).toBe(true);
   });
@@ -234,28 +181,12 @@ describe("createFeedbackSignatures", () => {
     const counterparty = createTestKeypair(2);
     const outcome = Outcome.Positive;
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      outcome,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
 
     // Counterparty signs feedback hash (includes outcome)
-    const feedbackHash = computeFeedbackHash(
-      sasSchema,
-      taskRef,
-      agent.address,
-      outcome,
-    );
+    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agent.address, outcome);
 
-    const isValid = verifySignature(
-      feedbackHash,
-      signatures[1].sig,
-      counterparty.publicKey.toBytes(),
-    );
+    const isValid = verifySignature(feedbackHash, signatures[1].sig, counterparty.publicKey.toBytes());
 
     expect(isValid).toBe(true);
   });
@@ -264,23 +195,9 @@ describe("createFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const sigPositive = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const sigPositive = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
-    const sigNegative = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Negative,
-    );
+    const sigNegative = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Negative);
 
     // Agent signatures should be the same (blind to outcome)
     expect(sigPositive[0].sig).toEqual(sigNegative[0].sig);
@@ -300,23 +217,9 @@ describe("verifyFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      outcome,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
 
-    const result = verifyFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent.address,
-      dataHash,
-      outcome,
-      signatures,
-    );
+    const result = verifyFeedbackSignatures(sasSchema, taskRef, agent.address, dataHash, outcome, signatures);
 
     expect(result.valid).toBe(true);
     expect(result.agentValid).toBe(true);
@@ -351,26 +254,12 @@ describe("verifyFeedbackSignatures", () => {
     const agent = createTestKeypair(1);
     const counterparty = createTestKeypair(2);
 
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      outcome,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
 
     // Swap the signatures
     const swappedSigs = [signatures[1], signatures[0]];
 
-    const result = verifyFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent.address,
-      dataHash,
-      outcome,
-      swappedSigs,
-    );
+    const result = verifyFeedbackSignatures(sasSchema, taskRef, agent.address, dataHash, outcome, swappedSigs);
 
     // Both should fail because signatures are bound to wrong hashes
     expect(result.valid).toBe(false);
@@ -385,14 +274,7 @@ describe("verifyFeedbackSignatures", () => {
     const counterparty = createTestKeypair(2);
 
     // Create signatures for Positive outcome
-    const signatures = createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const signatures = createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
     // Verify with wrong outcome (Negative)
     const result = verifyFeedbackSignatures(
@@ -423,14 +305,7 @@ describe("createValidationSignatures", () => {
     const agent = createTestKeypair(1);
     const validator = createTestKeypair(2);
 
-    const signatures = createValidationSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      validator,
-      dataHash,
-      85,
-    );
+    const signatures = createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, 85);
 
     expect(signatures).toHaveLength(2);
   });
@@ -440,27 +315,11 @@ describe("createValidationSignatures", () => {
     const validator = createTestKeypair(2);
     const response = 95;
 
-    const signatures = createValidationSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      validator,
-      dataHash,
-      response,
-    );
+    const signatures = createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, response);
 
-    const validationHash = computeValidationHash(
-      sasSchema,
-      taskRef,
-      agent.address,
-      response,
-    );
+    const validationHash = computeValidationHash(sasSchema, taskRef, agent.address, response);
 
-    const isValid = verifySignature(
-      validationHash,
-      signatures[1].sig,
-      validator.publicKey.toBytes(),
-    );
+    const isValid = verifySignature(validationHash, signatures[1].sig, validator.publicKey.toBytes());
 
     expect(isValid).toBe(true);
   });
@@ -469,23 +328,9 @@ describe("createValidationSignatures", () => {
     const agent = createTestKeypair(1);
     const validator = createTestKeypair(2);
 
-    const sig0 = createValidationSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      validator,
-      dataHash,
-      0,
-    );
+    const sig0 = createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, 0);
 
-    const sig100 = createValidationSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      validator,
-      dataHash,
-      100,
-    );
+    const sig100 = createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, 100);
 
     // Agent signatures should be the same (blind)
     expect(sig0[0].sig).toEqual(sig100[0].sig);
@@ -506,12 +351,7 @@ describe("createReputationSignature", () => {
     const agent = createTestKeypair(1);
     const provider = createTestKeypair(2);
 
-    const signatures = createReputationSignature(
-      sasSchema,
-      agent.address,
-      provider,
-      75,
-    );
+    const signatures = createReputationSignature(sasSchema, agent.address, provider, 75);
 
     expect(signatures).toHaveLength(1);
     expect(signatures[0].pubkey).toBe(provider.address);
@@ -522,25 +362,11 @@ describe("createReputationSignature", () => {
     const provider = createTestKeypair(2);
     const score = 90;
 
-    const signatures = createReputationSignature(
-      sasSchema,
-      agent.address,
-      provider,
-      score,
-    );
+    const signatures = createReputationSignature(sasSchema, agent.address, provider, score);
 
-    const reputationHash = computeReputationHash(
-      sasSchema,
-      agent.address,
-      provider.address,
-      score,
-    );
+    const reputationHash = computeReputationHash(sasSchema, agent.address, provider.address, score);
 
-    const isValid = verifySignature(
-      reputationHash,
-      signatures[0].sig,
-      provider.publicKey.toBytes(),
-    );
+    const isValid = verifySignature(reputationHash, signatures[0].sig, provider.publicKey.toBytes());
 
     expect(isValid).toBe(true);
   });
@@ -549,18 +375,8 @@ describe("createReputationSignature", () => {
     const agent = createTestKeypair(1);
     const provider = createTestKeypair(2);
 
-    const sig50 = createReputationSignature(
-      sasSchema,
-      agent.address,
-      provider,
-      50,
-    );
-    const sig75 = createReputationSignature(
-      sasSchema,
-      agent.address,
-      provider,
-      75,
-    );
+    const sig50 = createReputationSignature(sasSchema, agent.address, provider, 50);
+    const sig75 = createReputationSignature(sasSchema, agent.address, provider, 75);
 
     expect(sig50[0].sig).not.toEqual(sig75[0].sig);
   });

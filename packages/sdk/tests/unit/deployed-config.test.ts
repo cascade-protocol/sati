@@ -19,9 +19,7 @@ function loadDevnetConfig(): SATISASConfig | null {
   if (!existsSync(configPath)) {
     return null;
   }
-  const config = JSON.parse(
-    readFileSync(configPath, "utf-8"),
-  ) as DeployedSASConfig;
+  const config = JSON.parse(readFileSync(configPath, "utf-8")) as DeployedSASConfig;
   return config.config;
 }
 

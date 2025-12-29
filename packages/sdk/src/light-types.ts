@@ -8,13 +8,7 @@
  */
 
 import type { Address } from "@solana/kit";
-import type {
-  CompressedAttestation,
-  FeedbackData,
-  ValidationData,
-  DataType,
-  Outcome,
-} from "./schemas";
+import type { CompressedAttestation, FeedbackData, ValidationData, DataType, Outcome } from "./schemas";
 
 // ============================================================================
 // Common Types
@@ -204,24 +198,12 @@ export interface LightClient {
   getAttestation(address: Uint8Array): Promise<ParsedAttestation | null>;
   getAttestationByAddress(address: Address): Promise<ParsedAttestation | null>;
   getAttestations(addresses: Uint8Array[]): Promise<ParsedAttestation[]>;
-  listFeedbacks(
-    filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]>;
-  listValidations(
-    filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]>;
-  listAttestations(
-    tokenAccount: Address,
-    filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]>;
-  listBySchema(
-    sasSchema: Address,
-    filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]>;
+  listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]>;
+  listValidations(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]>;
+  listAttestations(tokenAccount: Address, filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]>;
+  listBySchema(sasSchema: Address, filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]>;
   getCreationProof(address: PublicKeyLike): Promise<CreationProofResult>;
-  getMutationProof(
-    compressedAccount: CompressedAccount,
-  ): Promise<MutationProofResult>;
+  getMutationProof(compressedAccount: CompressedAccount): Promise<MutationProofResult>;
   prepareCreate(seeds: Uint8Array[]): Promise<{
     address: PublicKeyLike;
     proof: ValidityProofResult;

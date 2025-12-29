@@ -36,9 +36,7 @@ import { findSchemaConfigPda } from "../../src/helpers";
 // Constants
 // =============================================================================
 
-const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-);
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
 
@@ -72,10 +70,7 @@ function setupLiteSVM(): LiteSVM {
  * Derive registry config PDA
  */
 function deriveRegistryConfigPda(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [new TextEncoder().encode("registry")],
-    new PublicKey(SATI_PROGRAM_ADDRESS),
-  );
+  return PublicKey.findProgramAddressSync([new TextEncoder().encode("registry")], new PublicKey(SATI_PROGRAM_ADDRESS));
 }
 
 /**
@@ -151,11 +146,7 @@ function setupSchemaConfig(
 /**
  * Pre-seed a Token-2022 group mint
  */
-function setupGroupMint(
-  svm: LiteSVM,
-  mintPubkey: PublicKey,
-  mintAuthority: PublicKey,
-): void {
+function setupGroupMint(svm: LiteSVM, mintPubkey: PublicKey, mintAuthority: PublicKey): void {
   const mintData = new Uint8Array(MintLayout.span);
   MintLayout.encode(
     {
@@ -419,12 +410,7 @@ describe("Schema Config Account", () => {
   test("stores signatureMode correctly", () => {
     const sasSchema = Keypair.generate().publicKey;
 
-    setupSchemaConfig(
-      svm,
-      sasSchema,
-      GeneratedSignatureMode.SingleSigner,
-      GeneratedStorageType.Regular,
-    );
+    setupSchemaConfig(svm, sasSchema, GeneratedSignatureMode.SingleSigner, GeneratedStorageType.Regular);
 
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
     const account = svm.getAccount(schemaConfigPda);
@@ -438,13 +424,7 @@ describe("Schema Config Account", () => {
   test("stores closeable flag", () => {
     const sasSchema = Keypair.generate().publicKey;
 
-    setupSchemaConfig(
-      svm,
-      sasSchema,
-      GeneratedSignatureMode.DualSignature,
-      GeneratedStorageType.Compressed,
-      true,
-    );
+    setupSchemaConfig(svm, sasSchema, GeneratedSignatureMode.DualSignature, GeneratedStorageType.Compressed, true);
 
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
     const account = svm.getAccount(schemaConfigPda);

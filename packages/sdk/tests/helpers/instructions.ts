@@ -5,11 +5,7 @@
  * and other transaction components needed for E2E tests.
  */
 
-import {
-  PublicKey,
-  type TransactionInstruction,
-  Ed25519Program,
-} from "@solana/web3.js";
+import { PublicKey, type TransactionInstruction, Ed25519Program } from "@solana/web3.js";
 import { type Address, getAddressEncoder } from "@solana/kit";
 
 // =============================================================================
@@ -32,9 +28,7 @@ export interface Ed25519SignatureParams {
  * The SATI program verifies signatures via the Ed25519 program by
  * checking SYSVAR_INSTRUCTIONS for Ed25519 verification results.
  */
-export function buildEd25519Instruction(
-  params: Ed25519SignatureParams,
-): TransactionInstruction {
+export function buildEd25519Instruction(params: Ed25519SignatureParams): TransactionInstruction {
   return Ed25519Program.createInstructionWithPublicKey({
     publicKey: params.publicKey.toBytes(),
     message: params.message,
@@ -49,9 +43,7 @@ export function buildEd25519Instruction(
  * 1. Agent's signature on interaction hash
  * 2. Counterparty's signature on feedback/validation hash
  */
-export function buildEd25519Instructions(
-  signatures: Ed25519SignatureParams[],
-): TransactionInstruction[] {
+export function buildEd25519Instructions(signatures: Ed25519SignatureParams[]): TransactionInstruction[] {
   return signatures.map(buildEd25519Instruction);
 }
 

@@ -1,14 +1,5 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022"],
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true
-  },
-  "include": ["tests/**/*.ts"],
-  "exclude": ["node_modules", "target"]
+  "extends": "./tsconfig.options.json",
+  "files": [],
+  "references": [{ "path": "packages/sdk" }, { "path": "packages/compression-kit" }, { "path": "apps/dashboard" }]
 }

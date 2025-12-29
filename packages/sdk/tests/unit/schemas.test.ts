@@ -86,9 +86,7 @@ describe("ValidationType Enum", () => {
 // =============================================================================
 
 describe("Feedback Serialization", () => {
-  const createFeedbackData = (
-    overrides?: Partial<FeedbackData>,
-  ): FeedbackData => ({
+  const createFeedbackData = (overrides?: Partial<FeedbackData>): FeedbackData => ({
     taskRef: randomBytes(32),
     tokenAccount: randomAddress(),
     counterparty: randomAddress(),
@@ -143,11 +141,7 @@ describe("Feedback Serialization", () => {
   });
 
   test("serializes all outcome values", () => {
-    for (const outcome of [
-      Outcome.Negative,
-      Outcome.Neutral,
-      Outcome.Positive,
-    ]) {
+    for (const outcome of [Outcome.Negative, Outcome.Neutral, Outcome.Positive]) {
       const feedback = createFeedbackData({ outcome });
       const serialized = serializeFeedback(feedback);
       const deserialized = deserializeFeedback(serialized);
@@ -168,9 +162,7 @@ describe("Feedback Serialization", () => {
 // =============================================================================
 
 describe("Validation Serialization", () => {
-  const createValidationData = (
-    overrides?: Partial<ValidationData>,
-  ): ValidationData => ({
+  const createValidationData = (overrides?: Partial<ValidationData>): ValidationData => ({
     taskRef: randomBytes(32),
     tokenAccount: randomAddress(),
     counterparty: randomAddress(),
@@ -234,9 +226,7 @@ describe("Validation Serialization", () => {
 // =============================================================================
 
 describe("ReputationScore Serialization", () => {
-  const createReputationScoreData = (
-    overrides?: Partial<ReputationScoreData>,
-  ): ReputationScoreData => ({
+  const createReputationScoreData = (overrides?: Partial<ReputationScoreData>): ReputationScoreData => ({
     taskRef: randomBytes(32),
     tokenAccount: randomAddress(),
     counterparty: randomAddress(),

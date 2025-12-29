@@ -18,11 +18,7 @@ const sizeClasses = {
   lg: "h-16 w-16",
 };
 
-export function AgentAvatar({
-  name,
-  size = "md",
-  className,
-}: AgentAvatarProps) {
+export function AgentAvatar({ name, size = "md", className }: AgentAvatarProps) {
   return (
     <div
       className={cn(
@@ -31,11 +27,7 @@ export function AgentAvatar({
         className,
       )}
     >
-      <img
-        src="/water-wave-cascade.svg"
-        alt={name}
-        className="h-full w-full object-cover p-1"
-      />
+      <img src="/water-wave-cascade.svg" alt={name} className="h-full w-full object-cover p-1" />
     </div>
   );
 }

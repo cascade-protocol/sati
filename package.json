@@ -3,6 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "pnpm": {
+    "overrides": {
+      "ws": "8.18.3",
+      "@solana/sysvars": "5.1.0",
+      "@solana-program/compute-budget": "0.11.0",
+      "@solana-program/token": "0.9.0",
+      "@solana-program/token-2022": "0.6.1"
+    },
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "@solana/kit": "5",
+        "@solana-program/compute-budget>@solana/kit": "*",
+        "@solana-program/token>@solana/kit": "*",
+        "@solana-program/token-2022>@solana/kit": "*",
+        "@cloudflare/vite-plugin>wrangler": "4"
+      },
+      "ignoreMissing": [
+        "@solana/sysvars"
+      ]
+    }
+  },
   "scripts": {
     "localnet": "light test-validator",
     "localnet:init": "cd packages/sdk && pnpm tsx scripts/deploy-and-initialize.ts",
@@ -40,6 +61,6 @@
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.10.1",
     "typescript": "^5.7.3",
-    "vitest": "^4.0.12"
+    "vitest": "4.0.16"
   }
 }

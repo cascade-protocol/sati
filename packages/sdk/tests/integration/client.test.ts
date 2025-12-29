@@ -32,9 +32,7 @@ import { findRegistryConfigPda } from "../../src/helpers";
 // Constants
 // =============================================================================
 
-const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-);
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 // =============================================================================
 // Test Utilities
@@ -66,20 +64,14 @@ function setupLiteSVM(): LiteSVM {
  * Derive registry config PDA using web3.js
  */
 function deriveRegistryConfigPda(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("registry")],
-    new PublicKey(SATI_PROGRAM_ADDRESS),
-  );
+  return PublicKey.findProgramAddressSync([Buffer.from("registry")], new PublicKey(SATI_PROGRAM_ADDRESS));
 }
 
 /**
  * Derive group mint PDA
  */
 function deriveGroupMintPda(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("group_mint")],
-    new PublicKey(SATI_PROGRAM_ADDRESS),
-  );
+  return PublicKey.findProgramAddressSync([Buffer.from("group_mint")], new PublicKey(SATI_PROGRAM_ADDRESS));
 }
 
 /**
@@ -114,11 +106,7 @@ function setupRegistryConfig(
 /**
  * Pre-seed a Token-2022 group mint (simplified - just the base mint data)
  */
-function setupGroupMint(
-  svm: LiteSVM,
-  mintPubkey: PublicKey,
-  mintAuthority: PublicKey,
-): void {
+function setupGroupMint(svm: LiteSVM, mintPubkey: PublicKey, mintAuthority: PublicKey): void {
   // For testing purposes, we use a simplified mint structure
   // In production, this would include GroupPointer and TokenGroup extensions
   const mintData = Buffer.alloc(MintLayout.span);
@@ -165,19 +153,13 @@ describe("SDK: Registry Config Encoder", () => {
     expect(data.length).toBe(81);
 
     // Verify discriminator
-    expect(Buffer.from(data.slice(0, 8))).toEqual(
-      Buffer.from(REGISTRY_CONFIG_DISCRIMINATOR),
-    );
+    expect(Buffer.from(data.slice(0, 8))).toEqual(Buffer.from(REGISTRY_CONFIG_DISCRIMINATOR));
 
     // Verify groupMint at offset 8
-    expect(Buffer.from(data.slice(8, 40))).toEqual(
-      Buffer.from(groupMint.toBytes()),
-    );
+    expect(Buffer.from(data.slice(8, 40))).toEqual(Buffer.from(groupMint.toBytes()));
 
     // Verify authority at offset 40
-    expect(Buffer.from(data.slice(40, 72))).toEqual(
-      Buffer.from(authority.toBytes()),
-    );
+    expect(Buffer.from(data.slice(40, 72))).toEqual(Buffer.from(authority.toBytes()));
 
     // Verify totalAgents at offset 72 (u64 LE)
     const totalAgents = Buffer.from(data.slice(72, 80)).readBigUInt64LE();
@@ -286,12 +268,7 @@ describe("SDK: LiteSVM Integration", () => {
 
   test("fetches pre-seeded registry config", () => {
     const groupMint = Keypair.generate().publicKey;
-    const registryPda = setupRegistryConfig(
-      svm,
-      groupMint,
-      authority.publicKey,
-      100n,
-    );
+    const registryPda = setupRegistryConfig(svm, groupMint, authority.publicKey, 100n);
 
     // Fetch and decode
     const account = svm.getAccount(registryPda);

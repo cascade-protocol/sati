@@ -1,0 +1,59 @@
+{
+  "name": "@cascade-fyi/compression-kit",
+  "version": "0.1.0",
+  "description": "Solana Kit native implementation of Light Protocol stateless.js - portable, edge-compatible",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "type-check": "tsc --noEmit",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "check": "pnpm run \"/^(type-check|lint:fix)$/\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "solana",
+    "light-protocol",
+    "zk-compression",
+    "compressed-accounts",
+    "edge-compatible",
+    "cloudflare-workers",
+    "solana-kit"
+  ],
+  "author": "Cascade",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@noble/hashes": "^2.0.1",
+    "@solana/kit": "^5.1.0",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "tsdown": "^0.18.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

@@ -17,31 +17,11 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
-import {
-  Connection,
-  Keypair,
-  LAMPORTS_PER_SOL,
-  PublicKey,
-} from "@solana/web3.js";
-import {
-  address,
-  createKeyPairSignerFromBytes,
-  type KeyPairSigner,
-  type Address,
-} from "@solana/kit";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { address, createKeyPairSignerFromBytes, type KeyPairSigner, type Address } from "@solana/kit";
 import { SATI } from "../../src";
-import {
-  computeInteractionHash,
-  computeFeedbackHash,
-  computeAttestationNonce,
-  Outcome,
-} from "../../src/hashes";
-import {
-  DataType,
-  ContentType,
-  SignatureMode,
-  StorageType,
-} from "../../src/schemas";
+import { computeInteractionHash, computeFeedbackHash, computeAttestationNonce, Outcome } from "../../src/hashes";
+import { DataType, ContentType, SignatureMode, StorageType } from "../../src/schemas";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
 
 // Import test helpers
@@ -100,10 +80,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
 
     // Create payer keypair and fund it
     const payerKp = Keypair.generate();
-    const airdropSig = await connection.requestAirdrop(
-      payerKp.publicKey,
-      10 * LAMPORTS_PER_SOL,
-    );
+    const airdropSig = await connection.requestAirdrop(payerKp.publicKey, 10 * LAMPORTS_PER_SOL);
     await connection.confirmTransaction(airdropSig, "confirmed");
     payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
 
@@ -112,9 +89,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
     counterpartyKeypair = createTestKeypair(101);
 
     agentOwner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    counterpartySigner = await createKeyPairSignerFromBytes(
-      counterpartyKeypair.secretKey,
-    );
+    counterpartySigner = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
 
     // Generate SAS schema address
     sasSchema = address(Keypair.generate().publicKey.toBase58());
@@ -281,18 +256,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const dataHash = randomBytes32();
 
         // Agent signs both roles (self-attestation)
-        const interactionHash = computeInteractionHash(
-          sasSchema,
-          taskRef,
-          agentKeypair.address,
-          dataHash,
-        );
-        const feedbackHash = computeFeedbackHash(
-          sasSchema,
-          taskRef,
-          agentKeypair.address,
-          Outcome.Positive,
-        );
+        const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
+        const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agentKeypair.address, Outcome.Positive);
 
         const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
         // Agent signs as counterparty too!
@@ -507,19 +472,9 @@ describe("E2E: Multiple Feedbacks Flow", () => {
       const counterparty2 = createTestKeypair(401);
 
       // Compute nonces for each (task, agent, counterparty) tuple
-      const nonce1 = computeAttestationNonce(
-        taskRef,
-        sasSchema,
-        agentKeypair.address,
-        counterparty1.address,
-      );
+      const nonce1 = computeAttestationNonce(taskRef, sasSchema, agentKeypair.address, counterparty1.address);
 
-      const nonce2 = computeAttestationNonce(
-        taskRef,
-        sasSchema,
-        agentKeypair.address,
-        counterparty2.address,
-      );
+      const nonce2 = computeAttestationNonce(taskRef, sasSchema, agentKeypair.address, counterparty2.address);
 
       // Same task and agent, different counterparty = different address
       expect(nonce1).not.toEqual(nonce2);
@@ -533,19 +488,9 @@ describe("E2E: Multiple Feedbacks Flow", () => {
       const taskRef = randomBytes32();
       const counterparty = createTestKeypair(500);
 
-      const nonce1 = computeAttestationNonce(
-        taskRef,
-        sasSchema,
-        agentKeypair.address,
-        counterparty.address,
-      );
+      const nonce1 = computeAttestationNonce(taskRef, sasSchema, agentKeypair.address, counterparty.address);
 
-      const nonce2 = computeAttestationNonce(
-        taskRef,
-        sasSchema,
-        agentKeypair.address,
-        counterparty.address,
-      );
+      const nonce2 = computeAttestationNonce(taskRef, sasSchema, agentKeypair.address, counterparty.address);
 
       // Same inputs = same nonce (deterministic)
       expect(nonce1).toEqual(nonce2);
@@ -641,24 +586,12 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       const dataHash = randomBytes32();
 
       // Counterparty tries to sign as agent
-      const interactionHash = computeInteractionHash(
-        sasSchema,
-        taskRef,
-        agentKeypair.address,
-        dataHash,
-      );
+      const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
 
-      const forgedSig = signMessage(
-        interactionHash,
-        counterpartyKeypair.secretKey,
-      );
+      const forgedSig = signMessage(interactionHash, counterpartyKeypair.secretKey);
 
       // Forged signature should fail verification against agent's public key
-      const isValid = verifySignature(
-        interactionHash,
-        forgedSig,
-        agentKeypair.publicKey.toBytes(),
-      );
+      const isValid = verifySignature(interactionHash, forgedSig, agentKeypair.publicKey.toBytes());
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,

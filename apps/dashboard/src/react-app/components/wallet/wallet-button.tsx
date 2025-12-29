@@ -15,14 +15,11 @@ import {
  * Solana wallet button using framework-kit's useWalletConnection hook.
  */
 export function WalletButton() {
-  const { connect, disconnect, connectors, connecting, connected, wallet } =
-    useWalletConnection();
+  const { connect, disconnect, connectors, connecting, connected, wallet } = useWalletConnection();
   const [copied, setCopied] = useState(false);
 
   const address = wallet?.account.address ?? "";
-  const shortAddress = address
-    ? `${address.slice(0, 4)}...${address.slice(-4)}`
-    : "";
+  const shortAddress = address ? `${address.slice(0, 4)}...${address.slice(-4)}` : "";
 
   const copyAddress = useCallback(async () => {
     if (!address) return;
@@ -43,17 +40,8 @@ export function WalletButton() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {connectors.map((connector) => (
-            <DropdownMenuItem
-              key={connector.id}
-              onClick={() => connect(connector.id)}
-            >
-              {connector.icon && (
-                <img
-                  src={connector.icon}
-                  alt={connector.name}
-                  className="h-4 w-4"
-                />
-              )}
+            <DropdownMenuItem key={connector.id} onClick={() => connect(connector.id)}>
+              {connector.icon && <img src={connector.icon} alt={connector.name} className="h-4 w-4" />}
               {connector.name}
             </DropdownMenuItem>
           ))}
@@ -73,11 +61,7 @@ export function WalletButton() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem onClick={copyAddress}>
-          {copied ? (
-            <Check className="h-4 w-4 text-green-500" />
-          ) : (
-            <Copy className="h-4 w-4" />
-          )}
+          {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
           {copied ? "Copied!" : "Copy Address"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />

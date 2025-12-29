@@ -40,23 +40,16 @@ export function Dashboard() {
       <main className="flex-1 container mx-auto px-4 py-6 md:py-8 max-w-4xl">
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              My Profile
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Your registered agents and submitted feedbacks
-            </p>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">My Profile</h1>
+            <p className="text-sm text-muted-foreground mt-1">Your registered agents and submitted feedbacks</p>
           </div>
 
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12 text-center">
               <Wallet className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">
-                Connect Your Wallet
-              </h3>
+              <h3 className="text-lg font-semibold mb-2">Connect Your Wallet</h3>
               <p className="text-sm text-muted-foreground max-w-sm">
-                Connect your Solana wallet to view and manage your registered
-                agents.
+                Connect your Solana wallet to view and manage your registered agents.
               </p>
             </CardContent>
           </Card>
@@ -70,12 +63,8 @@ export function Dashboard() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              My Profile
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Your registered agents and submitted feedbacks
-            </p>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">My Profile</h1>
+            <p className="text-sm text-muted-foreground mt-1">Your registered agents and submitted feedbacks</p>
           </div>
           <Button onClick={() => setRegisterDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -92,9 +81,7 @@ export function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{myAgents.length}</div>
-              <p className="text-xs text-muted-foreground">
-                Registered in your wallet
-              </p>
+              <p className="text-xs text-muted-foreground">Registered in your wallet</p>
             </CardContent>
           </Card>
           <Card>
@@ -104,9 +91,7 @@ export function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{myFeedbacks.length}</div>
-              <p className="text-xs text-muted-foreground">
-                Feedbacks you've submitted
-              </p>
+              <p className="text-xs text-muted-foreground">Feedbacks you've submitted</p>
             </CardContent>
           </Card>
           <Card>
@@ -115,12 +100,8 @@ export function Dashboard() {
               <Bot className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {totalAgents.toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Agents in SATI registry
-              </p>
+              <div className="text-2xl font-bold">{totalAgents.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">Agents in SATI registry</p>
             </CardContent>
           </Card>
         </div>
@@ -164,10 +145,10 @@ export function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {myFeedbacks.map((feedback, idx) => {
+                    {myFeedbacks.map((feedback) => {
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
                       return (
-                        <tr key={idx} className="border-b">
+                        <tr key={feedback.hash} className="border-b">
                           <td className="py-4 pr-4">
                             <code className="text-sm">{truncateAddress(feedback.feedback.tokenAccount)}</code>
                           </td>
@@ -188,10 +169,7 @@ export function Dashboard() {
         </Card>
       </div>
 
-      <RegisterAgentDialog
-        open={registerDialogOpen}
-        onOpenChange={setRegisterDialogOpen}
-      />
+      <RegisterAgentDialog open={registerDialogOpen} onOpenChange={setRegisterDialogOpen} />
     </main>
   );
 }

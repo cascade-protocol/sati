@@ -19,12 +19,7 @@ import {
   REPUTATION_SCHEMA_NAME,
   REPUTATION_SCHEMA_VERSION,
 } from "../../src/sas-pdas";
-import {
-  SATI_CREDENTIAL_NAME,
-  deriveCredentialPda,
-  deriveSchemaPda,
-  deriveAttestationPda,
-} from "../../src/sas";
+import { SATI_CREDENTIAL_NAME, deriveCredentialPda, deriveSchemaPda, deriveAttestationPda } from "../../src/sas";
 
 // =============================================================================
 // Test Utilities
@@ -46,9 +41,7 @@ function randomBytes32(): Uint8Array {
 
 describe("SAS PDA Constants", () => {
   test("SAS program address is valid base58", () => {
-    expect(SAS_PROGRAM_ADDRESS).toBe(
-      "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG",
-    );
+    expect(SAS_PROGRAM_ADDRESS).toBe("22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG");
   });
 
   test("SATI credential name is correct", () => {
@@ -182,12 +175,8 @@ describe("deriveReputationAttestationPda", () => {
     const shortNonce = new Uint8Array(16);
     const longNonce = new Uint8Array(64);
 
-    await expect(deriveReputationAttestationPda(shortNonce)).rejects.toThrow(
-      "Nonce must be 32 bytes",
-    );
-    await expect(deriveReputationAttestationPda(longNonce)).rejects.toThrow(
-      "Nonce must be 32 bytes",
-    );
+    await expect(deriveReputationAttestationPda(shortNonce)).rejects.toThrow("Nonce must be 32 bytes");
+    await expect(deriveReputationAttestationPda(longNonce)).rejects.toThrow("Nonce must be 32 bytes");
   });
 });
 

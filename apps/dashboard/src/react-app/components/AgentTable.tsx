@@ -6,12 +6,7 @@ import { useNavigate } from "react-router";
 import { Copy, ExternalLink, Loader2 } from "lucide-react";
 import type { AgentIdentity } from "@cascade-fyi/sati-sdk";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { truncateAddress, formatMemberNumber, getSolscanUrl } from "@/lib/sati";
@@ -22,11 +17,7 @@ interface AgentTableProps {
   emptyMessage?: string;
 }
 
-export function AgentTable({
-  agents,
-  isLoading,
-  emptyMessage = "No agents found",
-}: AgentTableProps) {
+export function AgentTable({ agents, isLoading, emptyMessage = "No agents found" }: AgentTableProps) {
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -38,11 +29,7 @@ export function AgentTable({
   }
 
   if (agents.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        {emptyMessage}
-      </div>
-    );
+    return <div className="flex items-center justify-center py-12 text-muted-foreground">{emptyMessage}</div>;
   }
 
   return (
@@ -58,11 +45,7 @@ export function AgentTable({
         </thead>
         <tbody>
           {agents.map((agent) => (
-            <AgentRow
-              key={agent.mint}
-              agent={agent}
-              onClick={() => navigate(`/agent/${agent.mint}`)}
-            />
+            <AgentRow key={agent.mint} agent={agent} onClick={() => navigate(`/agent/${agent.mint}`)} />
           ))}
         </tbody>
       </table>
@@ -80,10 +63,7 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
   const { copyToClipboard: copyOwner, isCopied: ownerCopied } = useCopyToClipboard();
 
   return (
-    <tr
-      className="border-b cursor-pointer hover:bg-muted/50 transition-colors"
-      onClick={onClick}
-    >
+    <tr className="border-b cursor-pointer hover:bg-muted/50 transition-colors" onClick={onClick}>
       <td className="py-4 pr-4">
         <div className="flex items-center gap-3">
           <AgentAvatar name={agent.name} size="sm" />
@@ -108,9 +88,7 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
                   <Copy className={`h-3 w-3 ${mintCopied ? "text-green-500" : ""}`} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                {mintCopied ? "Copied!" : "Copy mint address"}
-              </TooltipContent>
+              <TooltipContent>{mintCopied ? "Copied!" : "Copy mint address"}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
           <a
@@ -142,17 +120,13 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
                   <Copy className={`h-3 w-3 ${ownerCopied ? "text-green-500" : ""}`} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                {ownerCopied ? "Copied!" : "Copy owner address"}
-              </TooltipContent>
+              <TooltipContent>{ownerCopied ? "Copied!" : "Copy owner address"}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
       </td>
       <td className="py-4 text-right">
-        <span className="text-muted-foreground">
-          {formatMemberNumber(agent.memberNumber)}
-        </span>
+        <span className="text-muted-foreground">{formatMemberNumber(agent.memberNumber)}</span>
       </td>
     </tr>
   );

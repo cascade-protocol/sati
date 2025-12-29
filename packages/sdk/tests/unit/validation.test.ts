@@ -66,11 +66,7 @@ describe("buildFeedbackData", () => {
     });
 
     test("all outcome values at offset 129", () => {
-      for (const outcome of [
-        Outcome.Negative,
-        Outcome.Neutral,
-        Outcome.Positive,
-      ]) {
+      for (const outcome of [Outcome.Negative, Outcome.Neutral, Outcome.Positive]) {
         const data = buildFeedbackData({
           ...baseParams,
           outcome,

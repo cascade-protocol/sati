@@ -22,9 +22,7 @@ export function RootLayout() {
             <span className="text-xs">&copy; 2025</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs bg-muted px-2 py-0.5 rounded">
-              Solana Devnet
-            </span>
+            <span className="text-xs bg-muted px-2 py-0.5 rounded">Solana Devnet</span>
           </div>
         </div>
       </footer>

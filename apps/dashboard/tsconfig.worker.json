@@ -1,8 +1,23 @@
 {
-  "extends": "./tsconfig.node.json",
+  "extends": "../../tsconfig.options.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
-    "types": ["./worker-configuration.d.ts"]
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "types": ["./worker-configuration.d.ts"],
+    "noEmit": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@cascade-fyi/sati-sdk": ["../../packages/sdk/src/index.ts"],
+      "@cascade-fyi/sati-sdk/*": ["../../packages/sdk/src/*"]
+    }
   },
-  "include": ["src/worker"]
+  "include": ["src/worker"],
+  "references": [{ "path": "../../packages/sdk" }]
 }

@@ -14,13 +14,7 @@
  */
 import { describe, test, expect, beforeAll } from "vitest";
 import { Connection, PublicKey } from "@solana/web3.js";
-import {
-  createRpc,
-  selectStateTreeInfo,
-  TreeType,
-  bn,
-  type Rpc,
-} from "@lightprotocol/stateless.js";
+import { createRpc, selectStateTreeInfo, TreeType, bn, type Rpc } from "@lightprotocol/stateless.js";
 
 // =============================================================================
 // Configuration
@@ -43,9 +37,7 @@ function getHeliusApiKey(): string | undefined {
 function getRpcUrl(cluster: Cluster): string {
   const apiKey = getHeliusApiKey();
   if (!apiKey) {
-    throw new Error(
-      "HELIUS_API_KEY environment variable required for Light Protocol smoke tests",
-    );
+    throw new Error("HELIUS_API_KEY environment variable required for Light Protocol smoke tests");
   }
 
   return cluster === "mainnet"
@@ -58,22 +50,14 @@ function getRpcUrl(cluster: Cluster): string {
 // =============================================================================
 
 // Light Protocol V1 Address Tree (mainnet-compatible)
-const V1_ADDRESS_TREE = new PublicKey(
-  "amt1Ayt45jfbdw5YSo7iz6WZxUmnZsQTYXy82hVwyC2",
-);
-const V1_ADDRESS_QUEUE = new PublicKey(
-  "aq1S9z4reTSQAdgWHGD2zDaS39sjGrAxbR31vxJ2F4F",
-);
+const V1_ADDRESS_TREE = new PublicKey("amt1Ayt45jfbdw5YSo7iz6WZxUmnZsQTYXy82hVwyC2");
+const V1_ADDRESS_QUEUE = new PublicKey("aq1S9z4reTSQAdgWHGD2zDaS39sjGrAxbR31vxJ2F4F");
 
 // Light System Program
-const LIGHT_SYSTEM_PROGRAM = new PublicKey(
-  "SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7",
-);
+const LIGHT_SYSTEM_PROGRAM = new PublicKey("SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7");
 
 // SATI Program ID
-const SATI_PROGRAM_ID = new PublicKey(
-  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
-);
+const SATI_PROGRAM_ID = new PublicKey("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 // =============================================================================
 // Smoke Tests
@@ -85,9 +69,7 @@ describe("light-protocol: smoke tests", () => {
   let connection: Connection;
 
   beforeAll(() => {
-    console.log(
-      `\n  Running Light Protocol smoke tests on ${cluster.toUpperCase()}\n`,
-    );
+    console.log(`\n  Running Light Protocol smoke tests on ${cluster.toUpperCase()}\n`);
 
     const rpcUrl = getRpcUrl(cluster);
     rpc = createRpc(rpcUrl);
@@ -192,9 +174,7 @@ describe("light-protocol: smoke tests", () => {
       expect(accountInfo).not.toBeNull();
       expect(accountInfo?.executable).toBe(true);
 
-      console.log(
-        `    Light System Program: ${LIGHT_SYSTEM_PROGRAM.toBase58()}`,
-      );
+      console.log(`    Light System Program: ${LIGHT_SYSTEM_PROGRAM.toBase58()}`);
     });
   });
 
@@ -253,9 +233,7 @@ describe("light-protocol: smoke tests", () => {
       expect(proofResult.rootIndices).toBeDefined();
 
       console.log(`    Validity proof obtained for random address`);
-      console.log(
-        `    Proof size: ${JSON.stringify(proofResult.compressedProof).length} chars`,
-      );
+      console.log(`    Proof size: ${JSON.stringify(proofResult.compressedProof).length} chars`);
     });
   });
 });

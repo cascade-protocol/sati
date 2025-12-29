@@ -226,10 +226,7 @@ export function computeAttestationNonce(
  * @param tokenAccount - Agent's token account address
  * @returns 32-byte keccak256 nonce
  */
-export function computeReputationNonce(
-  provider: Address,
-  tokenAccount: Address,
-): Uint8Array {
+export function computeReputationNonce(provider: Address, tokenAccount: Address): Uint8Array {
   const data = new Uint8Array(32 + 32); // provider + tokenAccount
 
   data.set(addressToBytes(provider), 0);

@@ -11,20 +11,12 @@
  */
 
 import { useState, type ReactNode } from "react";
-import {
-  useClusterState,
-  useSolanaClient,
-  useWalletSession,
-} from "@solana/react-hooks";
+import { useClusterState, useSolanaClient, useWalletSession } from "@solana/react-hooks";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { type Address, type Rpc, type SolanaRpcApi } from "@solana/kit";
+import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import {
-  Outcome,
-  findAssociatedTokenAddress,
-  loadDeployedConfig,
-} from "@cascade-fyi/sati-sdk";
+import { type Outcome, findAssociatedTokenAddress, loadDeployedConfig } from "@cascade-fyi/sati-sdk";
 import { createPaymentClient } from "@/lib/x402";
 import { getNetwork } from "@/lib/network";
 
@@ -107,13 +99,7 @@ function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
-export function GiveFeedbackDialog({
-  agentMint,
-  agentOwner,
-  agentName,
-  children,
-  onSuccess,
-}: GiveFeedbackDialogProps) {
+export function GiveFeedbackDialog({ agentMint, agentOwner, agentName, children, onSuccess }: GiveFeedbackDialogProps) {
   const [open, setOpen] = useState(false);
   const [outcome, setOutcome] = useState<string>("2"); // Default to Positive
   const queryClient = useQueryClient();
@@ -124,17 +110,13 @@ export function GiveFeedbackDialog({
   const feedbackMutation = useMutation({
     mutationFn: async (selectedOutcome: Outcome) => {
       if (!session) throw new Error("Wallet not connected");
-      if (!FEEDBACK_SCHEMA_ADDRESS)
-        throw new Error("Feedback schema not configured");
+      if (!FEEDBACK_SCHEMA_ADDRESS) throw new Error("Feedback schema not configured");
 
       const toastId = toast.loading("Processing payment...");
 
       try {
         // 1. Derive agent's token account
-        const [tokenAccount] = await findAssociatedTokenAddress(
-          agentMint,
-          agentOwner,
-        );
+        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner);
 
         // 2. Generate random taskRef and dataHash
         const taskRef = crypto.getRandomValues(new Uint8Array(32));
@@ -228,16 +210,12 @@ export function GiveFeedbackDialog({
           messageBytes: txMessageBytes as Uint8Array & {
             readonly __brand: unique symbol;
           },
-          signatures: Object.fromEntries(
-            buildResult.data.signers.map((signer) => [signer, null]),
-          ),
+          signatures: Object.fromEntries(buildResult.data.signers.map((signer) => [signer, null])),
           lifetimeConstraint: {
             blockhash: buildResult.data.blockhash as string & {
               readonly __brand: unique symbol;
             },
-            lastValidBlockHeight: BigInt(
-              buildResult.data.lastValidBlockHeight,
-            ),
+            lastValidBlockHeight: BigInt(buildResult.data.lastValidBlockHeight),
           },
         };
 
@@ -249,9 +227,7 @@ export function GiveFeedbackDialog({
         }
 
         console.log("[Feedback] Requesting wallet signature...");
-        const signedTransaction = await session.signTransaction(
-          unsignedTransaction as never,
-        );
+        const signedTransaction = await session.signTransaction(unsignedTransaction as never);
         console.log("[Feedback] Transaction signed");
 
         // Send via RPC directly (bypassing wallet adapter's sendTransaction)
@@ -270,9 +246,7 @@ export function GiveFeedbackDialog({
         // Solana wire format: [num_signatures, ...signatures, message_bytes]
         const signaturesArray = Object.values(signedTx.signatures);
         const numSigs = signaturesArray.length;
-        const wireBytes = new Uint8Array(
-          1 + numSigs * 64 + signedTx.messageBytes.length,
-        );
+        const wireBytes = new Uint8Array(1 + numSigs * 64 + signedTx.messageBytes.length);
         wireBytes[0] = numSigs;
         for (let i = 0; i < numSigs; i++) {
           wireBytes.set(signaturesArray[i], 1 + i * 64);
@@ -283,25 +257,19 @@ export function GiveFeedbackDialog({
         const txBase64 = btoa(String.fromCharCode(...wireBytes));
 
         console.log("[Feedback] Sending via RPC...");
-        let txSignature;
-        try {
-          txSignature = await rpc
-            .sendTransaction(txBase64 as never, {
-              encoding: "base64",
-              skipPreflight: false,
-              preflightCommitment: "confirmed",
-            })
-            .send();
-          console.log("[Feedback] Transaction sent:", txSignature);
-        } catch (sendError) {
-          console.error("[Feedback] RPC send failed:", sendError);
-          throw sendError;
-        }
+        const txSignature = await rpc
+          .sendTransaction(txBase64 as never, {
+            encoding: "base64",
+            skipPreflight: false,
+            preflightCommitment: "confirmed",
+          })
+          .send();
+        console.log("[Feedback] Transaction sent:", txSignature);
 
         toast.success("Feedback submitted!", { id: toastId });
         return {
           address: buildResult.data.attestationAddress as Address,
-          signature: txSignature!.toString(),
+          signature: txSignature.toString(),
         };
       } catch (error) {
         toast.dismiss(toastId);
@@ -334,45 +302,33 @@ export function GiveFeedbackDialog({
         <DialogHeader>
           <DialogTitle>Give Feedback</DialogTitle>
           <DialogDescription>
-            Submit feedback for <span className="font-medium">{agentName}</span>
-            . This requires a small x402 payment (0.01 USDC).
+            Submit feedback for <span className="font-medium">{agentName}</span>. This requires a small x402 payment
+            (0.01 USDC).
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-4">
-          <Label className="mb-3 block text-sm font-medium">
-            How was your experience?
-          </Label>
-          <RadioGroup
-            value={outcome}
-            onValueChange={setOutcome}
-            className="flex flex-col gap-3"
-          >
+          <Label className="mb-3 block text-sm font-medium">How was your experience?</Label>
+          <RadioGroup value={outcome} onValueChange={setOutcome} className="flex flex-col gap-3">
             <div className="flex items-center space-x-3">
               <RadioGroupItem value="2" id="positive" />
               <Label htmlFor="positive" className="flex items-center gap-2">
                 <span className="text-green-500">Positive</span>
-                <span className="text-muted-foreground text-sm">
-                  - Agent was helpful
-                </span>
+                <span className="text-muted-foreground text-sm">- Agent was helpful</span>
               </Label>
             </div>
             <div className="flex items-center space-x-3">
               <RadioGroupItem value="1" id="neutral" />
               <Label htmlFor="neutral" className="flex items-center gap-2">
                 <span className="text-yellow-500">Neutral</span>
-                <span className="text-muted-foreground text-sm">
-                  - Neither good nor bad
-                </span>
+                <span className="text-muted-foreground text-sm">- Neither good nor bad</span>
               </Label>
             </div>
             <div className="flex items-center space-x-3">
               <RadioGroupItem value="0" id="negative" />
               <Label htmlFor="negative" className="flex items-center gap-2">
                 <span className="text-red-500">Negative</span>
-                <span className="text-muted-foreground text-sm">
-                  - Had issues
-                </span>
+                <span className="text-muted-foreground text-sm">- Had issues</span>
               </Label>
             </div>
           </RadioGroup>

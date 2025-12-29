@@ -38,21 +38,14 @@ export interface TestKeypair {
 /**
  * Sign a message with Ed25519 using tweetnacl
  */
-export function signMessage(
-  message: Uint8Array,
-  secretKey: Uint8Array,
-): Uint8Array {
+export function signMessage(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
   return nacl.sign.detached(message, secretKey);
 }
 
 /**
  * Verify an Ed25519 signature
  */
-export function verifySignature(
-  message: Uint8Array,
-  signature: Uint8Array,
-  publicKey: Uint8Array,
-): boolean {
+export function verifySignature(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
   return nacl.sign.detached.verify(message, signature, publicKey);
 }
 
@@ -97,26 +90,13 @@ export function createFeedbackSignatures(
   outcome: Outcome,
 ): SignatureData[] {
   // Agent signs interaction hash (blind - doesn't know outcome)
-  const interactionHash = computeInteractionHash(
-    sasSchema,
-    taskRef,
-    agentKeypair.address,
-    dataHash,
-  );
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
   // Counterparty signs feedback hash (includes outcome)
   // On-chain program verifies against raw 32-byte hash
-  const feedbackHash = computeFeedbackHash(
-    sasSchema,
-    taskRef,
-    agentKeypair.address,
-    outcome,
-  );
-  const counterpartySig = signMessage(
-    feedbackHash,
-    counterpartyKeypair.secretKey,
-  );
+  const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agentKeypair.address, outcome);
+  const counterpartySig = signMessage(feedbackHash, counterpartyKeypair.secretKey);
 
   return [
     { pubkey: agentKeypair.address, sig: agentSig },
@@ -140,19 +120,9 @@ export function verifyFeedbackSignatures(
     return { valid: false, agentValid: false, counterpartyValid: false };
   }
 
-  const interactionHash = computeInteractionHash(
-    sasSchema,
-    taskRef,
-    tokenAccount,
-    dataHash,
-  );
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
 
-  const feedbackHash = computeFeedbackHash(
-    sasSchema,
-    taskRef,
-    tokenAccount,
-    outcome,
-  );
+  const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
 
   const encoder = getAddressEncoder();
 
@@ -194,21 +164,11 @@ export function createValidationSignatures(
   response: number,
 ): SignatureData[] {
   // Agent signs interaction hash (blind)
-  const interactionHash = computeInteractionHash(
-    sasSchema,
-    taskRef,
-    agentKeypair.address,
-    dataHash,
-  );
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
   // Validator signs validation hash (includes response)
-  const validationHash = computeValidationHash(
-    sasSchema,
-    taskRef,
-    agentKeypair.address,
-    response,
-  );
+  const validationHash = computeValidationHash(sasSchema, taskRef, agentKeypair.address, response);
   const validatorSig = signMessage(validationHash, validatorKeypair.secretKey);
 
   return [
@@ -232,12 +192,7 @@ export function createReputationSignature(
   providerKeypair: TestKeypair,
   score: number,
 ): SignatureData[] {
-  const reputationHash = computeReputationHash(
-    sasSchema,
-    tokenAccount,
-    providerKeypair.address,
-    score,
-  );
+  const reputationHash = computeReputationHash(sasSchema, tokenAccount, providerKeypair.address, score);
 
   const providerSig = signMessage(reputationHash, providerKeypair.secretKey);
 

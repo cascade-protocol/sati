@@ -19,21 +19,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { EditMetadataDialog } from "@/components/EditMetadataDialog";
 import { GiveFeedbackDialog } from "@/components/GiveFeedbackDialog";
 import { useQuery } from "@tanstack/react-query";
-import {
-  useAgentDetails,
-  useAgentMetadata,
-  useAgentFeedbacks,
-} from "@/hooks/use-sati";
+import { useAgentDetails, useAgentMetadata, useAgentFeedbacks } from "@/hooks/use-sati";
 
 // Hook to check if agent is a demo agent (can receive feedback via echo service)
 function useDemoAgents() {
@@ -71,10 +62,7 @@ export function AgentDetails() {
   const navigate = useNavigate();
   const { agent, isLoading, error, refetch } = useAgentDetails(mint);
   const { metadata } = useAgentMetadata(agent?.uri);
-  const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(
-    agent?.mint,
-    agent?.owner,
-  );
+  const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint, agent?.owner);
   const { data: demoAgentsData } = useDemoAgents();
 
   // Check if this agent can receive feedback via echo service
@@ -127,19 +115,13 @@ export function AgentDetails() {
         <div className="flex items-start gap-4">
           <AgentAvatar name={agent.name} size="lg" />
           <div className="flex-1">
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              {agent.name}
-            </h1>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{agent.name}</h1>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-muted-foreground">
-                {formatMemberNumber(agent.memberNumber)}
-              </span>
+              <span className="text-muted-foreground">{formatMemberNumber(agent.memberNumber)}</span>
               {agent.nonTransferable && (
                 <>
                   <span className="text-muted-foreground">·</span>
-                  <span className="text-xs bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded">
-                    Non-transferable
-                  </span>
+                  <span className="text-xs bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded">Non-transferable</span>
                 </>
               )}
             </div>
@@ -158,12 +140,7 @@ export function AgentDetails() {
             {agent.uri && (
               <>
                 <Separator />
-                <DetailRow
-                  label="Metadata URI"
-                  value={agent.uri}
-                  copyable
-                  isLink
-                />
+                <DetailRow label="Metadata URI" value={agent.uri} copyable isLink />
               </>
             )}
           </CardContent>
@@ -177,21 +154,15 @@ export function AgentDetails() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {Object.entries(agent.additionalMetadata).map(
-                  ([key, value], index) => (
-                    <div key={key}>
-                      {index > 0 && <Separator className="mb-4" />}
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          {key}
-                        </span>
-                        <span className="text-sm font-mono break-all">
-                          {value}
-                        </span>
-                      </div>
+                {Object.entries(agent.additionalMetadata).map(([key, value], index) => (
+                  <div key={key}>
+                    {index > 0 && <Separator className="mb-4" />}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">{key}</span>
+                      <span className="text-sm font-mono break-all">{value}</span>
                     </div>
-                  ),
-                )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -228,22 +199,14 @@ export function AgentDetails() {
               </GiveFeedbackDialog>
             )}
             <Button variant="outline" asChild>
-              <a
-                href={getSolscanUrl(agent.mint, "token")}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
+              <a href={getSolscanUrl(agent.mint, "token")} target="_blank" rel="noopener noreferrer">
                 <ExternalLink className="h-4 w-4 mr-2" />
                 View on Solscan
               </a>
             </Button>
             {agent.uri && (
               <Button variant="outline" asChild>
-                <a
-                  href={agent.uri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a href={agent.uri} target="_blank" rel="noopener noreferrer">
                   <LinkIcon className="h-4 w-4 mr-2" />
                   View Metadata
                 </a>
@@ -280,10 +243,10 @@ export function AgentDetails() {
                     </tr>
                   </thead>
                   <tbody>
-                    {feedbacks.map((feedback, idx) => {
+                    {feedbacks.map((feedback) => {
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
                       return (
-                        <tr key={idx} className="border-b">
+                        <tr key={feedback.hash} className="border-b">
                           <td className="py-4 pr-4">
                             <code className="text-sm">{truncateAddress(feedback.feedback.counterparty)}</code>
                           </td>
@@ -332,24 +295,15 @@ function DetailRow({ label, value, copyable, isLink, solscanType = "account" }: 
             {value}
           </a>
         ) : (
-          <code className="text-sm break-all select-all flex-1 bg-muted px-2 py-1 rounded">
-            {value}
-          </code>
+          <code className="text-sm break-all select-all flex-1 bg-muted px-2 py-1 rounded">{value}</code>
         )}
         <div className="flex items-center gap-1 shrink-0">
           {copyable && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => copyToClipboard(value)}
-                  >
-                    <Copy
-                      className={`h-4 w-4 ${isCopied ? "text-green-500" : ""}`}
-                    />
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(value)}>
+                    <Copy className={`h-4 w-4 ${isCopied ? "text-green-500" : ""}`} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{isCopied ? "Copied!" : "Copy"}</TooltipContent>

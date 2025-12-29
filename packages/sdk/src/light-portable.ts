@@ -14,11 +14,7 @@
  */
 
 import { keccak_256 } from "@noble/hashes/sha3";
-import {
-  address as toAddress,
-  getAddressEncoder,
-  type Address,
-} from "@solana/kit";
+import { address as toAddress, getAddressEncoder, type Address } from "@solana/kit";
 import { SATI_PROGRAM_ADDRESS } from "./generated/programs/sati.js";
 import type {
   LightClient,
@@ -47,13 +43,10 @@ export const STATE_TREE_V1 = "smt1NamzXdq4AMqS2fS2F1i5KTYPZRhoHgWx38d8WsT";
 export const NULLIFIER_QUEUE_V1 = "nfq1NvQDJ2GEgnS8zt9prAe8rjjpAW1zFkrvZoBR148";
 
 // Light Protocol Programs
-export const LIGHT_SYSTEM_PROGRAM =
-  "SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7";
-export const ACCOUNT_COMPRESSION_PROGRAM =
-  "compr6CUsB5m2jS4Y3831ztGSTnDpnKJTKS95d64XVq";
+export const LIGHT_SYSTEM_PROGRAM = "SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7";
+export const ACCOUNT_COMPRESSION_PROGRAM = "compr6CUsB5m2jS4Y3831ztGSTnDpnKJTKS95d64XVq";
 export const NOOP_PROGRAM = "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV";
-export const REGISTERED_PROGRAM_PDA =
-  "35hkDgaAKwMCaxRz2ocSZ6NaUrtKkyNqU6c4RV3tYJRh";
+export const REGISTERED_PROGRAM_PDA = "35hkDgaAKwMCaxRz2ocSZ6NaUrtKkyNqU6c4RV3tYJRh";
 
 // ============================================================================
 // PublicKey Implementation
@@ -73,9 +66,7 @@ export class PortablePublicKey implements PublicKeyLike {
       this.cachedBase58 = value;
     } else {
       if (value.length !== 32) {
-        throw new Error(
-          `Invalid public key length: ${value.length}, expected 32`,
-        );
+        throw new Error(`Invalid public key length: ${value.length}, expected 32`);
       }
       this.bytes = value;
     }
@@ -179,9 +170,7 @@ export function hashvToBn254FieldSizeBe(bytes: Uint8Array[]): Uint8Array {
  * Hash bytes with Keccak256 using bump seeds until result fits BN254 field.
  * @deprecated Use hashvToBn254FieldSizeBe instead for new code
  */
-export function hashToBn254FieldSizeBe(
-  bytes: Uint8Array,
-): [Uint8Array, number] | null {
+export function hashToBn254FieldSizeBe(bytes: Uint8Array): [Uint8Array, number] | null {
   const bumpSeed = 255;
   while (bumpSeed >= 0) {
     const inputWithBumpSeed = new Uint8Array(bytes.length + 1);
@@ -209,10 +198,7 @@ export function hashToBn254FieldSizeBe(
  * Derive address seed from seeds and program ID.
  * Hash = keccak256(programId || seed1 || seed2 || ...)
  */
-export function deriveAddressSeed(
-  seeds: Uint8Array[],
-  programId: Address,
-): Uint8Array {
+export function deriveAddressSeed(seeds: Uint8Array[], programId: Address): Uint8Array {
   const encoder = getAddressEncoder();
   const programIdBytes = new Uint8Array(encoder.encode(programId));
   const combinedSeeds: Uint8Array[] = [programIdBytes, ...seeds];
@@ -223,10 +209,7 @@ export function deriveAddressSeed(
  * Derive compressed account address from seed and address tree.
  * Address = keccak256(addressTree || seed) truncated to BN254
  */
-export function deriveAddress(
-  seed: Uint8Array,
-  addressMerkleTree: Address = toAddress(ADDRESS_TREE_V1),
-): Address {
+export function deriveAddress(seed: Uint8Array, addressMerkleTree: Address = toAddress(ADDRESS_TREE_V1)): Address {
   if (seed.length !== 32) {
     throw new Error("Seed length must be 32 bytes");
   }
@@ -275,10 +258,7 @@ export class SystemAccountMetaConfig {
     return new SystemAccountMetaConfig(selfProgram);
   }
 
-  static newWithCpiContext(
-    selfProgram: Address,
-    cpiContext: Address,
-  ): SystemAccountMetaConfig {
+  static newWithCpiContext(selfProgram: Address, cpiContext: Address): SystemAccountMetaConfig {
     return new SystemAccountMetaConfig(selfProgram, cpiContext);
   }
 }
@@ -310,9 +290,7 @@ function findCpiSigner(programId: Address): Address {
 /**
  * Get Light Protocol system account metas.
  */
-export function getLightSystemAccountMetas(
-  config: SystemAccountMetaConfig,
-): InternalAccountMeta[] {
+export function getLightSystemAccountMetas(config: SystemAccountMetaConfig): InternalAccountMeta[] {
   const cpiSigner = findCpiSigner(config.selfProgram);
 
   const metas: InternalAccountMeta[] = [
@@ -388,9 +366,7 @@ export class PackedAccounts {
   private nextIndex: number = 0;
   private map: Map<string, [number, InternalAccountMeta]> = new Map();
 
-  static newWithSystemAccounts(
-    config: SystemAccountMetaConfig,
-  ): PackedAccounts {
+  static newWithSystemAccounts(config: SystemAccountMetaConfig): PackedAccounts {
     const instance = new PackedAccounts();
     instance.addSystemAccounts(config);
     return instance;
@@ -420,11 +396,7 @@ export class PackedAccounts {
     return this.insertOrGetConfig(pubkey, false, false);
   }
 
-  insertOrGetConfig(
-    pubkey: Address,
-    isSigner: boolean,
-    isWritable: boolean,
-  ): number {
+  insertOrGetConfig(pubkey: Address, isSigner: boolean, isWritable: boolean): number {
     const key = pubkey as string;
     const entry = this.map.get(key);
     if (entry) {
@@ -457,11 +429,7 @@ export class PackedAccounts {
     const [systemStart, packedStart] = this.getOffsets();
 
     // Convert InternalAccountMeta to LightAccountMeta (with PublicKeyLike pubkey)
-    const internalMetas: InternalAccountMeta[] = [
-      ...this.preAccounts,
-      ...this.systemAccounts,
-      ...packed,
-    ];
+    const internalMetas: InternalAccountMeta[] = [...this.preAccounts, ...this.systemAccounts, ...packed];
 
     const remainingAccounts: LightAccountMeta[] = internalMetas.map((meta) => ({
       pubkey: new PortablePublicKey(meta.pubkey as string),
@@ -494,11 +462,7 @@ interface RpcResponse<T> {
 /**
  * Make a JSON-RPC call to Helius Photon.
  */
-async function rpcCall<T>(
-  rpcUrl: string,
-  method: string,
-  params: unknown,
-): Promise<T> {
+async function rpcCall<T>(rpcUrl: string, method: string, params: unknown): Promise<T> {
   const response = await fetch(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -546,11 +510,7 @@ export async function getValidityProof(
   rpcUrl: string,
   params: GetValidityProofParams,
 ): Promise<ValidityProofWithContext> {
-  const result = await rpcCall<GetValidityProofResult>(
-    rpcUrl,
-    "getValidityProof",
-    params,
-  );
+  const result = await rpcCall<GetValidityProofResult>(rpcUrl, "getValidityProof", params);
 
   // Convert hex strings to number arrays
   const { a, b, c } = result.value.compressedProof;
@@ -679,15 +639,12 @@ export class PortableLightClient implements LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Address tree indices
-    const addressMerkleTreePubkeyIndex =
-      packedAccounts.insertOrGet(addressTree);
+    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // Output state tree (use V1)
     const outputStateTree = this.getV1StateTree();
-    const outputStateTreeIndex = packedAccounts.insertOrGet(
-      outputStateTree.tree,
-    );
+    const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree.tree);
 
     // 4. Get remaining accounts
     const { remainingAccounts } = packedAccounts.toAccountMetas();
@@ -720,9 +677,7 @@ export class PortableLightClient implements LightClient {
    * Get attestation by address bytes
    * @throws Not implemented in portable client
    */
-  async getAttestation(
-    _address: Uint8Array,
-  ): Promise<ParsedAttestation | null> {
+  async getAttestation(_address: Uint8Array): Promise<ParsedAttestation | null> {
     throw new Error(
       "getAttestation is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -733,9 +688,7 @@ export class PortableLightClient implements LightClient {
    * Get attestation by Address string
    * @throws Not implemented in portable client
    */
-  async getAttestationByAddress(
-    _address: Address,
-  ): Promise<ParsedAttestation | null> {
+  async getAttestationByAddress(_address: Address): Promise<ParsedAttestation | null> {
     throw new Error(
       "getAttestationByAddress is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -746,9 +699,7 @@ export class PortableLightClient implements LightClient {
    * Get multiple attestations by addresses
    * @throws Not implemented in portable client
    */
-  async getAttestations(
-    _addresses: Uint8Array[],
-  ): Promise<ParsedAttestation[]> {
+  async getAttestations(_addresses: Uint8Array[]): Promise<ParsedAttestation[]> {
     throw new Error(
       "getAttestations is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -759,9 +710,7 @@ export class PortableLightClient implements LightClient {
    * List feedback attestations
    * @throws Not implemented in portable client
    */
-  async listFeedbacks(
-    _filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listFeedbacks(_filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     throw new Error(
       "listFeedbacks is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -772,9 +721,7 @@ export class PortableLightClient implements LightClient {
    * List validation attestations
    * @throws Not implemented in portable client
    */
-  async listValidations(
-    _filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listValidations(_filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     throw new Error(
       "listValidations is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -785,10 +732,7 @@ export class PortableLightClient implements LightClient {
    * List attestations for a token account
    * @throws Not implemented in portable client
    */
-  async listAttestations(
-    _tokenAccount: Address,
-    _filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listAttestations(_tokenAccount: Address, _filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     throw new Error(
       "listAttestations is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -799,10 +743,7 @@ export class PortableLightClient implements LightClient {
    * List attestations by schema
    * @throws Not implemented in portable client
    */
-  async listBySchema(
-    _sasSchema: Address,
-    _filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listBySchema(_sasSchema: Address, _filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     throw new Error(
       "listBySchema is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for query operations.",
@@ -813,9 +754,7 @@ export class PortableLightClient implements LightClient {
    * Get creation proof for an address
    * @throws Not implemented in portable client
    */
-  async getCreationProof(
-    _address: PublicKeyLike,
-  ): Promise<CreationProofResult> {
+  async getCreationProof(_address: PublicKeyLike): Promise<CreationProofResult> {
     throw new Error(
       "getCreationProof is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for proof operations.",
@@ -826,9 +765,7 @@ export class PortableLightClient implements LightClient {
    * Get mutation proof for closing/updating an attestation
    * @throws Not implemented in portable client
    */
-  async getMutationProof(
-    _compressedAccount: CompressedAccount,
-  ): Promise<MutationProofResult> {
+  async getMutationProof(_compressedAccount: CompressedAccount): Promise<MutationProofResult> {
     throw new Error(
       "getMutationProof is not implemented in PortableLightClient. " +
         "Use the full LightClient from @cascade-fyi/sati-sdk/light for proof operations.",
@@ -857,8 +794,7 @@ export class PortableLightClient implements LightClient {
 // Utility Functions
 // ============================================================================
 
-const BASE58_ALPHABET =
-  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 /**
  * Encode Uint8Array to Base58 string.
@@ -888,7 +824,7 @@ export function uint8ArrayToBase58(bytes: Uint8Array): string {
 
   // Add leading '1's for each leading zero byte
   for (let i = 0; i < zeros; i++) {
-    result = "1" + result;
+    result = `1${result}`;
   }
 
   return result;
@@ -947,9 +883,6 @@ function hexToBytes(hex: string): number[] {
 /**
  * Create a default portable Light client.
  */
-export function createPortableLightClient(
-  rpcUrl: string,
-  programId?: Address,
-): PortableLightClient {
+export function createPortableLightClient(rpcUrl: string, programId?: Address): PortableLightClient {
   return new PortableLightClient(rpcUrl, programId);
 }

@@ -66,8 +66,7 @@ interface BuildFeedbackTxRequest {
 const FACILITATOR_URL = "https://x402.org/facilitator";
 
 // Solana Devnet CAIP-2 network identifier
-const SOLANA_DEVNET_NETWORK =
-  "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const;
+const SOLANA_DEVNET_NETWORK = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const;
 
 // Get deployed config (feedback schema + lookup table)
 const deployedConfig = loadDeployedConfig("devnet");
@@ -188,10 +187,7 @@ function createApp(env: EchoEnv) {
     // If we get here, payment has been verified by middleware
 
     if (!agentSignerBytes || !agentAddress) {
-      return c.json(
-        { error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" },
-        500,
-      );
+      return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
     }
 
     // Parse request body
@@ -203,16 +199,10 @@ function createApp(env: EchoEnv) {
     }
 
     // Validate required fields
-    if (
-      !body.sasSchema ||
-      !body.taskRef ||
-      !body.tokenAccount ||
-      !body.dataHash
-    ) {
+    if (!body.sasSchema || !body.taskRef || !body.tokenAccount || !body.dataHash) {
       return c.json(
         {
-          error:
-            "Missing required fields: sasSchema, taskRef, tokenAccount, dataHash",
+          error: "Missing required fields: sasSchema, taskRef, tokenAccount, dataHash",
         },
         400,
       );
@@ -343,9 +333,7 @@ function createApp(env: EchoEnv) {
 
       // Use portable Light client for Cloudflare Workers compatibility
       // This avoids the Node.js 'events' module dependency in @lightprotocol/stateless.js
-      const portableLightClient = createPortableLightClient(
-        env.VITE_DEVNET_RPC || "https://api.devnet.solana.com",
-      );
+      const portableLightClient = createPortableLightClient(env.VITE_DEVNET_RPC || "https://api.devnet.solana.com");
       sati.setLightClient(portableLightClient);
 
       // Build the transaction (server-side Light Protocol calls)
@@ -386,10 +374,7 @@ function createApp(env: EchoEnv) {
       console.error("Failed to build feedback transaction:", error);
       return c.json(
         {
-          error:
-            error instanceof Error
-              ? error.message
-              : "Failed to build transaction",
+          error: error instanceof Error ? error.message : "Failed to build transaction",
         },
         500,
       );

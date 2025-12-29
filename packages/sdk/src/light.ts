@@ -284,9 +284,7 @@ export class LightClient {
    * @param address - Compressed account address (kit Address type)
    * @returns Parsed attestation or null if not found
    */
-  async getAttestationByAddress(
-    address: Address,
-  ): Promise<ParsedAttestation | null> {
+  async getAttestationByAddress(address: Address): Promise<ParsedAttestation | null> {
     const addressBytes = addressToBytes(address);
     return this.getAttestation(addressBytes);
   }
@@ -298,9 +296,7 @@ export class LightClient {
    * @returns Array of parsed attestations (nulls filtered out)
    */
   async getAttestations(addresses: Uint8Array[]): Promise<ParsedAttestation[]> {
-    const accounts = await this.rpc.getMultipleCompressedAccounts(
-      addresses.map((a) => bn(a)),
-    );
+    const accounts = await this.rpc.getMultipleCompressedAccounts(addresses.map((a) => bn(a)));
 
     const results: ParsedAttestation[] = [];
     for (const account of accounts) {
@@ -340,9 +336,7 @@ export class LightClient {
     const proof: MerkleProofWithContext = {
       hash: new Uint8Array(proofResult.hash.toArray("be", 32)),
       leafIndex: proofResult.leafIndex,
-      merkleProof: proofResult.merkleProof.map(
-        (p) => new Uint8Array(p.toArray("be", 32)),
-      ),
+      merkleProof: proofResult.merkleProof.map((p) => new Uint8Array(p.toArray("be", 32))),
       root: new Uint8Array(proofResult.root.toArray("be", 32)),
       rootSeq: proofResult.rootIndex,
       merkleTree: address(proofResult.treeInfo.tree.toBase58()),
@@ -361,10 +355,7 @@ export class LightClient {
    * @param expectedRoot - Optional expected root to verify against
    * @returns True if proof structure is valid
    */
-  verifyProof(
-    proof: MerkleProofWithContext,
-    expectedRoot?: Uint8Array,
-  ): boolean {
+  verifyProof(proof: MerkleProofWithContext, expectedRoot?: Uint8Array): boolean {
     // Light Protocol uses depth-26 state trees
     const TREE_DEPTH = 26;
     const MAX_LEAVES = 2 ** TREE_DEPTH;
@@ -428,9 +419,7 @@ export class LightClient {
    * // Feedbacks given by a specific counterparty
    * listFeedbacks({ sasSchema, counterparty })
    */
-  async listFeedbacks(
-    filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     let accounts: ParsedAttestation[];
 
     if (filter.tokenAccount) {
@@ -446,15 +435,11 @@ export class LightClient {
         dataType: DataType.Feedback,
       });
     } else {
-      throw new Error(
-        "Either tokenAccount or sasSchema must be provided in filter",
-      );
+      throw new Error("Either tokenAccount or sasSchema must be provided in filter");
     }
 
     // Filter by dataType
-    let results = accounts.filter(
-      (a) => a.attestation.dataType === DataType.Feedback,
-    );
+    let results = accounts.filter((a) => a.attestation.dataType === DataType.Feedback);
 
     // Apply counterparty filter client-side if specified
     if (filter.counterparty) {
@@ -482,9 +467,7 @@ export class LightClient {
    * // All validations globally (by schema)
    * listValidations({ sasSchema })
    */
-  async listValidations(
-    filter: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     let accounts: ParsedAttestation[];
 
     if (filter.tokenAccount) {
@@ -500,15 +483,11 @@ export class LightClient {
         dataType: DataType.Validation,
       });
     } else {
-      throw new Error(
-        "Either tokenAccount or sasSchema must be provided in filter",
-      );
+      throw new Error("Either tokenAccount or sasSchema must be provided in filter");
     }
 
     // Filter by dataType
-    let results = accounts.filter(
-      (a) => a.attestation.dataType === DataType.Validation,
-    );
+    let results = accounts.filter((a) => a.attestation.dataType === DataType.Validation);
 
     // Apply counterparty filter client-side if specified
     if (filter.counterparty) {
@@ -530,10 +509,7 @@ export class LightClient {
    * @param filter - Optional filters
    * @returns Array of parsed attestations
    */
-  async listAttestations(
-    tokenAccount: Address,
-    filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listAttestations(tokenAccount: Address, filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     return this.queryByOwnerWithFilters(tokenAccount, {
       ...filter,
       tokenAccount, // Filter by tokenAccount at offset 40
@@ -547,10 +523,7 @@ export class LightClient {
    * @param filter - Optional filters
    * @returns Array of parsed attestations
    */
-  async listBySchema(
-    sasSchema: Address,
-    filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  async listBySchema(sasSchema: Address, filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     // Query all accounts owned by the SATI program and filter by schema
     const accounts = await this.queryProgramAccounts({
       ...filter,
@@ -588,9 +561,7 @@ export class LightClient {
     );
 
     if (!proofResult.compressedProof) {
-      throw new Error(
-        "Failed to get validity proof: no compressed proof returned",
-      );
+      throw new Error("Failed to get validity proof: no compressed proof returned");
     }
 
     // Build packed accounts
@@ -599,16 +570,12 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Pack address tree accounts
-    const addressMerkleTreePubkeyIndex =
-      packedAccounts.insertOrGet(addressTree);
+    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // Get output state tree (explicitly use V1 to avoid BatchedStateTree discriminator mismatch)
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(
-      stateTreeInfos,
-      TreeType.StateV1,
-    ).tree;
+    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
     const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree);
 
     const { remainingAccounts } = packedAccounts.toAccountMetas();
@@ -637,9 +604,7 @@ export class LightClient {
    * @param compressedAccount - The existing compressed account
    * @returns Proof, packed tree info, and remaining accounts for the transaction
    */
-  async getMutationProof(
-    compressedAccount: CompressedAccountWithMerkleContext,
-  ): Promise<MutationProofResult> {
+  async getMutationProof(compressedAccount: CompressedAccountWithMerkleContext): Promise<MutationProofResult> {
     const treeInfo = compressedAccount.treeInfo;
 
     // Get validity proof for existing account (proves it exists)
@@ -655,9 +620,7 @@ export class LightClient {
     );
 
     if (!proofResult.compressedProof) {
-      throw new Error(
-        "Failed to get validity proof: no compressed proof returned",
-      );
+      throw new Error("Failed to get validity proof: no compressed proof returned");
     }
 
     // Build packed accounts
@@ -735,9 +698,7 @@ export class LightClient {
     );
 
     if (!proofResult.compressedProof) {
-      throw new Error(
-        "Failed to get validity proof: no compressed proof returned",
-      );
+      throw new Error("Failed to get validity proof: no compressed proof returned");
     }
 
     // Build packed accounts
@@ -746,8 +707,7 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Pack address tree accounts
-    const addressMerkleTreePubkeyIndex =
-      packedAccounts.insertOrGet(addressTree);
+    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // Pack state tree accounts
@@ -816,10 +776,7 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(
-      stateTreeInfos,
-      TreeType.StateV1,
-    ).tree;
+    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
     return packedAccounts.insertOrGet(outputStateTree);
   }
 
@@ -842,8 +799,7 @@ export class LightClient {
     const systemAccountConfig = SystemAccountMetaConfig.new(this.programId);
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
-    const addressMerkleTreePubkeyIndex =
-      packedAccounts.insertOrGet(addressTree);
+    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // For new address creation with proof = None, use default root index 0.
@@ -905,16 +861,12 @@ export class LightClient {
     packedAccounts.addSystemAccounts(systemAccountConfig);
 
     // Address tree indices
-    const addressMerkleTreePubkeyIndex =
-      packedAccounts.insertOrGet(addressTree);
+    const addressMerkleTreePubkeyIndex = packedAccounts.insertOrGet(addressTree);
     const addressQueuePubkeyIndex = packedAccounts.insertOrGet(addressQueue);
 
     // Output state tree (explicitly use V1 to avoid BatchedStateTree discriminator mismatch)
     const stateTreeInfos = await this.rpc.getStateTreeInfos();
-    const outputStateTree = selectStateTreeInfo(
-      stateTreeInfos,
-      TreeType.StateV1,
-    ).tree;
+    const outputStateTree = selectStateTreeInfo(stateTreeInfos, TreeType.StateV1).tree;
     const outputStateTreeIndex = packedAccounts.insertOrGet(outputStateTree);
 
     // 4. Get remaining accounts with proper offset
@@ -954,9 +906,7 @@ export class LightClient {
     const addresses: PublicKey[] = [];
 
     // 1. Light System Program (the main entry point)
-    addresses.push(
-      new PublicKey("SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7"),
-    );
+    addresses.push(new PublicKey("SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7"));
 
     // 2. Light Protocol static accounts (registered PDA, noop, compression, CPI authority)
     const staticAccounts = defaultStaticAccounts();
@@ -966,10 +916,7 @@ export class LightClient {
     addresses.push(this.programId);
 
     // 4. CPI signer PDA (derived from SATI program with seed 'cpi_authority')
-    const [cpiSigner] = PublicKey.findProgramAddressSync(
-      [new TextEncoder().encode("cpi_authority")],
-      this.programId,
-    );
+    const [cpiSigner] = PublicKey.findProgramAddressSync([new TextEncoder().encode("cpi_authority")], this.programId);
     addresses.push(cpiSigner);
 
     // 5. Address tree accounts (V1 for mainnet compatibility)
@@ -982,17 +929,13 @@ export class LightClient {
     addresses.push(stateTree.tree, stateTree.queue);
 
     // 7. Ed25519 program for signature verification
-    addresses.push(
-      new PublicKey("Ed25519SigVerify111111111111111111111111111"),
-    );
+    addresses.push(new PublicKey("Ed25519SigVerify111111111111111111111111111"));
 
     // 8. System program
     addresses.push(new PublicKey("11111111111111111111111111111111"));
 
     // 9. Instructions sysvar (required for Ed25519 signature introspection)
-    addresses.push(
-      new PublicKey("Sysvar1nstructions1111111111111111111111111"),
-    );
+    addresses.push(new PublicKey("Sysvar1nstructions1111111111111111111111111"));
 
     // 10. Event authority PDA (Anchor __event_authority seed)
     const [eventAuthority] = PublicKey.findProgramAddressSync(
@@ -1002,9 +945,7 @@ export class LightClient {
     addresses.push(eventAuthority);
 
     // 11. Compute Budget program (used for setting compute units)
-    addresses.push(
-      new PublicKey("ComputeBudget111111111111111111111111111111"),
-    );
+    addresses.push(new PublicKey("ComputeBudget111111111111111111111111111111"));
 
     // Remove duplicates
     const seen = new Set<string>();
@@ -1031,12 +972,9 @@ export class LightClient {
     const filters = this.buildMemcmpFilters(filter);
 
     // Query accounts owned by the program
-    const response = await this.rpc.getCompressedAccountsByOwner(
-      this.programId,
-      {
-        filters,
-      },
-    );
+    const response = await this.rpc.getCompressedAccountsByOwner(this.programId, {
+      filters,
+    });
 
     // Parse results
     const results: ParsedAttestation[] = [];
@@ -1053,17 +991,12 @@ export class LightClient {
   /**
    * Query all program accounts with filters
    */
-  private async queryProgramAccounts(
-    filter?: Partial<AttestationFilter>,
-  ): Promise<ParsedAttestation[]> {
+  private async queryProgramAccounts(filter?: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
     const filters = this.buildMemcmpFilters(filter);
 
-    const response = await this.rpc.getCompressedAccountsByOwner(
-      this.programId,
-      {
-        filters,
-      },
-    );
+    const response = await this.rpc.getCompressedAccountsByOwner(this.programId, {
+      filters,
+    });
 
     const results: ParsedAttestation[] = [];
     for (const account of response.items) {
@@ -1120,9 +1053,7 @@ export class LightClient {
   /**
    * Parse a compressed account into typed attestation
    */
-  private parseCompressedAccount(
-    account: CompressedAccountWithMerkleContext,
-  ): ParsedAttestation | null {
+  private parseCompressedAccount(account: CompressedAccountWithMerkleContext): ParsedAttestation | null {
     try {
       const data = account.data;
       // Minimum: 32 (sasSchema) + 32 (tokenAccount) + 1 (dataType) = 65 bytes
@@ -1143,10 +1074,7 @@ export class LightClient {
       const dataType = bytes[offset++] as DataType;
 
       // Parse Vec<u8> data field (4-byte length prefix + data)
-      const dataLen = new DataView(
-        bytes.buffer,
-        bytes.byteOffset + offset,
-      ).getUint32(0, true);
+      const dataLen = new DataView(bytes.buffer, bytes.byteOffset + offset).getUint32(0, true);
       offset += 4;
       const schemaData = bytes.slice(offset, offset + dataLen);
       offset += dataLen;
@@ -1156,10 +1084,7 @@ export class LightClient {
       const signature1 = bytes.slice(offset, offset + 64);
       offset += 64;
       // Only read signature2 if numSignatures >= 2, otherwise zero-fill (SingleSigner)
-      const signature2 =
-        numSignatures >= 2
-          ? bytes.slice(offset, offset + 64)
-          : new Uint8Array(64);
+      const signature2 = numSignatures >= 2 ? bytes.slice(offset, offset + 64) : new Uint8Array(64);
 
       const attestation: CompressedAttestation = {
         sasSchema,
@@ -1182,9 +1107,7 @@ export class LightClient {
       }
 
       return {
-        address: account.hash
-          ? new Uint8Array(account.hash.toArray())
-          : new Uint8Array(32),
+        address: account.hash ? new Uint8Array(account.hash.toArray()) : new Uint8Array(32),
         raw: account,
         attestation,
         data: parsedData,
@@ -1226,10 +1149,7 @@ function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
  * @param programId - Optional custom program ID
  * @returns LightClient instance
  */
-export function createLightClient(
-  rpcUrl?: string,
-  programId?: PublicKey,
-): LightClient {
+export function createLightClient(rpcUrl?: string, programId?: PublicKey): LightClient {
   return new LightClient(rpcUrl, programId);
 }
 
@@ -1242,10 +1162,7 @@ export function createLightClient(
  * @param apiKey - Helius API key (required for mainnet/devnet)
  * @returns Photon RPC URL
  */
-export function getPhotonRpcUrl(
-  network: "mainnet" | "devnet" | "localnet",
-  apiKey?: string,
-): string {
+export function getPhotonRpcUrl(network: "mainnet" | "devnet" | "localnet", apiKey?: string): string {
   switch (network) {
     case "mainnet":
       if (!apiKey) throw new Error("API key required for mainnet");

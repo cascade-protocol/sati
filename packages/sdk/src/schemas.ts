@@ -5,11 +5,7 @@
  * These schemas must match the on-chain program's expectations.
  */
 
-import {
-  getAddressEncoder,
-  getAddressDecoder,
-  type Address,
-} from "@solana/kit";
+import { getAddressEncoder, getAddressDecoder, type Address } from "@solana/kit";
 
 // ============================================================================
 // Constants
@@ -195,27 +191,13 @@ export const FEEDBACK_OFFSETS = {
  * Serialize Feedback data to bytes
  */
 export function serializeFeedback(data: FeedbackData): Uint8Array {
-  const tag1Bytes = new TextEncoder().encode(
-    data.tag1.slice(0, MAX_TAG_LENGTH),
-  );
-  const tag2Bytes = new TextEncoder().encode(
-    data.tag2.slice(0, MAX_TAG_LENGTH),
-  );
+  const tag1Bytes = new TextEncoder().encode(data.tag1.slice(0, MAX_TAG_LENGTH));
+  const tag2Bytes = new TextEncoder().encode(data.tag2.slice(0, MAX_TAG_LENGTH));
   const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
 
   // Calculate total size: base(96) + dataHash(32) + contentType(1) + outcome(1) +
   // tag1_len(1) + tag1 + tag2_len(1) + tag2 + content_len(4) + content
-  const totalSize =
-    96 +
-    32 +
-    1 +
-    1 +
-    1 +
-    tag1Bytes.length +
-    1 +
-    tag2Bytes.length +
-    4 +
-    contentBytes.length;
+  const totalSize = 96 + 32 + 1 + 1 + 1 + tag1Bytes.length + 1 + tag2Bytes.length + 4 + contentBytes.length;
 
   const buffer = new Uint8Array(totalSize);
   const view = new DataView(buffer.buffer);
@@ -512,9 +494,7 @@ export const REPUTATION_SCORE_OFFSETS = {
 /**
  * Serialize ReputationScore data to bytes
  */
-export function serializeReputationScore(
-  data: ReputationScoreData,
-): Uint8Array {
+export function serializeReputationScore(data: ReputationScoreData): Uint8Array {
   if (data.score > 100) {
     throw new Error("Score must be 0-100");
   }
@@ -558,9 +538,7 @@ export function serializeReputationScore(
 /**
  * Deserialize ReputationScore data from bytes
  */
-export function deserializeReputationScore(
-  bytes: Uint8Array,
-): ReputationScoreData {
+export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreData {
   if (bytes.length < 102) {
     throw new Error("ReputationScore data too small (minimum 102 bytes)");
   }

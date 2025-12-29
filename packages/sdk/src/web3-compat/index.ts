@@ -11,20 +11,14 @@
 // biome-ignore-all lint/style/noRestrictedGlobals: Buffer is required for @solana/web3.js TransactionInstruction type compatibility
 
 import { address, type Address } from "@solana/kit";
-import {
-  PublicKey,
-  TransactionInstruction,
-  type PublicKeyInitData,
-} from "@solana/web3.js";
+import { PublicKey, TransactionInstruction, type PublicKeyInitData } from "@solana/web3.js";
 
 /**
  * Convert @solana/web3.js PublicKey to @solana/kit Address
  *
  * Use this when calling @solana-program/token functions that expect Address type
  */
-export function toAddress<TAddress extends string = string>(
-  input: PublicKey | PublicKeyInitData,
-): Address<TAddress> {
+export function toAddress<TAddress extends string = string>(input: PublicKey | PublicKeyInitData): Address<TAddress> {
   const pubkey = input instanceof PublicKey ? input : new PublicKey(input);
   return address(pubkey.toBase58()) as Address<TAddress>;
 }
@@ -65,9 +59,7 @@ export function toWeb3Instruction(kitInstruction: {
   return new TransactionInstruction({
     keys,
     programId: toPublicKey(kitInstruction.programAddress),
-    data: kitInstruction.data
-      ? Buffer.from(kitInstruction.data)
-      : Buffer.alloc(0),
+    data: kitInstruction.data ? Buffer.from(kitInstruction.data) : Buffer.alloc(0),
   });
 }
 

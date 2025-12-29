@@ -5,19 +5,13 @@
  * Solana Attestation Service (SAS) integration with SATI.
  */
 
-import {
-  type Address,
-  type ProgramDerivedAddressBump,
-  getProgramDerivedAddress,
-  getAddressEncoder,
-} from "@solana/kit";
+import { type Address, type ProgramDerivedAddressBump, getProgramDerivedAddress, getAddressEncoder } from "@solana/kit";
 
 import { SATI_PROGRAM_ADDRESS } from "./generated";
 import { SATI_CREDENTIAL_NAME } from "./sas";
 
 // SAS Program Address (mainnet/devnet)
-export const SAS_PROGRAM_ADDRESS: Address =
-  "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG" as Address;
+export const SAS_PROGRAM_ADDRESS: Address = "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG" as Address;
 
 // Seeds for SAS PDA derivation
 export const CREDENTIAL_SEED = "credential";
@@ -37,9 +31,7 @@ export const REPUTATION_SCHEMA_VERSION = 1;
  *
  * @returns [address, bump] tuple
  */
-export async function deriveSatiPda(): Promise<
-  readonly [Address, ProgramDerivedAddressBump]
-> {
+export async function deriveSatiPda(): Promise<readonly [Address, ProgramDerivedAddressBump]> {
   return getProgramDerivedAddress({
     programAddress: SATI_PROGRAM_ADDRESS,
     seeds: [SATI_ATTESTATION_SEED],
@@ -57,19 +49,13 @@ export async function deriveSatiPda(): Promise<
  *
  * @returns [address, bump] tuple
  */
-export async function deriveSatiProgramCredentialPda(): Promise<
-  readonly [Address, ProgramDerivedAddressBump]
-> {
+export async function deriveSatiProgramCredentialPda(): Promise<readonly [Address, ProgramDerivedAddressBump]> {
   const [satiPda] = await deriveSatiPda();
   const addressEncoder = getAddressEncoder();
 
   return getProgramDerivedAddress({
     programAddress: SAS_PROGRAM_ADDRESS,
-    seeds: [
-      CREDENTIAL_SEED,
-      new Uint8Array(addressEncoder.encode(satiPda)),
-      SATI_CREDENTIAL_NAME,
-    ],
+    seeds: [CREDENTIAL_SEED, new Uint8Array(addressEncoder.encode(satiPda)), SATI_CREDENTIAL_NAME],
   });
 }
 
@@ -80,21 +66,14 @@ export async function deriveSatiProgramCredentialPda(): Promise<
  *
  * @returns [address, bump] tuple
  */
-export async function deriveReputationSchemaPda(): Promise<
-  readonly [Address, ProgramDerivedAddressBump]
-> {
+export async function deriveReputationSchemaPda(): Promise<readonly [Address, ProgramDerivedAddressBump]> {
   const [credential] = await deriveSatiProgramCredentialPda();
   const addressEncoder = getAddressEncoder();
   const versionSeed = Uint8Array.from([REPUTATION_SCHEMA_VERSION]);
 
   return getProgramDerivedAddress({
     programAddress: SAS_PROGRAM_ADDRESS,
-    seeds: [
-      SCHEMA_SEED,
-      new Uint8Array(addressEncoder.encode(credential)),
-      REPUTATION_SCHEMA_NAME,
-      versionSeed,
-    ],
+    seeds: [SCHEMA_SEED, new Uint8Array(addressEncoder.encode(credential)), REPUTATION_SCHEMA_NAME, versionSeed],
   });
 }
 
