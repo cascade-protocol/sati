@@ -8,42 +8,25 @@
     "localnet": "light test-validator",
     "localnet:init": "cd packages/sdk && pnpm tsx scripts/deploy-and-initialize.ts",
     "build": "anchor build && pnpm -r --if-present run build",
-    "build:rust": "anchor build",
-    "build:ts": "pnpm -r --if-present run build",
-    "type-check": "pnpm -r --if-present run type-check",
-    "lint": "biome check",
-    "lint:fix": "biome check --write",
-    "check": "pnpm type-check && pnpm lint:fix",
+    "lint": "biome check --write",
+    "check": "pnpm -r --if-present run type-check && pnpm lint",
     "check:rust": "cargo fmt --all -- --check && cargo clippy -p sati -- -D warnings",
-    "check:all": "pnpm check && pnpm check:rust",
-    "test": "cargo test -p sati && pnpm test:sdk:unit",
-    "test:rust": "cargo test -p sati",
+    "test": "cargo test -p sati && pnpm test:sdk",
     "test:sdk": "pnpm --filter @cascade-fyi/sati-sdk test",
-    "test:sdk:unit": "pnpm --filter @cascade-fyi/sati-sdk exec vitest run tests/unit/",
-    "test:sdk:integration": "pnpm --filter @cascade-fyi/sati-sdk exec vitest run tests/integration/",
-    "test:sdk:e2e": "pnpm --filter @cascade-fyi/sati-sdk exec vitest run tests/e2e/",
     "test:smoke": "SOLANA_CLUSTER=devnet pnpm vitest run tests/smoke/",
     "test:smoke:mainnet": "SOLANA_CLUSTER=mainnet pnpm vitest run tests/smoke/",
-    "test:all": "pnpm test && pnpm test:sdk",
     "clean": "pnpm -r --if-present run clean && rm -rf target test-ledger .anchor",
-    "size": "pnpm build:ts && size-limit"
+    "size": "pnpm build && size-limit"
   },
   "devDependencies": {
-    "@size-limit/preset-small-lib": "^12.0.0",
-    "size-limit": "^12.0.0",
     "@biomejs/biome": "2.3.10",
     "@coral-xyz/anchor": "^0.32.1",
-    "@lightprotocol/stateless.js": "0.22.1-alpha.5",
-    "@solana-program/system": "^0.10.0",
-    "@solana-program/token": "^0.8.0",
-    "@solana/kit": "^5.1.0",
+    "@size-limit/preset-small-lib": "^12.0.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
-    "@swc-node/register": "^1.11.1",
-    "@swc/core": "^1.15.3",
-    "@types/bn.js": "^5.2.0",
     "@types/node": "^24.10.1",
-    "typescript": "^5.7.3",
+    "size-limit": "^12.0.0",
+    "typescript": "^5.9.3",
     "vitest": "4.0.16"
   },
   "pnpm": {
@@ -67,5 +50,6 @@
         "@solana/sysvars"
       ]
     }
-  }
+  },
+  "packageManager": "pnpm@10.26.2"
 }
