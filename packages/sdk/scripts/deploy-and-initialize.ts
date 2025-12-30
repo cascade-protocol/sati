@@ -94,6 +94,16 @@ import {
   fetchMaybeSchema,
 } from "../src/sas";
 import type { DeployedSASConfig, SATISASConfig } from "../src/types";
+import {
+  LIGHT_SYSTEM_PROGRAM,
+  ACCOUNT_COMPRESSION_PROGRAM,
+  NOOP_PROGRAM,
+  REGISTERED_PROGRAM_PDA,
+  ADDRESS_TREE,
+  ADDRESS_QUEUE,
+  MERKLE_TREE_PUBKEY,
+  NULLIFIER_QUEUE_PUBKEY,
+} from "@cascade-fyi/compression-kit";
 
 // Type aliases for sendAndConfirmTransactionFactory - avoids cluster brand mismatch
 // when the script dynamically selects network (localnet/devnet/mainnet)
@@ -867,18 +877,56 @@ async function main() {
   const sasConfig = await deploySASSchemas(rpc, rpcSubscriptions, authority);
 
   // Collect addresses for the lookup table
+  // Must include all addresses used in Light Protocol transactions for compression
+
+  // Solana system programs
+  const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
+  const ED25519_PROGRAM = address("Ed25519SigVerify111111111111111111111111111");
+  const INSTRUCTIONS_SYSVAR = address("Sysvar1nstructions1111111111111111111111111");
+  const COMPUTE_BUDGET_PROGRAM = address("ComputeBudget111111111111111111111111111111");
+
+  // Derive event authority PDA
+  const [eventAuthority] = await getProgramDerivedAddress({
+    programAddress: programId,
+    seeds: [new TextEncoder().encode("__event_authority")],
+  });
+
   const altAddresses: Address[] = [
+    // Light Protocol core programs
+    LIGHT_SYSTEM_PROGRAM,
+    ACCOUNT_COMPRESSION_PROGRAM,
+    NOOP_PROGRAM,
+    REGISTERED_PROGRAM_PDA,
+
+    // Light Protocol state trees (devnet)
+    ADDRESS_TREE,
+    ADDRESS_QUEUE,
+    MERKLE_TREE_PUBKEY,
+    NULLIFIER_QUEUE_PUBKEY,
+
+    // SATI program and PDAs
     programId,
+    eventAuthority,
     registryPda,
     groupMintAddress,
+
+    // SAS schemas
     sasConfig.credential,
     sasConfig.schemas.feedback,
     sasConfig.schemas.validation,
     sasConfig.schemas.reputationScore,
+
+    // Solana system programs
+    SYSTEM_PROGRAM,
+    ED25519_PROGRAM,
+    INSTRUCTIONS_SYSVAR,
+    COMPUTE_BUDGET_PROGRAM,
+    TOKEN_2022_PROGRAM_ADDRESS,
   ];
   if (sasConfig.schemas.feedbackPublic) {
     altAddresses.push(sasConfig.schemas.feedbackPublic);
   }
+  console.log(`\nIncluding ${altAddresses.length} addresses in lookup table`);
 
   // Create lookup table
   const lookupTableAddress = await getOrCreateLookupTable(rpc, rpcSubscriptions, authority, altAddresses);

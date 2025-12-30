@@ -11,20 +11,25 @@ import {
   Copy,
   ExternalLink,
   Loader2,
-  Link as LinkIcon,
   Pencil,
   MessageSquare,
   MessageCirclePlus,
+  ThumbsUp,
+  ThumbsDown,
+  MinusCircle,
+  Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { EditMetadataDialog } from "@/components/EditMetadataDialog";
 import { GiveFeedbackDialog } from "@/components/GiveFeedbackDialog";
 import { useQuery } from "@tanstack/react-query";
-import { useAgentDetails, useAgentMetadata, useAgentFeedbacks } from "@/hooks/use-sati";
+import { toast } from "sonner";
+import { useAgentDetails, useAgentMetadata, useAgentFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
 
 // Hook to check if agent is a demo agent (can receive feedback via echo service)
 function useDemoAgents() {
@@ -41,7 +46,7 @@ function useDemoAgents() {
   });
 }
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { formatMemberNumber, getSolscanUrl, truncateAddress } from "@/lib/sati";
+import { formatMemberNumber, formatSlotTime, getSolscanUrl, truncateAddress } from "@/lib/sati";
 
 // Helper to format outcome
 function formatOutcome(outcome: number): { text: string; color: string } {
@@ -57,6 +62,46 @@ function formatOutcome(outcome: number): { text: string; color: string } {
   }
 }
 
+// Compute feedback stats
+interface FeedbackStats {
+  total: number;
+  positive: number;
+  negative: number;
+  neutral: number;
+  positivePercent: number;
+  negativePercent: number;
+  neutralPercent: number;
+}
+
+function computeFeedbackStats(feedbacks: Array<{ data: { outcome: number; counterparty: string } }>): FeedbackStats {
+  const total = feedbacks.length;
+  if (total === 0) {
+    return {
+      total: 0,
+      positive: 0,
+      negative: 0,
+      neutral: 0,
+      positivePercent: 0,
+      negativePercent: 0,
+      neutralPercent: 0,
+    };
+  }
+
+  const positive = feedbacks.filter((f) => f.data.outcome === 2).length;
+  const negative = feedbacks.filter((f) => f.data.outcome === 0).length;
+  const neutral = feedbacks.filter((f) => f.data.outcome === 1).length;
+
+  return {
+    total,
+    positive,
+    negative,
+    neutral,
+    positivePercent: Math.round((positive / total) * 100),
+    negativePercent: Math.round((negative / total) * 100),
+    neutralPercent: Math.round((neutral / total) * 100),
+  };
+}
+
 export function AgentDetails() {
   const { mint } = useParams<{ mint: string }>();
   const navigate = useNavigate();
@@ -64,6 +109,7 @@ export function AgentDetails() {
   const { metadata } = useAgentMetadata(agent?.uri);
   // tokenAccount in feedbacks IS the agent mint (not ATA)
   const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint);
+  const { currentSlot } = useCurrentSlot();
   const { data: demoAgentsData } = useDemoAgents();
 
   // Check if this agent can receive feedback via echo service
@@ -129,144 +175,281 @@ export function AgentDetails() {
           </div>
         </div>
 
-        {/* Identity Details */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Identity</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <DetailRow label="Mint Address" value={agent.mint} copyable solscanType="token" />
-            <Separator />
-            <DetailRow label="Owner" value={agent.owner} copyable solscanType="account" />
-            {agent.uri && (
-              <>
-                <Separator />
-                <DetailRow label="Metadata URI" value={agent.uri} copyable isLink />
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Additional Metadata */}
-        {Object.keys(agent.additionalMetadata).length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Additional Metadata</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {Object.entries(agent.additionalMetadata).map(([key, value], index) => (
-                  <div key={key}>
-                    {index > 0 && <Separator className="mb-4" />}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <span className="text-sm font-medium text-muted-foreground">{key}</span>
-                      <span className="text-sm font-mono break-all">{value}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            <EditMetadataDialog
-              mint={agent.mint}
-              currentName={agent.name}
-              currentDescription={metadata?.description}
-              onSuccess={refetch}
-            >
-              <Button variant="default">
-                <Pencil className="h-4 w-4 mr-2" />
-                Edit Metadata
-              </Button>
-            </EditMetadataDialog>
-            {canGiveFeedback && (
-              <GiveFeedbackDialog agentMint={agent.mint} agentName={agent.name} onSuccess={refetch}>
-                <Button variant="secondary">
-                  <MessageCirclePlus className="h-4 w-4 mr-2" />
-                  Give Feedback
-                </Button>
-              </GiveFeedbackDialog>
-            )}
-            <Button variant="outline" asChild>
-              <a href={getSolscanUrl(agent.mint, "token")} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-4 w-4 mr-2" />
-                View on Solscan
-              </a>
+        {/* Actions Bar */}
+        <div className="flex flex-wrap gap-2">
+          <EditMetadataDialog
+            mint={agent.mint}
+            currentName={agent.name}
+            currentDescription={metadata?.description}
+            onSuccess={refetch}
+          >
+            <Button variant="default">
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit Metadata
             </Button>
-            {agent.uri && (
-              <Button variant="outline" asChild>
-                <a href={agent.uri} target="_blank" rel="noopener noreferrer">
-                  <LinkIcon className="h-4 w-4 mr-2" />
-                  View Metadata
-                </a>
+          </EditMetadataDialog>
+          {canGiveFeedback && (
+            <GiveFeedbackDialog agentMint={agent.mint} agentName={agent.name} onSuccess={refetch}>
+              <Button variant="secondary">
+                <MessageCirclePlus className="h-4 w-4 mr-2" />
+                Give Feedback
               </Button>
-            )}
-          </CardContent>
-        </Card>
+            </GiveFeedbackDialog>
+          )}
+          <Button variant="outline" asChild>
+            <a href={getSolscanUrl(agent.mint, "token")} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4 mr-2" />
+              View on Solscan
+            </a>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.href);
+              toast.success("Link copied to clipboard");
+            }}
+          >
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
+          </Button>
+        </div>
 
-        {/* Feedbacks */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              Feedbacks ({feedbacks.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {feedbacksLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : feedbacks.length === 0 ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                No feedbacks for this agent yet.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b text-left text-sm text-muted-foreground">
-                      <th className="pb-3 pr-4 font-medium">From</th>
-                      <th className="pb-3 pr-4 font-medium">Outcome</th>
-                      <th className="pb-3 font-medium text-right">Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {feedbacks.map((feedback) => {
+        {/* Tabs */}
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="feedbacks">Feedbacks ({feedbacks.length})</TabsTrigger>
+            <TabsTrigger value="metadata">Metadata</TabsTrigger>
+          </TabsList>
+
+          {/* Overview Tab */}
+          <TabsContent value="overview" className="space-y-4">
+            {/* Stats */}
+            {(() => {
+              const stats = computeFeedbackStats(
+                feedbacks.map((f) => ({
+                  data: f.data as { outcome: number; counterparty: string },
+                })),
+              );
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-muted">
+                          <MessageSquare className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold">{stats.total}</p>
+                          <p className="text-sm text-muted-foreground">Total</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-green-500/10">
+                          <ThumbsUp className="h-5 w-5 text-green-500" />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-green-500">{stats.positivePercent}%</p>
+                          <p className="text-sm text-muted-foreground">Positive</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-yellow-500/10">
+                          <MinusCircle className="h-5 w-5 text-yellow-500" />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-yellow-500">{stats.neutralPercent}%</p>
+                          <p className="text-sm text-muted-foreground">Neutral</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-red-500/10">
+                          <ThumbsDown className="h-5 w-5 text-red-500" />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-red-500">{stats.negativePercent}%</p>
+                          <p className="text-sm text-muted-foreground">Negative</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
+
+            {/* Identity */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Identity</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <DetailRow label="Mint Address" value={agent.mint} copyable solscanType="token" />
+                <Separator />
+                <DetailRow label="Owner" value={agent.owner} copyable solscanType="account" />
+              </CardContent>
+            </Card>
+
+            {/* Recent Feedbacks */}
+            {feedbacks.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Feedbacks</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {feedbacks.slice(0, 5).map((feedback) => {
                       const data = feedback.data as { outcome: number; counterparty: string };
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
-                      // Use attestation address bytes as unique key
+                      const slotCreated = feedback.raw.slotCreated;
                       const key = Array.from(feedback.address)
                         .map((b) => b.toString(16).padStart(2, "0"))
                         .join("")
                         .slice(0, 16);
                       return (
-                        <tr key={key} className="border-b">
-                          <td className="py-4 pr-4">
-                            <code className="text-sm">{truncateAddress(data.counterparty)}</code>
-                          </td>
-                          <td className="py-4 pr-4">
+                        <div key={key} className="flex items-center justify-between py-2 border-b last:border-0">
+                          <code className="text-sm">{truncateAddress(data.counterparty)}</code>
+                          <div className="flex items-center gap-3">
                             <span className={outcomeColor}>{outcomeText}</span>
-                          </td>
-                          <td className="py-4 text-right">
-                            <span className="text-muted-foreground">{outcomeText}</span>
-                          </td>
-                        </tr>
+                            <span className="text-xs text-muted-foreground">
+                              {formatSlotTime(slotCreated, currentSlot)}
+                            </span>
+                          </div>
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
+          </TabsContent>
+
+          {/* Feedbacks Tab */}
+          <TabsContent value="feedbacks">
+            <Card>
+              <CardContent className="pt-6">
+                {feedbacksLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : feedbacks.length === 0 ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground">
+                    No feedbacks for this agent yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b text-left text-sm text-muted-foreground">
+                          <th className="pb-3 pr-4 font-medium">From</th>
+                          <th className="pb-3 pr-4 font-medium">Outcome</th>
+                          <th className="pb-3 font-medium text-right">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {feedbacks.map((feedback) => {
+                          const data = feedback.data as { outcome: number; counterparty: string };
+                          const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
+                          const slotCreated = feedback.raw.slotCreated;
+                          const key = Array.from(feedback.address)
+                            .map((b) => b.toString(16).padStart(2, "0"))
+                            .join("")
+                            .slice(0, 16);
+                          return (
+                            <tr key={key} className="border-b">
+                              <td className="py-4 pr-4">
+                                <code className="text-sm">{truncateAddress(data.counterparty)}</code>
+                              </td>
+                              <td className="py-4 pr-4">
+                                <span className={outcomeColor}>{outcomeText}</span>
+                              </td>
+                              <td className="py-4 text-right text-sm text-muted-foreground">
+                                {formatSlotTime(slotCreated, currentSlot)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Metadata Tab */}
+          <TabsContent value="metadata" className="space-y-4">
+            {agent.uri ? (
+              <>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <CardTitle>Metadata URI</CardTitle>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={agent.uri} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        View Raw
+                      </a>
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <code className="text-sm break-all">{agent.uri}</code>
+                  </CardContent>
+                </Card>
+
+                {metadata && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Parsed Metadata</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <pre className="text-sm overflow-auto bg-muted p-4 rounded-lg">
+                        {JSON.stringify(metadata, null, 2)}
+                      </pre>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {Object.keys(agent.additionalMetadata).length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>On-Chain Metadata</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {Object.entries(agent.additionalMetadata).map(([key, value], index) => (
+                          <div key={key}>
+                            {index > 0 && <Separator className="mb-4" />}
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                              <span className="text-sm font-medium text-muted-foreground">{key}</span>
+                              <span className="text-sm font-mono break-all">{value}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            ) : (
+              <Card>
+                <CardContent className="flex items-center justify-center py-12 text-muted-foreground">
+                  No metadata URI configured for this agent.
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </main>
   );

@@ -161,6 +161,8 @@ export interface CompressedAccount extends MerkleContext {
   data: CompressedAccountData | null;
   /** Whether this account is read-only in the transaction */
   readOnly: boolean;
+  /** Slot when this account was created */
+  slotCreated: bigint;
 }
 
 /**

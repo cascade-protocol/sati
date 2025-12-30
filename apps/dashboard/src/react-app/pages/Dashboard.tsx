@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentTable } from "@/components/AgentTable";
 import { RegisterAgentDialog } from "@/components/RegisterAgentDialog";
-import { useSati, useMyFeedbacks } from "@/hooks/use-sati";
-import { truncateAddress } from "@/lib/sati";
+import { useSati, useMyFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
+import { formatSlotTime, truncateAddress } from "@/lib/sati";
 import { getSolscanUrl } from "@/lib/network";
 
 // Helper to format outcome
@@ -33,6 +33,7 @@ export function Dashboard() {
   const { connected } = useWalletConnection();
   const { myAgents, myAgentsLoading, totalAgents } = useSati();
   const { myFeedbacks, isLoading: feedbacksLoading } = useMyFeedbacks();
+  const { currentSlot } = useCurrentSlot();
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
 
   // Not connected state
@@ -142,7 +143,7 @@ export function Dashboard() {
                     <tr className="border-b text-left text-sm text-muted-foreground">
                       <th className="pb-3 pr-4 font-medium">Agent</th>
                       <th className="pb-3 pr-4 font-medium">Outcome</th>
-                      <th className="pb-3 font-medium text-right">Score</th>
+                      <th className="pb-3 font-medium text-right">Time</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -150,6 +151,7 @@ export function Dashboard() {
                       // tokenAccount is the agent's mint address (named for SAS wire format compatibility)
                       const data = feedback.data as { outcome: number; tokenAccount: string };
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
+                      const slotCreated = feedback.raw.slotCreated;
                       // Use attestation address bytes as unique key
                       const key = Array.from(feedback.address)
                         .map((b) => b.toString(16).padStart(2, "0"))
@@ -171,8 +173,8 @@ export function Dashboard() {
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>
                           </td>
-                          <td className="py-4 text-right">
-                            <span className="text-muted-foreground">{outcomeText}</span>
+                          <td className="py-4 text-right text-sm text-muted-foreground">
+                            {formatSlotTime(slotCreated, currentSlot)}
                           </td>
                         </tr>
                       );

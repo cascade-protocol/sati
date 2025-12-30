@@ -164,6 +164,54 @@ export function formatMemberNumber(num: bigint): string {
   return `#${num.toLocaleString()}`;
 }
 
+// Slot time constants
+const SLOT_TIME_MS = 400; // ~400ms per slot on Solana
+
+/**
+ * Format slot as relative time (e.g., "2m ago", "3h ago")
+ * Uses current slot to calculate approximate time difference.
+ */
+export function formatSlotTime(slot: bigint, currentSlot: bigint): string {
+  if (slot <= 0n || currentSlot <= 0n) return "—";
+
+  const slotDiff = currentSlot - slot;
+  if (slotDiff < 0n) return "just now";
+
+  const msAgo = Number(slotDiff) * SLOT_TIME_MS;
+  const secondsAgo = Math.floor(msAgo / 1000);
+  const minutesAgo = Math.floor(secondsAgo / 60);
+  const hoursAgo = Math.floor(minutesAgo / 60);
+  const daysAgo = Math.floor(hoursAgo / 24);
+
+  if (daysAgo > 0) return `${daysAgo}d ago`;
+  if (hoursAgo > 0) return `${hoursAgo}h ago`;
+  if (minutesAgo > 0) return `${minutesAgo}m ago`;
+  if (secondsAgo > 0) return `${secondsAgo}s ago`;
+  return "just now";
+}
+
+/**
+ * Fetch current slot from RPC
+ */
+export async function getCurrentSlot(): Promise<bigint> {
+  try {
+    const response = await fetch(RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "get-slot",
+        method: "getSlot",
+        params: [{ commitment: "confirmed" }],
+      }),
+    });
+    const data = await response.json();
+    return BigInt(data.result ?? 0);
+  } catch {
+    return 0n;
+  }
+}
+
 // Re-export getSolscanUrl from network module
 export { getSolscanUrl } from "./network";
 

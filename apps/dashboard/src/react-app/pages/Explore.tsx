@@ -4,12 +4,13 @@
  * Paginated view of all agents and feedbacks registered in the SATI registry.
  */
 
-import { Bot, ChevronLeft, ChevronRight, MessageSquare, Loader2, ExternalLink } from "lucide-react";
+import { Link } from "react-router";
+import { Bot, ChevronLeft, ChevronRight, MessageSquare, Loader2, ExternalLink, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentTable } from "@/components/AgentTable";
-import { useExploreAgents, useAllFeedbacks } from "@/hooks/use-sati";
-import { truncateAddress } from "@/lib/sati";
+import { useExploreAgents, useAllFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
+import { formatSlotTime, truncateAddress } from "@/lib/sati";
 import { getSolscanUrl } from "@/lib/network";
 
 // Helper to format outcome
@@ -31,15 +32,37 @@ export function Explore() {
     useExploreAgents();
 
   const { feedbacks, feedbacksCount, isLoading: feedbacksLoading } = useAllFeedbacks();
+  const { currentSlot } = useCurrentSlot();
+
+  // Compute feedback counts per agent (tokenAccount = agent mint)
+  const feedbackCounts: Record<string, number> = {};
+  for (const f of feedbacks) {
+    const mint = f.attestation.tokenAccount;
+    feedbackCounts[mint] = (feedbackCounts[mint] || 0) + 1;
+  }
 
   return (
     <main className="flex-1 container mx-auto px-4 py-6 md:py-8 max-w-4xl">
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Explore</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Browse all agents and feedbacks registered in the SATI registry
+        {/* Hero */}
+        <div className="text-center py-8 space-y-4">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight">SATI Registry</h1>
+          <p className="text-lg text-muted-foreground max-w-xl mx-auto">
+            Discover and interact with AI agents on Solana. Browse registered agents and their reputation.
           </p>
+          <div className="flex items-center justify-center gap-3">
+            <Button asChild>
+              <Link to="/profile">
+                <Plus className="h-4 w-4 mr-2" />
+                Register Agent
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <a href="https://github.com/cascade-protocol/sati" target="_blank" rel="noopener noreferrer">
+                Learn More
+              </a>
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -74,7 +97,12 @@ export function Explore() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">Page {explorePage + 1}</div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <AgentTable agents={exploreAgents} isLoading={exploreLoading} emptyMessage="No agents registered yet." />
+            <AgentTable
+              agents={exploreAgents}
+              isLoading={exploreLoading}
+              emptyMessage="No agents registered yet."
+              feedbackCounts={feedbackCounts}
+            />
 
             {/* Pagination */}
             <div className="flex items-center justify-between pt-4">
@@ -121,7 +149,7 @@ export function Explore() {
                       <th className="pb-3 pr-4 font-medium">Agent</th>
                       <th className="pb-3 pr-4 font-medium">Counterparty</th>
                       <th className="pb-3 pr-4 font-medium">Outcome</th>
-                      <th className="pb-3 font-medium text-right">Score</th>
+                      <th className="pb-3 font-medium text-right">Time</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -129,6 +157,7 @@ export function Explore() {
                       // tokenAccount is the agent's mint address (named for SAS wire format compatibility)
                       const data = feedback.data as { outcome: number; tokenAccount: string; counterparty: string };
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
+                      const slotCreated = feedback.raw.slotCreated;
                       // Use attestation address bytes as unique key
                       const key = Array.from(feedback.address)
                         .map((b) => b.toString(16).padStart(2, "0"))
@@ -161,8 +190,8 @@ export function Explore() {
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>
                           </td>
-                          <td className="py-4 text-right">
-                            <span className="text-muted-foreground">{outcomeText}</span>
+                          <td className="py-4 text-right text-sm text-muted-foreground">
+                            {formatSlotTime(slotCreated, currentSlot)}
                           </td>
                         </tr>
                       );

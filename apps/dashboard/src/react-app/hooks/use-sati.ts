@@ -35,6 +35,7 @@ import {
   listAgentFeedbacks,
   listAllFeedbacks,
   listFeedbacksByCounterparty,
+  getCurrentSlot,
   type AgentIdentity,
   type ParsedFeedback,
 } from "@/lib/sati";
@@ -428,6 +429,23 @@ export function useAgentFeedbacks(mint: Address | string | undefined) {
  */
 export function useFeedbackSchemaAddress(): Address | undefined {
   return FEEDBACK_SCHEMA_ADDRESS;
+}
+
+/**
+ * Hook to get current Solana slot for time calculations
+ */
+export function useCurrentSlot() {
+  const query = useQuery({
+    queryKey: [...QUERY_KEY, "currentSlot"],
+    queryFn: getCurrentSlot,
+    staleTime: 60_000, // Refresh every minute
+    refetchInterval: 60_000,
+  });
+
+  return {
+    currentSlot: query.data ?? 0n,
+    isLoading: query.isLoading,
+  };
 }
 
 // Re-export types for convenience

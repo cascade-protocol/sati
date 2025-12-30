@@ -3,7 +3,7 @@
  */
 
 import { useNavigate } from "react-router";
-import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, ExternalLink, Loader2, MessageSquare } from "lucide-react";
 import type { AgentIdentity } from "@cascade-fyi/sati-sdk";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,9 +15,11 @@ interface AgentTableProps {
   agents: AgentIdentity[];
   isLoading?: boolean;
   emptyMessage?: string;
+  /** Map of agent mint address to feedback count */
+  feedbackCounts?: Record<string, number>;
 }
 
-export function AgentTable({ agents, isLoading, emptyMessage = "No agents found" }: AgentTableProps) {
+export function AgentTable({ agents, isLoading, emptyMessage = "No agents found", feedbackCounts }: AgentTableProps) {
   const navigate = useNavigate();
 
   if (isLoading) {
@@ -40,12 +42,18 @@ export function AgentTable({ agents, isLoading, emptyMessage = "No agents found"
             <th className="pb-3 pr-4 font-medium">Agent</th>
             <th className="pb-3 pr-4 font-medium">Mint</th>
             <th className="pb-3 pr-4 font-medium">Owner</th>
+            <th className="pb-3 pr-4 font-medium text-center">Feedbacks</th>
             <th className="pb-3 font-medium text-right">Member #</th>
           </tr>
         </thead>
         <tbody>
           {agents.map((agent) => (
-            <AgentRow key={agent.mint} agent={agent} onClick={() => navigate(`/agent/${agent.mint}`)} />
+            <AgentRow
+              key={agent.mint}
+              agent={agent}
+              feedbackCount={feedbackCounts?.[agent.mint]}
+              onClick={() => navigate(`/agent/${agent.mint}`)}
+            />
           ))}
         </tbody>
       </table>
@@ -55,10 +63,11 @@ export function AgentTable({ agents, isLoading, emptyMessage = "No agents found"
 
 interface AgentRowProps {
   agent: AgentIdentity;
+  feedbackCount?: number;
   onClick: () => void;
 }
 
-function AgentRow({ agent, onClick }: AgentRowProps) {
+function AgentRow({ agent, feedbackCount, onClick }: AgentRowProps) {
   const { copyToClipboard, isCopied: mintCopied } = useCopyToClipboard();
   const { copyToClipboard: copyOwner, isCopied: ownerCopied } = useCopyToClipboard();
 
@@ -123,6 +132,12 @@ function AgentRow({ agent, onClick }: AgentRowProps) {
               <TooltipContent>{ownerCopied ? "Copied!" : "Copy owner address"}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
+        </div>
+      </td>
+      <td className="py-4 pr-4 text-center">
+        <div className="flex items-center justify-center gap-1">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <span className="text-muted-foreground">{feedbackCount ?? 0}</span>
         </div>
       </td>
       <td className="py-4 text-right">

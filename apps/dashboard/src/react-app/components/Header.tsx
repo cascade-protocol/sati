@@ -45,7 +45,7 @@ export function Header() {
               <NavLink to="/" end className={({ isActive }) => getNavLinkClasses(isActive)}>
                 Explore
               </NavLink>
-              <NavLink to="/dashboard" className={({ isActive }) => getNavLinkClasses(isActive)}>
+              <NavLink to="/profile" className={({ isActive }) => getNavLinkClasses(isActive)}>
                 My Profile
               </NavLink>
             </nav>
@@ -90,7 +90,7 @@ export function Header() {
                     <NavLink to="/" end className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       Explore
                     </NavLink>
-                    <NavLink to="/dashboard" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
+                    <NavLink to="/profile" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       My Profile
                     </NavLink>
                   </nav>

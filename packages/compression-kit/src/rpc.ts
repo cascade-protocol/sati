@@ -664,6 +664,7 @@ function parseCompressedAccount(raw: RawCompressedAccount): CompressedAccount {
     leafIndex: raw.leafIndex,
     proveByIndex: raw.proveByIndex ?? false,
     readOnly: false,
+    slotCreated: BigInt(raw.slotCreated),
   };
 }
 

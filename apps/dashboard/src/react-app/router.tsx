@@ -12,8 +12,8 @@ export const router = createBrowserRouter([
     children: [
       // Explore is the home page
       { index: true, element: <Explore /> },
-      // My Profile (formerly just Dashboard)
-      { path: "dashboard", element: <Dashboard /> },
+      // My Profile
+      { path: "profile", element: <Dashboard /> },
       { path: "agent/:mint", element: <AgentDetails /> },
       // OCMSF signing test page
       { path: "signing-test", element: <SigningTest /> },
