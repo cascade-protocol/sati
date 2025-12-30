@@ -14,8 +14,7 @@
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { Keypair, PublicKey } from "@solana/web3.js";
-import { address, type KeyPairSigner, type Address } from "@solana/kit";
+import type { KeyPairSigner, Address } from "@solana/kit";
 import type { Sati } from "../../src";
 import { computeInteractionHash, computeFeedbackHash, computeAttestationNonce, Outcome } from "../../src/hashes";
 import { DataType, ContentType, SignatureMode, StorageType } from "../../src/schemas";
@@ -78,7 +77,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
     lookupTableAddress = ctx.lookupTableAddress;
 
     // Generate SAS schema address for this test suite (separate from ctx.feedbackSchema)
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -343,9 +342,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
 
         // All returned items should belong to our schema
         for (const item of result) {
-          const sasSchemaBytes = item.attestation.sasSchema;
-          const sasSchemaAddr = new PublicKey(sasSchemaBytes).toBase58();
-          expect(sasSchemaAddr).toBe(sasSchema);
+          // item.attestation.sasSchema is already an Address string
+          expect(item.attestation.sasSchema).toBe(sasSchema);
         }
       },
       TEST_TIMEOUT,
@@ -395,7 +393,7 @@ describe("E2E: Multiple Feedbacks Flow", () => {
   beforeAll(async () => {
     // These tests only verify signature creation - no chain submission
     agentKeypair = createTestKeypair(200);
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   test(
@@ -489,7 +487,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
     // These tests only verify signature behavior - no chain submission
     agentKeypair = createTestKeypair(600);
     counterpartyKeypair = createTestKeypair(601);
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   test(
@@ -569,7 +567,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       const forgedSig = signMessage(interactionHash, counterpartyKeypair.secretKey);
 
       // Forged signature should fail verification against agent's public key
-      const isValid = verifySignature(interactionHash, forgedSig, agentKeypair.publicKey.toBytes());
+      const isValid = verifySignature(interactionHash, forgedSig, agentKeypair.publicKey);
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,

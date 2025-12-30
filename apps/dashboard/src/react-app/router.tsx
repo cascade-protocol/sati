@@ -3,6 +3,7 @@ import { RootLayout } from "./layouts/RootLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { Explore } from "./pages/Explore";
 import { AgentDetails } from "./pages/AgentDetails";
+import { SigningTest } from "./pages/SigningTest";
 
 export const router = createBrowserRouter([
   {
@@ -14,6 +15,8 @@ export const router = createBrowserRouter([
       // My Profile (formerly just Dashboard)
       { path: "dashboard", element: <Dashboard /> },
       { path: "agent/:mint", element: <AgentDetails /> },
+      // OCMSF signing test page
+      { path: "signing-test", element: <SigningTest /> },
     ],
   },
   { path: "*", element: <Navigate to="/" replace /> },

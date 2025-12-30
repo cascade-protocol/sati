@@ -53,17 +53,6 @@ const BORSH_OFFSETS = {
   DATA_START: 69, // Actual data bytes start after length prefix
 } as const;
 
-/**
- * Compare two Uint8Arrays for equality.
- */
-function arraysEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -499,13 +488,6 @@ export class SATILightClientImpl implements SATILightClient {
     const result = await this.rpc.getCompressedAccountsByOwner(this.programId);
     const attestations: ParsedAttestation[] = [];
 
-    // Pre-convert filter addresses to bytes for comparison
-    const addressEncoder = getAddressEncoder();
-    const filterSasSchemaBytes = filter.sasSchema ? new Uint8Array(addressEncoder.encode(filter.sasSchema)) : null;
-    const filterTokenAccountBytes = filter.tokenAccount
-      ? new Uint8Array(addressEncoder.encode(filter.tokenAccount))
-      : null;
-
     for (const account of result.items) {
       if (!account.data) continue;
 
@@ -515,8 +497,8 @@ export class SATILightClientImpl implements SATILightClient {
 
         // Apply filters
         if (parsed.attestation.dataType !== dataType) continue;
-        if (filterSasSchemaBytes && !arraysEqual(parsed.attestation.sasSchema, filterSasSchemaBytes)) continue;
-        if (filterTokenAccountBytes && !arraysEqual(parsed.attestation.tokenAccount, filterTokenAccountBytes)) continue;
+        if (filter.sasSchema && parsed.attestation.sasSchema !== filter.sasSchema) continue;
+        if (filter.tokenAccount && parsed.attestation.tokenAccount !== filter.tokenAccount) continue;
 
         attestations.push(parsed);
       } catch {
@@ -536,9 +518,12 @@ export class SATILightClientImpl implements SATILightClient {
     // Minimum: sasSchema(32) + tokenAccount(32) + dataType(1) + dataLen(4) = 69 bytes
     if (data.length < BORSH_OFFSETS.DATA_START) return null;
 
-    // Parse fixed fields
-    const sasSchema = data.slice(BORSH_OFFSETS.SAS_SCHEMA, BORSH_OFFSETS.SAS_SCHEMA + 32);
-    const tokenAccount = data.slice(BORSH_OFFSETS.TOKEN_ACCOUNT, BORSH_OFFSETS.TOKEN_ACCOUNT + 32);
+    // Parse fixed fields and convert to Address
+    const addressDecoder = getAddressDecoder();
+    const sasSchemaBytes = data.slice(BORSH_OFFSETS.SAS_SCHEMA, BORSH_OFFSETS.SAS_SCHEMA + 32);
+    const tokenAccountBytes = data.slice(BORSH_OFFSETS.TOKEN_ACCOUNT, BORSH_OFFSETS.TOKEN_ACCOUNT + 32);
+    const sasSchema = addressDecoder.decode(sasSchemaBytes);
+    const tokenAccount = addressDecoder.decode(tokenAccountBytes);
     const dataType = data[BORSH_OFFSETS.DATA_TYPE];
 
     // Parse Vec length (4-byte u32 LE at offset 65)

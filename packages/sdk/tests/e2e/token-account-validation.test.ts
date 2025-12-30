@@ -14,7 +14,6 @@
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { Keypair } from "@solana/web3.js";
 import { address, type KeyPairSigner, type Address } from "@solana/kit";
 import type { Sati } from "../../src";
 import { Outcome } from "../../src/hashes";
@@ -22,6 +21,7 @@ import { ContentType, SignatureMode, StorageType, ValidationType } from "../../s
 
 // Import test helpers
 import {
+  createTestKeypair,
   createFeedbackSignatures,
   createValidationSignatures,
   createReputationSignature,
@@ -87,8 +87,8 @@ describe("E2E: tokenAccount validation", () => {
     feedbackSchema = ctx.feedbackSchema;
 
     // Register additional schemas for validation and reputation tests
-    validationSchema = address(Keypair.generate().publicKey.toBase58());
-    reputationSchema = address(Keypair.generate().publicKey.toBase58());
+    validationSchema = createTestKeypair().address;
+    reputationSchema = createTestKeypair().address;
 
     await sati.registerSchemaConfig({
       payer,
@@ -109,7 +109,7 @@ describe("E2E: tokenAccount validation", () => {
     });
 
     // For reputation scores, we need a credential (use a placeholder)
-    satiCredential = address(Keypair.generate().publicKey.toBase58());
+    satiCredential = createTestKeypair().address;
   }, TEST_TIMEOUT * 2);
 
   // ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ describe("E2E: tokenAccount validation", () => {
       "rejects non-registered mint as tokenAccount",
       async () => {
         // Generate a random address that is NOT a registered agent
-        const nonRegisteredMint = address(Keypair.generate().publicKey.toBase58());
+        const nonRegisteredMint = createTestKeypair().address;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -214,7 +214,7 @@ describe("E2E: tokenAccount validation", () => {
     test(
       "rejects non-registered mint as tokenAccount",
       async () => {
-        const nonRegisteredMint = address(Keypair.generate().publicKey.toBase58());
+        const nonRegisteredMint = createTestKeypair().address;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -304,7 +304,7 @@ describe("E2E: tokenAccount validation", () => {
     test(
       "rejects non-registered mint as tokenAccount",
       async () => {
-        const nonRegisteredMint = address(Keypair.generate().publicKey.toBase58());
+        const nonRegisteredMint = createTestKeypair().address;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -397,7 +397,7 @@ describe("E2E: tokenAccount validation", () => {
     test(
       "rejects non-registered mint as tokenAccount",
       async () => {
-        const nonRegisteredMint = address(Keypair.generate().publicKey.toBase58());
+        const nonRegisteredMint = createTestKeypair().address;
 
         const score = 75;
 
@@ -595,7 +595,7 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
     registeredAgentMint = ctx.agentMint;
 
     // Register SingleSigner schema for this test
-    feedbackPublicSchema = address(Keypair.generate().publicKey.toBase58());
+    feedbackPublicSchema = createTestKeypair().address;
     await sati.registerSchemaConfig({
       payer,
       authority,
@@ -609,7 +609,7 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
   test(
     "createFeedback (SingleSigner) rejects non-registered mint",
     async () => {
-      const nonRegisteredMint = address(Keypair.generate().publicKey.toBase58());
+      const nonRegisteredMint = createTestKeypair().address;
 
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();

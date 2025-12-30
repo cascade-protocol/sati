@@ -4,19 +4,30 @@
  * Creates and manages address lookup tables for transaction compression.
  * Light Protocol transactions exceed the 1232-byte limit without ALT compression.
  *
- * Uses @solana/web3.js for compatibility with Light test validator (no WebSocket).
+ * @solana/kit native implementation.
  */
 
 import {
-  Connection,
-  AddressLookupTableProgram,
-  TransactionMessage,
-  VersionedTransaction,
-  PublicKey,
-  type Keypair,
-} from "@solana/web3.js";
-import { address, type Address } from "@solana/kit";
-import type { SATI } from "../../src";
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  pipe,
+  createTransactionMessage,
+  setTransactionMessageFeePayer,
+  setTransactionMessageLifetimeUsingBlockhash,
+  appendTransactionMessageInstructions,
+  signTransactionMessageWithSigners,
+  getSignatureFromTransaction,
+  sendAndConfirmTransactionFactory,
+  type KeyPairSigner,
+  type Address,
+} from "@solana/kit";
+import {
+  findAddressLookupTablePda,
+  getCreateLookupTableInstruction,
+  getExtendLookupTableInstruction,
+  fetchAddressLookupTable,
+} from "@solana-program/address-lookup-table";
+import type { Sati } from "../../src";
 
 // =============================================================================
 // Types
@@ -46,24 +57,26 @@ export interface CreateLookupTableResult {
  * - System program
  *
  * @param sati - SATI client instance
- * @param payer - Transaction fee payer keypair (must have SOL)
+ * @param payer - Transaction fee payer signer (must have SOL)
  * @param rpcUrl - Optional RPC URL (defaults to localnet)
  * @returns Created lookup table address and signature
  *
  * @example
  * ```typescript
- * const { address: lookupTableAddress } = await createSatiLookupTable(sati, payerKeypair);
+ * const { address: lookupTableAddress } = await createSatiLookupTable(sati, payerSigner);
  *
  * // Use in createFeedback
  * await sati.createFeedback({ ...params, lookupTableAddress });
  * ```
  */
 export async function createSatiLookupTable(
-  sati: SATI,
-  payer: Keypair,
+  sati: Sati,
+  payer: KeyPairSigner,
   rpcUrl = "http://127.0.0.1:8899",
+  wsUrl = "ws://127.0.0.1:8900",
 ): Promise<CreateLookupTableResult> {
-  const connection = new Connection(rpcUrl, "confirmed");
+  const rpc = createSolanaRpc(rpcUrl);
+  const rpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
 
   // Get addresses to include in lookup table (do this first, before fetching slot)
   // Includes Light Protocol addresses, SATI program/PDAs, and Token-2022
@@ -71,83 +84,74 @@ export async function createSatiLookupTable(
   const addresses = await light.getLookupTableAddresses();
 
   // Get current slot for lookup table creation
-  const slot = await connection.getSlot("finalized");
+  const slot = await rpc.getSlot({ commitment: "finalized" }).send();
 
-  // Create lookup table instruction
-  const [createIx, lookupTableAddress] = AddressLookupTableProgram.createLookupTable({
-    authority: payer.publicKey,
-    payer: payer.publicKey,
+  // Derive lookup table PDA
+  const [lookupTableAddress, bump] = await findAddressLookupTablePda({
+    authority: payer.address,
     recentSlot: slot,
   });
 
-  // Convert Address strings to web3.js PublicKey instances
-  const pubkeyAddresses = addresses.map((addr) => new PublicKey(addr));
+  // Build instructions
+  const instructions = [];
+
+  // Create lookup table instruction
+  instructions.push(
+    getCreateLookupTableInstruction({
+      address: [lookupTableAddress, bump],
+      authority: payer.address,
+      payer,
+      recentSlot: slot,
+    }),
+  );
 
   // Extend lookup table with addresses (max 30 per instruction)
-  const extendInstructions = [];
-  for (let i = 0; i < pubkeyAddresses.length; i += 30) {
-    const chunk = pubkeyAddresses.slice(i, i + 30);
-    extendInstructions.push(
-      AddressLookupTableProgram.extendLookupTable({
-        lookupTable: lookupTableAddress,
-        authority: payer.publicKey,
-        payer: payer.publicKey,
+  for (let i = 0; i < addresses.length; i += 30) {
+    const chunk = addresses.slice(i, i + 30);
+    instructions.push(
+      getExtendLookupTableInstruction({
+        address: lookupTableAddress,
+        authority: payer,
+        payer,
         addresses: chunk,
       }),
     );
   }
 
-  // Build and send transaction
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  // Get latest blockhash
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
 
-  const messageV0 = new TransactionMessage({
-    payerKey: payer.publicKey,
-    recentBlockhash: blockhash,
-    instructions: [createIx, ...extendInstructions],
-  }).compileToV0Message();
+  // Build transaction
+  const txMessage = pipe(
+    createTransactionMessage({ version: 0 }),
+    (msg) => setTransactionMessageFeePayer(payer.address, msg),
+    (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+    (msg) => appendTransactionMessageInstructions(instructions, msg),
+  );
 
-  const tx = new VersionedTransaction(messageV0);
-  tx.sign([payer]);
+  // Sign transaction
+  const signedTx = await signTransactionMessageWithSigners(txMessage);
+  const signature = getSignatureFromTransaction(signedTx);
 
-  // Send and confirm with HTTP polling (no WebSocket needed)
-  const signature = await connection.sendTransaction(tx);
-  await confirmTransaction(connection, signature, lastValidBlockHeight);
+  // Send and confirm using factory (handles encoding correctly)
+  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+
+  // Type assertion for transaction with blockhash lifetime
+  type SignedBlockhashTransaction = typeof signedTx & {
+    lifetimeConstraint: { lastValidBlockHeight: bigint; blockhash: string };
+  };
+
+  await sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+    commitment: "confirmed",
+  });
 
   // Wait for lookup table to be active (needs 1 slot)
-  await waitForLookupTableActive(connection, lookupTableAddress);
+  await waitForLookupTableActive(rpc, lookupTableAddress);
 
   return {
-    address: address(lookupTableAddress.toBase58()),
+    address: lookupTableAddress,
     signature,
   };
-}
-
-/**
- * Confirm a transaction using HTTP polling.
- * More reliable than WebSocket subscriptions for local test validators.
- */
-async function confirmTransaction(
-  connection: Connection,
-  signature: string,
-  lastValidBlockHeight: number,
-  maxAttempts = 30,
-  delayMs = 500,
-): Promise<void> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const status = await connection.getSignatureStatuses([signature]);
-    if (status.value[0]?.confirmationStatus === "confirmed") {
-      return;
-    }
-
-    // Check if blockhash expired
-    const currentHeight = await connection.getBlockHeight();
-    if (currentHeight > lastValidBlockHeight) {
-      throw new Error(`Transaction ${signature} expired`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
-  throw new Error(`Transaction ${signature} confirmation timed out after ${maxAttempts} attempts`);
 }
 
 /**
@@ -157,15 +161,15 @@ async function confirmTransaction(
  * This function polls until the table is available.
  */
 async function waitForLookupTableActive(
-  connection: Connection,
-  lookupTableAddress: import("@solana/web3.js").PublicKey,
+  rpc: Parameters<typeof fetchAddressLookupTable>[0],
+  lookupTableAddress: Address,
   maxAttempts = 10,
   delayMs = 500,
 ): Promise<void> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const lutAccount = await connection.getAddressLookupTable(lookupTableAddress);
-      if (lutAccount.value) {
+      const lutAccount = await fetchAddressLookupTable(rpc, lookupTableAddress);
+      if (lutAccount) {
         return; // Table is active
       }
     } catch {
@@ -173,5 +177,5 @@ async function waitForLookupTableActive(
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  throw new Error(`Lookup table ${lookupTableAddress.toBase58()} did not become active after ${maxAttempts} attempts`);
+  throw new Error(`Lookup table ${lookupTableAddress} did not become active after ${maxAttempts} attempts`);
 }

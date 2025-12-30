@@ -10,8 +10,6 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { Keypair } from "@solana/web3.js";
-import { address } from "@solana/kit";
 import {
   signMessage,
   verifySignature,
@@ -35,7 +33,7 @@ import {
 // =============================================================================
 
 function randomAddress() {
-  return address(Keypair.generate().publicKey.toBase58());
+  return createTestKeypair().address;
 }
 
 // =============================================================================
@@ -82,7 +80,7 @@ describe("Ed25519 Core Operations", () => {
       const message = randomBytes32();
 
       const signature = signMessage(message, keypair.secretKey);
-      const isValid = verifySignature(message, signature, keypair.publicKey.toBytes());
+      const isValid = verifySignature(message, signature, keypair.publicKey);
 
       expect(isValid).toBe(true);
     });
@@ -93,7 +91,7 @@ describe("Ed25519 Core Operations", () => {
       const wrongMessage = randomBytes32();
 
       const signature = signMessage(message, keypair.secretKey);
-      const isValid = verifySignature(wrongMessage, signature, keypair.publicKey.toBytes());
+      const isValid = verifySignature(wrongMessage, signature, keypair.publicKey);
 
       expect(isValid).toBe(false);
     });
@@ -104,7 +102,7 @@ describe("Ed25519 Core Operations", () => {
       const message = randomBytes32();
 
       const signature = signMessage(message, keypair.secretKey);
-      const isValid = verifySignature(message, signature, wrongKeypair.publicKey.toBytes());
+      const isValid = verifySignature(message, signature, wrongKeypair.publicKey);
 
       expect(isValid).toBe(false);
     });
@@ -119,7 +117,7 @@ describe("Ed25519 Core Operations", () => {
       const tamperedSig = new Uint8Array(signature);
       tamperedSig[0] ^= 0xff;
 
-      const isValid = verifySignature(message, tamperedSig, keypair.publicKey.toBytes());
+      const isValid = verifySignature(message, tamperedSig, keypair.publicKey);
 
       expect(isValid).toBe(false);
     });
@@ -171,7 +169,7 @@ describe("createFeedbackSignatures", () => {
     // Agent signs interaction hash (blind to outcome)
     const interactionHash = computeInteractionHash(sasSchema, taskRef, agent.address, dataHash);
 
-    const isValid = verifySignature(interactionHash, signatures[0].sig, agent.publicKey.toBytes());
+    const isValid = verifySignature(interactionHash, signatures[0].sig, agent.publicKey);
 
     expect(isValid).toBe(true);
   });
@@ -186,7 +184,7 @@ describe("createFeedbackSignatures", () => {
     // Counterparty signs feedback hash (includes outcome)
     const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agent.address, outcome);
 
-    const isValid = verifySignature(feedbackHash, signatures[1].sig, counterparty.publicKey.toBytes());
+    const isValid = verifySignature(feedbackHash, signatures[1].sig, counterparty.publicKey);
 
     expect(isValid).toBe(true);
   });
@@ -319,7 +317,7 @@ describe("createValidationSignatures", () => {
 
     const validationHash = computeValidationHash(sasSchema, taskRef, agent.address, response);
 
-    const isValid = verifySignature(validationHash, signatures[1].sig, validator.publicKey.toBytes());
+    const isValid = verifySignature(validationHash, signatures[1].sig, validator.publicKey);
 
     expect(isValid).toBe(true);
   });
@@ -366,7 +364,7 @@ describe("createReputationSignature", () => {
 
     const reputationHash = computeReputationHash(sasSchema, agent.address, provider.address, score);
 
-    const isValid = verifySignature(reputationHash, signatures[0].sig, provider.publicKey.toBytes());
+    const isValid = verifySignature(reputationHash, signatures[0].sig, provider.publicKey);
 
     expect(isValid).toBe(true);
   });

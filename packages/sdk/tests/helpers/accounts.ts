@@ -3,10 +3,11 @@
  *
  * Provides data serialization utilities for building attestation data
  * in tests, matching the on-chain layout expectations.
+ *
+ * @solana/kit native implementation.
  */
 
-import { type Address, getAddressEncoder } from "@solana/kit";
-import { PublicKey } from "@solana/web3.js";
+import { type Address, address, getAddressEncoder, getProgramDerivedAddress } from "@solana/kit";
 
 // =============================================================================
 // Constants (matching programs/sati/src/constants.rs)
@@ -64,20 +65,32 @@ export enum DataType {
 // PDA Derivation
 // =============================================================================
 
-const SATI_PROGRAM_ID = new PublicKey("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
+const SATI_PROGRAM_ADDRESS: Address = address("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 /**
  * Find registry config PDA
  */
-export function findRegistryConfigPda(programId: PublicKey = SATI_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([new TextEncoder().encode("registry")], programId);
+export async function findRegistryConfigPda(
+  programAddress: Address = SATI_PROGRAM_ADDRESS,
+): Promise<readonly [Address, number]> {
+  return getProgramDerivedAddress({
+    programAddress,
+    seeds: [new TextEncoder().encode("registry")],
+  });
 }
 
 /**
  * Find schema config PDA
  */
-export function findSchemaConfigPda(sasSchema: PublicKey, programId: PublicKey = SATI_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([new TextEncoder().encode("schema_config"), sasSchema.toBytes()], programId);
+export async function findSchemaConfigPda(
+  sasSchema: Address,
+  programAddress: Address = SATI_PROGRAM_ADDRESS,
+): Promise<readonly [Address, number]> {
+  const encoder = getAddressEncoder();
+  return getProgramDerivedAddress({
+    programAddress,
+    seeds: [new TextEncoder().encode("schema_config"), encoder.encode(sasSchema)],
+  });
 }
 
 // =============================================================================

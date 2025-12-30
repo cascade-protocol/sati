@@ -215,6 +215,48 @@ Program parses this for signature binding; full schema parsed by indexers.
 
 > **Note**: `token_account` is the agent's MINT ADDRESS (identity). The agent OWNER signs (verified via ATA ownership).
 
+#### Off-Chain Message Signing Format (Wallet UX)
+
+For wallet-based signing (e.g., counterparty feedback), SATI uses a human-readable SIWS-inspired format with CAIP-10 agent identifiers:
+
+```
+sati.fyi wants you to attest with your Solana account:
+{owner_address}
+
+Attestation: Feedback
+Agent: solana:{chain_ref}:{agent_mint}
+Outcome: Positive
+Hash: 0x{feedback_hash_hex}
+```
+
+**Fields:**
+| Field | Format | Description |
+|-------|--------|-------------|
+| `owner_address` | Base58 | Signer's Solana wallet address |
+| `chain_ref` | CAIP-2 | Solana genesis hash prefix (32 chars) |
+| `agent_mint` | Base58 | Agent's Token-2022 mint address |
+| `Outcome` | String | Negative, Neutral, or Positive |
+| `Hash` | 0x + hex | 32-byte feedback hash as hex |
+
+**CAIP-2 Chain References:**
+| Network | Chain Reference |
+|---------|----------------|
+| Mainnet | `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
+| Devnet | `EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
+
+**Example (mainnet):**
+```
+sati.fyi wants you to attest with your Solana account:
+9WzDXwBbmPdCBUH9nUqxHpqftYJVRzj1mHjnJZn2JCFN
+
+Attestation: Feedback
+Agent: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv
+Outcome: Positive
+Hash: 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+```
+
+> **Note**: This format is for wallet display only. The cryptographic hash computation (used for on-chain verification) uses domain-separated keccak256 as defined in `hashes.ts`.
+
 #### Instructions
 
 | Instruction | Parameters | Behavior |

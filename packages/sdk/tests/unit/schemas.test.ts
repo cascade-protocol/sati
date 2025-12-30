@@ -6,8 +6,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { Keypair } from "@solana/web3.js";
-import { address } from "@solana/kit";
+import { createTestKeypair } from "../helpers/signatures";
 import {
   DataType,
   Outcome,
@@ -34,7 +33,7 @@ import {
 // =============================================================================
 
 function randomAddress() {
-  return address(Keypair.generate().publicKey.toBase58());
+  return createTestKeypair().address;
 }
 
 function randomBytes(length: number): Uint8Array {

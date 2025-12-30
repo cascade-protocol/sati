@@ -3,10 +3,18 @@
  *
  * Provides RPC client setup for integration and E2E tests
  * with Light Protocol and Photon indexer.
+ *
+ * @solana/kit native implementation.
  */
 
-import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { createKeyPairSignerFromBytes, type KeyPairSigner } from "@solana/kit";
+import {
+  createSolanaRpc,
+  createKeyPairSignerFromBytes,
+  generateKeyPairSigner,
+  type KeyPairSigner,
+  type Rpc,
+  type SolanaRpcApi,
+} from "@solana/kit";
 
 // =============================================================================
 // Configuration
@@ -24,15 +32,17 @@ const DEFAULT_CONFIG: TestRpcConfig = {
   proverUrl: process.env.PROVER_URL || "http://127.0.0.1:3001",
 };
 
+const LAMPORTS_PER_SOL = 1_000_000_000n;
+
 // =============================================================================
-// Connection Utilities
+// RPC Utilities
 // =============================================================================
 
 /**
- * Get a Solana connection for tests
+ * Get a Solana RPC client for tests
  */
-export function getConnection(rpcUrl?: string): Connection {
-  return new Connection(rpcUrl || DEFAULT_CONFIG.rpcUrl, "confirmed");
+export function getRpc(rpcUrl?: string): Rpc<SolanaRpcApi> {
+  return createSolanaRpc(rpcUrl || DEFAULT_CONFIG.rpcUrl);
 }
 
 /**
@@ -64,34 +74,32 @@ export async function isTestValidatorReady(rpcUrl?: string): Promise<boolean> {
  * Create a new keypair with airdropped lamports
  */
 export async function newAccountWithLamports(
-  connection: Connection,
-  lamports: number = LAMPORTS_PER_SOL,
-): Promise<Keypair> {
-  const keypair = Keypair.generate();
+  rpc: Rpc<SolanaRpcApi>,
+  lamports: bigint = LAMPORTS_PER_SOL,
+): Promise<KeyPairSigner> {
+  const signer = await generateKeyPairSigner();
 
-  const sig = await connection.requestAirdrop(keypair.publicKey, lamports);
-  await connection.confirmTransaction(sig, "confirmed");
+  const sig = await rpc.requestAirdrop(signer.address, lamports).send();
+  await waitForConfirmation(rpc, sig);
 
-  return keypair;
+  return signer;
 }
 
 /**
  * Generate deterministic test keypair for reproducible tests
  */
-export function getTestKeypair(seed: number): Keypair {
+export async function getTestKeypair(seed: number): Promise<KeyPairSigner> {
   if (seed < 0 || seed > 255) {
     throw new Error("Seed must be 0-255");
   }
-  const seedBytes = new Uint8Array(32);
+  const seedBytes = new Uint8Array(64);
   seedBytes[0] = seed;
-  return Keypair.fromSeed(seedBytes);
-}
-
-/**
- * Create a KeyPairSigner from a Keypair (for @solana/kit compatibility)
- */
-export async function keypairToSigner(keypair: Keypair): Promise<KeyPairSigner> {
-  return createKeyPairSignerFromBytes(keypair.secretKey);
+  // Ed25519 requires 64 bytes for secret key (32 seed + 32 derived public key)
+  // For deterministic generation, we need to use crypto
+  // createKeyPairSignerFromBytes expects a 64-byte secret key
+  // Let's use a hash to generate the full key deterministically
+  const hashBuffer = await crypto.subtle.digest("SHA-512", seedBytes.slice(0, 32));
+  return createKeyPairSignerFromBytes(new Uint8Array(hashBuffer));
 }
 
 // =============================================================================
@@ -111,12 +119,12 @@ export function sleep(ms: number): Promise<void> {
  * For Light Protocol Photon indexer, this ensures compressed
  * accounts are queryable after creation.
  */
-export async function waitForIndexer(connection?: Connection, delayMs: number = 1000): Promise<void> {
-  // Use provided connection or create default for localnet
-  const conn = connection ?? new Connection("http://127.0.0.1:8899", "confirmed");
+export async function waitForIndexer(rpc?: Rpc<SolanaRpcApi>, delayMs: number = 1000): Promise<void> {
+  // Use provided RPC or create default for localnet
+  const rpcClient = rpc ?? createSolanaRpc("http://127.0.0.1:8899");
 
   // Get current slot to verify connection
-  const _slot = await conn.getSlot();
+  const _slot = await rpcClient.getSlot().send();
 
   // Wait for indexer to catch up
   await sleep(delayMs);
@@ -124,6 +132,27 @@ export async function waitForIndexer(connection?: Connection, delayMs: number = 
   // Optionally poll until slot is processed (for stricter tests)
   // This is a simplified version - full implementation would
   // query Photon's indexer height
+}
+
+/**
+ * Wait for a transaction to be confirmed
+ */
+async function waitForConfirmation(
+  rpc: Rpc<SolanaRpcApi>,
+  signature: string,
+  maxAttempts = 30,
+  delayMs = 500,
+): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const status = await rpc
+      .getSignatureStatuses([signature as Parameters<SolanaRpcApi["getSignatureStatuses"]>[0][0]])
+      .send();
+    if (status.value[0]?.confirmationStatus === "confirmed") {
+      return;
+    }
+    await sleep(delayMs);
+  }
+  throw new Error(`Transaction ${signature} confirmation timed out after ${maxAttempts} attempts`);
 }
 
 /**
@@ -150,4 +179,4 @@ export async function retry<T>(fn: () => Promise<T>, maxAttempts: number = 5, de
 // Exports
 // =============================================================================
 
-export { DEFAULT_CONFIG };
+export { DEFAULT_CONFIG, LAMPORTS_PER_SOL };

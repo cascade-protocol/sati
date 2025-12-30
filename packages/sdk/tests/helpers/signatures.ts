@@ -12,8 +12,7 @@
  */
 
 import nacl from "tweetnacl";
-import { type Address, address, getAddressEncoder } from "@solana/kit";
-import { Keypair, type PublicKey } from "@solana/web3.js";
+import { type Address, address, getAddressEncoder, getBase58Decoder } from "@solana/kit";
 import {
   computeInteractionHash,
   computeFeedbackHash,
@@ -32,8 +31,11 @@ export interface SignatureData {
 }
 
 export interface TestKeypair {
-  publicKey: PublicKey;
+  /** Raw 32-byte Ed25519 public key */
+  publicKey: Uint8Array;
+  /** Full 64-byte Ed25519 secret key (seed + public key) */
   secretKey: Uint8Array;
+  /** Base58-encoded address */
   address: Address;
 }
 
@@ -56,24 +58,28 @@ export function verifySignature(message: Uint8Array, signature: Uint8Array, publ
 }
 
 /**
- * Create a test keypair with both web3.js and kit-compatible fields
+ * Create a test keypair using nacl (kit-native, no web3.js dependency)
  */
 export function createTestKeypair(seed?: number): TestKeypair {
-  let keypair: Keypair;
+  let keypair: nacl.SignKeyPair;
 
   if (seed !== undefined && seed < 256) {
     // Deterministic keypair for reproducible tests
     const seedBytes = new Uint8Array(32);
     seedBytes[0] = seed;
-    keypair = Keypair.fromSeed(seedBytes);
+    keypair = nacl.sign.keyPair.fromSeed(seedBytes);
   } else {
-    keypair = Keypair.generate();
+    keypair = nacl.sign.keyPair();
   }
+
+  // Convert public key to base58 address
+  const base58Decoder = getBase58Decoder();
+  const addressStr = base58Decoder.decode(keypair.publicKey);
 
   return {
     publicKey: keypair.publicKey,
     secretKey: keypair.secretKey,
-    address: address(keypair.publicKey.toBase58()),
+    address: address(addressStr),
   };
 }
 

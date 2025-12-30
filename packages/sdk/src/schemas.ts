@@ -595,12 +595,13 @@ export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreDa
  * CompressedAttestation structure (Light Protocol storage)
  *
  * This represents the full compressed account structure with Light Protocol fields.
+ * Public-facing fields use Address type for better API ergonomics.
  */
 export interface CompressedAttestation {
-  /** SAS schema address (32 bytes) - memcmp filter at offset 8 */
-  sasSchema: Uint8Array;
-  /** Agent's mint address (32 bytes). Named tokenAccount for SAS wire format compatibility. */
-  tokenAccount: Uint8Array;
+  /** SAS schema address */
+  sasSchema: Address;
+  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
+  tokenAccount: Address;
   /** Data type discriminator: 0=Feedback, 1=Validation */
   dataType: DataType;
   /** Schema-conformant data bytes */

@@ -8,8 +8,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { Keypair } from "@solana/web3.js";
-import { address } from "@solana/kit";
+import { createTestKeypair } from "../helpers/signatures";
 import {
   deriveSatiPda,
   deriveSatiProgramCredentialPda,
@@ -26,7 +25,7 @@ import { SATI_CREDENTIAL_NAME, deriveCredentialPda, deriveSchemaPda, deriveAttes
 // =============================================================================
 
 function randomAddress() {
-  return address(Keypair.generate().publicKey.toBase58());
+  return createTestKeypair().address;
 }
 
 function randomBytes32(): Uint8Array {

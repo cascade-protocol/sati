@@ -127,7 +127,6 @@ import type {
 } from "./types";
 
 import nacl from "tweetnacl";
-import bs58 from "bs58";
 
 // Re-export enums and types
 export { Outcome } from "./hashes";
@@ -360,13 +359,6 @@ function unwrapOption<T>(option: { __option: "Some"; value: T } | { __option: "N
     return option.value;
   }
   return null;
-}
-
-/**
- * Convert Uint8Array to base58 string
- */
-function uint8ArrayToBase58(bytes: Uint8Array): string {
-  return bs58.encode(bytes);
 }
 
 // ============================================================
@@ -1878,13 +1870,15 @@ export class Sati {
     const { attestation: compressed, data } = attestation;
     const addressEncoder = getAddressEncoder();
 
-    const sasSchema = address(uint8ArrayToBase58(compressed.sasSchema));
-    const tokenAccount = address(uint8ArrayToBase58(compressed.tokenAccount));
+    // sasSchema and tokenAccount are now Address strings
+    const sasSchema = compressed.sasSchema;
+    const tokenAccount = compressed.tokenAccount;
 
     const signature1 = compressed.signature1;
     const signature2 = compressed.signature2;
 
-    const agentPubkey = compressed.tokenAccount;
+    // Convert tokenAccount Address to bytes for nacl verification
+    const agentPubkey = new Uint8Array(addressEncoder.encode(tokenAccount));
 
     if (compressed.dataType === DataType.Feedback) {
       const feedbackData = data as FeedbackData;

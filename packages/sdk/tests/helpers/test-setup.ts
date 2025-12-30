@@ -23,8 +23,13 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { address, createKeyPairSignerFromBytes, type KeyPairSigner, type Address } from "@solana/kit";
+import {
+  createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  generateKeyPairSigner,
+  type KeyPairSigner,
+  type Address,
+} from "@solana/kit";
 import { Sati } from "../../src";
 import { SignatureMode, StorageType } from "../../src/schemas";
 import { createTestKeypair, type TestKeypair } from "./signatures";
@@ -36,6 +41,7 @@ import { createSatiLookupTable } from "./lookup-table";
 
 const LOCALNET_RPC = "http://127.0.0.1:8899";
 const LOCALNET_PHOTON = "http://127.0.0.1:8784";
+const LAMPORTS_PER_SOL = 1_000_000_000n;
 
 // =============================================================================
 // Types
@@ -47,8 +53,6 @@ export interface E2ETestContext {
 
   /** Transaction fee payer (funded) */
   payer: KeyPairSigner;
-  /** Raw payer keypair (for lookup table creation) */
-  payerKp: Keypair;
 
   /** Registry authority (local wallet) */
   authority: KeyPairSigner;
@@ -113,20 +117,20 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
   // Initialize SDK
   const sati = new Sati({ network: "localnet", photonRpcUrl });
 
-  // Create connection for airdrops
-  const connection = new Connection(rpcUrl, "confirmed");
+  // Create RPC client for airdrops
+  const rpc = createSolanaRpc(rpcUrl);
 
   // Load local wallet as authority (matches registry initialization)
   const walletPath = path.join(homedir(), ".config/solana/id.json");
   const walletSecret = JSON.parse(readFileSync(walletPath, "utf-8"));
-  const authorityKp = Keypair.fromSecretKey(Uint8Array.from(walletSecret));
-  const authority = await createKeyPairSignerFromBytes(authorityKp.secretKey);
+  const authority = await createKeyPairSignerFromBytes(Uint8Array.from(walletSecret));
 
   // Create and fund payer
-  const payerKp = Keypair.generate();
-  const airdropSig = await connection.requestAirdrop(payerKp.publicKey, 10 * LAMPORTS_PER_SOL);
-  await connection.confirmTransaction(airdropSig, "confirmed");
-  const payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
+  const payer = await generateKeyPairSigner();
+  const airdropSig = await rpc.requestAirdrop(payer.address, 10n * LAMPORTS_PER_SOL).send();
+
+  // Wait for airdrop confirmation
+  await waitForConfirmation(rpc, airdropSig);
 
   // Create test keypairs for Ed25519 signing
   // agentOwnerKeypair is the NFT owner - use this for signing attestations
@@ -151,13 +155,15 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
     });
     agentMint = result.mint;
   } else {
-    agentMint = address(Keypair.generate().publicKey.toBase58());
+    const dummySigner = await generateKeyPairSigner();
+    agentMint = dummySigner.address;
   }
 
   // Register schema
   let feedbackSchema: Address;
   if (!skipSchemaRegistration) {
-    feedbackSchema = address(Keypair.generate().publicKey.toBase58());
+    const schemaSigner = await generateKeyPairSigner();
+    feedbackSchema = schemaSigner.address;
     await sati.registerSchemaConfig({
       payer,
       authority,
@@ -167,22 +173,23 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
       closeable: true,
     });
   } else {
-    feedbackSchema = address(Keypair.generate().publicKey.toBase58());
+    const dummySigner = await generateKeyPairSigner();
+    feedbackSchema = dummySigner.address;
   }
 
   // Create lookup table
   let lookupTableAddress: Address;
   if (!skipLookupTable) {
-    const { address: lutAddress } = await createSatiLookupTable(sati, payerKp);
+    const { address: lutAddress } = await createSatiLookupTable(sati, payer);
     lookupTableAddress = lutAddress;
   } else {
-    lookupTableAddress = address(Keypair.generate().publicKey.toBase58());
+    const dummySigner = await generateKeyPairSigner();
+    lookupTableAddress = dummySigner.address;
   }
 
   return {
     sati,
     payer,
-    payerKp,
     authority,
     agentOwner,
     agentOwnerKeypair,
@@ -194,4 +201,25 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
     feedbackSchema,
     lookupTableAddress,
   };
+}
+
+/**
+ * Wait for a transaction to be confirmed.
+ */
+async function waitForConfirmation(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  signature: string,
+  maxAttempts = 30,
+  delayMs = 500,
+): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const status = await rpc
+      .getSignatureStatuses([signature as Parameters<typeof rpc.getSignatureStatuses>[0][0]])
+      .send();
+    if (status.value[0]?.confirmationStatus === "confirmed") {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  throw new Error(`Transaction ${signature} confirmation timed out after ${maxAttempts} attempts`);
 }

@@ -17,16 +17,6 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./web3-compat": {
-      "import": {
-        "types": "./dist/web3-compat/index.d.mts",
-        "default": "./dist/web3-compat/index.mjs"
-      },
-      "require": {
-        "types": "./dist/web3-compat/index.d.cts",
-        "default": "./dist/web3-compat/index.cjs"
-      }
-    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -63,13 +53,7 @@
   "peerDependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana-program/token-2022": "^0.6.1",
-    "@solana/kit": "^5.0.0",
-    "@solana/web3.js": "^1.98.0"
-  },
-  "peerDependenciesMeta": {
-    "@solana/web3.js": {
-      "optional": true
-    }
+    "@solana/kit": "^5.0.0"
   },
   "dependencies": {
     "@cascade-fyi/compression-kit": "workspace:*",
@@ -77,6 +61,7 @@
     "@noble/hashes": "^1.7.2",
     "@solana-program/address-lookup-table": "^0.10.0",
     "@solana-program/compute-budget": "^0.11.0",
+    "@solana-program/system": "^0.10.0",
     "@solana-program/token-2022": "^0.6.1",
     "@solana/kit": "^5.1.0",
     "bs58": "^6.0.0",

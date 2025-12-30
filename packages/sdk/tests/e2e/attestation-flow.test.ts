@@ -17,8 +17,7 @@
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { Keypair } from "@solana/web3.js";
-import { address, type KeyPairSigner, type Address } from "@solana/kit";
+import type { KeyPairSigner, Address } from "@solana/kit";
 import type { Sati } from "../../src";
 import { computeInteractionHash, computeValidationHash, computeReputationHash, Outcome } from "../../src/hashes";
 
@@ -75,7 +74,7 @@ describe("E2E: Attestation Flow", () => {
     counterpartyKeypair = ctx.counterpartyKeypair;
 
     // Generate random SAS schema for this test suite (separate from ctx.feedbackSchema)
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -324,7 +323,7 @@ describe("E2E: Validation Attestation Flow", () => {
     // These tests only verify signature creation/verification - no chain submission
     agentKeypair = createTestKeypair(10);
     validatorKeypair = createTestKeypair(11);
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   test(
@@ -362,7 +361,7 @@ describe("E2E: Validation Attestation Flow", () => {
 
       // Validator signature should verify against validation hash
       const { verifySignature } = await import("../helpers/signatures");
-      const isValid = verifySignature(validationHash, signatures[1].sig, validatorKeypair.publicKey.toBytes());
+      const isValid = verifySignature(validationHash, signatures[1].sig, validatorKeypair.publicKey);
       expect(isValid).toBe(true);
     },
     TEST_TIMEOUT,
@@ -401,7 +400,7 @@ describe("E2E: ReputationScore Attestation Flow", () => {
     // These tests only verify signature creation/verification - no chain submission
     providerKeypair = createTestKeypair(20);
     agentKeypair = createTestKeypair(21);
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   test(
@@ -421,7 +420,7 @@ describe("E2E: ReputationScore Attestation Flow", () => {
       const reputationHash = computeReputationHash(sasSchema, agentKeypair.address, providerKeypair.address, score);
 
       const { verifySignature } = await import("../helpers/signatures");
-      const isValid = verifySignature(reputationHash, signatures[0].sig, providerKeypair.publicKey.toBytes());
+      const isValid = verifySignature(reputationHash, signatures[0].sig, providerKeypair.publicKey);
       expect(isValid).toBe(true);
     },
     TEST_TIMEOUT,
@@ -471,7 +470,7 @@ describe("E2E: Error Handling", () => {
     // These tests only verify signature error cases - no chain submission
     agentKeypair = createTestKeypair(40);
     counterpartyKeypair = createTestKeypair(41);
-    sasSchema = address(Keypair.generate().publicKey.toBase58());
+    sasSchema = createTestKeypair().address;
   }, TEST_TIMEOUT);
 
   test(
@@ -499,7 +498,7 @@ describe("E2E: Error Handling", () => {
       const { verifySignature } = await import("../helpers/signatures");
       const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
 
-      const isValid = verifySignature(interactionHash, tamperedSig, agentKeypair.publicKey.toBytes());
+      const isValid = verifySignature(interactionHash, tamperedSig, agentKeypair.publicKey);
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,
@@ -529,7 +528,7 @@ describe("E2E: Error Handling", () => {
       const isValid = verifySignature(
         interactionHash,
         signatures[0].sig,
-        wrongKeypair.publicKey.toBytes(), // Wrong key!
+        wrongKeypair.publicKey, // Wrong key!
       );
       expect(isValid).toBe(false);
     },
@@ -561,7 +560,7 @@ describe("E2E: Error Handling", () => {
       );
 
       const { verifySignature } = await import("../helpers/signatures");
-      const isValid = verifySignature(wrongHash, signatures[0].sig, agentKeypair.publicKey.toBytes());
+      const isValid = verifySignature(wrongHash, signatures[0].sig, agentKeypair.publicKey);
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,

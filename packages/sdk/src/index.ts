@@ -6,12 +6,7 @@
  * - SAS Schemas: Reputation and validation attestation schemas
  * - Client: High-level SATI class for convenient interaction
  *
- * This main entry point is browser-compatible (@solana/kit native).
- *
- * For @solana/web3.js compatibility (Node.js only):
- * ```typescript
- * import { toAddress, toPublicKey, toWeb3Instruction } from "@sati/sdk/web3-compat";
- * ```
+ * @solana/kit native - browser-compatible.
  *
  * @packageDocumentation
  */
@@ -98,7 +93,7 @@ export * from "./helpers";
 // Ed25519 signature verification instruction builder
 export * from "./ed25519";
 
-// Off-chain message signing (SRFC-00003 format for Phantom/wallet signing)
+// Off-chain message signing (SIWS-style format with CAIP-10 identifiers)
 export * from "./offchain-signing";
 
 // Type definitions

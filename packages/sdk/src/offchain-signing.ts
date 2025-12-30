@@ -11,8 +11,13 @@
  * The NFT **OWNER** signs these messages (not the mint). The hash includes
  * the mint address for identity binding, but authorization is verified
  * via ATA ownership on-chain.
+ *
+ * ## Message Format (SIWS-Inspired)
+ * Messages follow Sign-In With Solana (SIWS) patterns with CAIP-10 agent
+ * identifiers for cross-chain compatibility.
  */
 
+import type { Address } from "@solana/kit";
 import type { Outcome } from "./schemas";
 
 /**
@@ -25,6 +30,45 @@ const OUTCOME_LABELS: Record<Outcome, string> = {
 };
 
 /**
+ * Solana network type for CAIP-2 chain references.
+ */
+export type SolanaNetwork = "mainnet" | "devnet" | "localnet";
+
+/**
+ * CAIP-2 chain references for Solana networks.
+ * These are the first 32 characters of each network's genesis block hash (base58).
+ *
+ * @see https://namespaces.chainagnostic.org/solana/caip2
+ */
+export const SOLANA_CHAIN_REFS: Record<SolanaNetwork, string> = {
+  mainnet: "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  devnet: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+  localnet: "localnet",
+} as const;
+
+/**
+ * Default domain for SATI attestation messages.
+ */
+const SATI_DOMAIN = "sati.fyi";
+
+/**
+ * Format an address as CAIP-10 identifier.
+ *
+ * @param address - Solana address (base58)
+ * @param network - Solana network (defaults to mainnet)
+ * @returns CAIP-10 formatted string: `solana:{chain_ref}:{address}`
+ *
+ * @example
+ * ```typescript
+ * formatCaip10("7S3P4HxJpyy...", "mainnet")
+ * // => "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyy..."
+ * ```
+ */
+export function formatCaip10(address: Address, network: SolanaNetwork = "mainnet"): string {
+  return `solana:${SOLANA_CHAIN_REFS[network]}:${address}`;
+}
+
+/**
  * Convert bytes to hex string.
  */
 function bytesToHex(bytes: Uint8Array): string {
@@ -34,13 +78,34 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
- * Result of building a feedback signing message.
+ * Result of building a signing message.
  */
-export interface FeedbackSigningMessage {
+export interface SigningMessage {
   /** The UTF-8 encoded message bytes to be signed */
   messageBytes: Uint8Array;
   /** The human-readable message text */
   text: string;
+}
+
+/**
+ * @deprecated Use SigningMessage instead
+ */
+export type FeedbackSigningMessage = SigningMessage;
+
+/**
+ * Parameters for building a feedback signing message (SIWS-style).
+ */
+export interface FeedbackSigningParams {
+  /** The 32-byte feedback hash computed by computeFeedbackHash */
+  feedbackHash: Uint8Array;
+  /** The feedback outcome (Negative=0, Neutral=1, Positive=2) */
+  outcome: Outcome;
+  /** The signer's wallet address (NFT owner) */
+  ownerAddress: Address;
+  /** The agent's mint address (for CAIP-10 identifier) */
+  agentMint: Address;
+  /** Solana network for CAIP-2 chain reference (defaults to mainnet) */
+  network?: SolanaNetwork;
 }
 
 /**
@@ -50,9 +115,28 @@ export interface FeedbackSigningMessage {
  * display and allow signing. The signature can be verified on-chain
  * via Ed25519 precompile against the same message bytes.
  *
- * @param feedbackHash - The 32-byte feedback hash computed by computeFeedbackHash
- * @param outcome - The feedback outcome (Negative=0, Neutral=1, Positive=2)
- * @returns The message text and its UTF-8 encoded bytes for signing
+ * ## SIWS-Style Format (recommended)
+ * Pass a FeedbackSigningParams object to get the full SIWS-style message
+ * with CAIP-10 agent identifier:
+ *
+ * ```
+ * sati.fyi wants you to attest with your Solana account:
+ * {owner_address}
+ *
+ * Attestation: Feedback
+ * Agent: solana:{chain_ref}:{agent_mint}
+ * Outcome: Positive
+ * Hash: 0x{hash}
+ * ```
+ *
+ * ## Legacy Format (deprecated)
+ * Pass (feedbackHash, outcome) directly for the compact format:
+ *
+ * ```
+ * SATI:feedback:v1
+ * Outcome: Positive
+ * 0x{hash}
+ * ```
  *
  * @example
  * ```typescript
@@ -61,14 +145,57 @@ export interface FeedbackSigningMessage {
  * // Compute the feedback hash
  * const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
  *
- * // Build the signing message
- * const { messageBytes } = buildFeedbackSigningMessage(feedbackHash, outcome);
+ * // SIWS-style (recommended)
+ * const { messageBytes } = buildFeedbackSigningMessage({
+ *   feedbackHash,
+ *   outcome,
+ *   ownerAddress: wallet.publicKey,
+ *   agentMint: tokenAccount,
+ *   network: "mainnet",
+ * });
  *
  * // Sign with wallet (Phantom will display the human-readable text)
  * const signature = await wallet.signMessage(messageBytes);
  * ```
  */
-export function buildFeedbackSigningMessage(feedbackHash: Uint8Array, outcome: Outcome): FeedbackSigningMessage {
+export function buildFeedbackSigningMessage(params: FeedbackSigningParams): SigningMessage;
+/**
+ * @deprecated Use the params object signature instead for SIWS-style messages
+ */
+export function buildFeedbackSigningMessage(feedbackHash: Uint8Array, outcome: Outcome): SigningMessage;
+export function buildFeedbackSigningMessage(
+  paramsOrHash: FeedbackSigningParams | Uint8Array,
+  outcomeArg?: Outcome,
+): SigningMessage {
+  // Handle legacy signature: (feedbackHash, outcome)
+  if (paramsOrHash instanceof Uint8Array) {
+    const feedbackHash = paramsOrHash;
+    const outcome = outcomeArg as Outcome;
+
+    if (feedbackHash.length !== 32) {
+      throw new Error("feedbackHash must be 32 bytes");
+    }
+    if (outcome < 0 || outcome > 2) {
+      throw new Error("outcome must be 0, 1, or 2");
+    }
+
+    const hexHash = bytesToHex(feedbackHash);
+    const outcomeLabel = OUTCOME_LABELS[outcome];
+
+    // Legacy compact format
+    const text = `SATI:feedback:v1
+Outcome: ${outcomeLabel}
+0x${hexHash}`;
+
+    return {
+      messageBytes: new TextEncoder().encode(text),
+      text,
+    };
+  }
+
+  // SIWS-style params signature
+  const { feedbackHash, outcome, ownerAddress, agentMint, network = "mainnet" } = paramsOrHash;
+
   if (feedbackHash.length !== 32) {
     throw new Error("feedbackHash must be 32 bytes");
   }
@@ -78,18 +205,19 @@ export function buildFeedbackSigningMessage(feedbackHash: Uint8Array, outcome: O
 
   const hexHash = bytesToHex(feedbackHash);
   const outcomeLabel = OUTCOME_LABELS[outcome];
+  const agentCaip10 = formatCaip10(agentMint, network);
 
-  // Compact human-readable message that Phantom will display
-  // Uses same domain format as hashes.ts for consistency
-  const text = `SATI:feedback:v1
+  // SIWS-inspired human-readable message
+  const text = `${SATI_DOMAIN} wants you to attest with your Solana account:
+${ownerAddress}
+
+Attestation: Feedback
+Agent: ${agentCaip10}
 Outcome: ${outcomeLabel}
-0x${hexHash}`;
-
-  // Encode as UTF-8 bytes for signing
-  const messageBytes = new TextEncoder().encode(text);
+Hash: 0x${hexHash}`;
 
   return {
-    messageBytes,
+    messageBytes: new TextEncoder().encode(text),
     text,
   };
 }

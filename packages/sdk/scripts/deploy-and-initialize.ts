@@ -1,17 +1,19 @@
 #!/usr/bin/env npx tsx
 /**
- * Atomic Deploy and Initialize SATI Registry
+ * Unified SATI Deployment Script
  *
- * This script deploys the SATI program and initializes the registry atomically
- * to prevent frontrunning attacks. It performs the following steps:
+ * Idempotent deployment that works across all environments:
+ * - Fresh localnet
+ * - Running localnet with deployed program
+ * - Devnet (upgrade-only)
+ * - Mainnet (upgrade-only)
  *
- * 1. Deploy the program using `solana program deploy`
- * 2. Immediately check if registry is already initialized (fail-fast on frontrun)
- * 3. Initialize the registry
- * 4. Verify the caller is the registry authority (detect late frontrun)
- *
- * SECURITY: This script mitigates the unprotected initialization vulnerability
- * by ensuring deploy + initialize happen in rapid succession with verification.
+ * Phases:
+ *   0. Build (anchor build for localnet, solana-verify for devnet/mainnet)
+ *   1. Deploy/Upgrade Program + IDL
+ *   2. Initialize Registry (skip if already initialized by us)
+ *   3. Deploy SAS Schemas + Address Lookup Table
+ *   4. Save config and finalize
  *
  * Usage:
  *   pnpm tsx scripts/deploy-and-initialize.ts [network] [keypair]
@@ -21,26 +23,30 @@
  *   keypair   - Path to wallet keypair JSON file (default: ~/.config/solana/id.json)
  *
  * Options:
- *   --program-keypair <path>  - Path to program keypair (required for devnet/mainnet)
+ *   --program-keypair <path>  - Path to program keypair (required for fresh deploy)
  *   --group-keypair <path>    - Path to Token Group mint keypair (vanity address)
- *   --skip-deploy             - Skip program deployment, only initialize
+ *   --skip-build              - Skip build step (use existing binary)
+ *   --skip-deploy             - Skip program deployment, only initialize/configure
  *   --confirm                 - Required for devnet/mainnet deployments
  *
  * SAFETY:
  *   - Defaults to localnet to prevent accidental production deployments
  *   - Requires explicit --confirm flag for devnet/mainnet
- *   - Requires --program-keypair for devnet/mainnet (vanity address keypair)
+ *   - Requires --program-keypair for fresh deploys (vanity address keypair)
  *
  * Examples:
- *   pnpm tsx scripts/deploy-and-initialize.ts                                              # localnet (safe)
- *   pnpm tsx scripts/deploy-and-initialize.ts devnet --program-keypair ~/sati.json --confirm
- *   pnpm tsx scripts/deploy-and-initialize.ts mainnet --program-keypair ~/sati.json --confirm
+ *   pnpm tsx scripts/deploy-and-initialize.ts                      # localnet (safe)
+ *   pnpm tsx scripts/deploy-and-initialize.ts devnet --confirm     # devnet upgrade
+ *   pnpm tsx scripts/deploy-and-initialize.ts mainnet --confirm    # mainnet upgrade
  */
 
 import path from "node:path";
 import os from "node:os";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import {
   createKeyPairSignerFromBytes,
   createSolanaRpc,
@@ -74,8 +80,26 @@ import {
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import { getMintLen, ExtensionType, TOKEN_GROUP_SIZE } from "@solana/spl-token";
-import { Keypair } from "@solana/web3.js";
-import { getInitializeInstructionAsync } from "../src/generated";
+import {
+  getInitializeInstructionAsync,
+  fetchRegistryConfig,
+} from "../src/generated";
+import {
+  findAddressLookupTablePda,
+  getCreateLookupTableInstruction,
+  getExtendLookupTableInstruction,
+  fetchAddressLookupTable,
+} from "@solana-program/address-lookup-table";
+import {
+  deriveSatiCredentialPda,
+  deriveSatiSchemaPda,
+  getCreateSatiCredentialInstruction,
+  getCreateSatiSchemaInstruction,
+  SATI_SCHEMAS,
+  fetchMaybeCredential,
+  fetchMaybeSchema,
+} from "../src/sas";
+import type { DeployedSASConfig, SATISASConfig } from "../src/types";
 
 // Production program ID (used for devnet/mainnet)
 const PRODUCTION_PROGRAM_ID = address(
@@ -118,6 +142,7 @@ function parseArgs() {
   let keypairPath = path.join(os.homedir(), ".config", "solana", "id.json");
   let programKeypairPath: string | undefined;
   let groupKeypairPath: string | undefined;
+  let skipBuild = false;
   let skipDeploy = false;
   let confirmed = false;
 
@@ -125,6 +150,8 @@ function parseArgs() {
     const arg = args[i];
     if (arg === "localnet" || arg === "devnet" || arg === "mainnet") {
       network = arg;
+    } else if (arg === "--skip-build") {
+      skipBuild = true;
     } else if (arg === "--skip-deploy") {
       skipDeploy = true;
     } else if (arg === "--confirm") {
@@ -190,6 +217,7 @@ function parseArgs() {
     keypairPath,
     programKeypairPath,
     groupKeypairPath,
+    skipBuild,
     skipDeploy,
   };
 }
@@ -203,11 +231,11 @@ async function loadKeypair(keypairPath: string): Promise<KeyPairSigner> {
 
 // Get program ID from keypair file
 // For devnet/mainnet, validates it matches the expected production ID
-function getProgramId(network: string, programKeypairPath: string): Address {
+async function getProgramId(network: string, programKeypairPath: string): Promise<Address> {
   const keypairData = readFileSync(programKeypairPath, "utf-8");
   const secretKey = Uint8Array.from(JSON.parse(keypairData));
-  const keypair = Keypair.fromSecretKey(secretKey);
-  const derivedId = address(keypair.publicKey.toBase58());
+  const signer = await createKeyPairSignerFromBytes(secretKey);
+  const derivedId = signer.address;
 
   // For devnet/mainnet, validate the keypair produces the expected vanity address
   if (network !== "localnet" && derivedId !== PRODUCTION_PROGRAM_ID) {
@@ -272,21 +300,9 @@ function getProgramPaths(): {
   return { binaryPath, programKeypairPath, groupKeypairPath };
 }
 
-// Deploy the program using solana CLI
-function deployProgram(
-  network: string,
-  walletKeypairPath: string,
-  binaryPath: string,
-  programKeypairPath: string,
-  programId: Address,
-): void {
-  console.log("\n--- PHASE 1: Deploy Program ---");
-  console.log(`Binary: ${binaryPath}`);
-  console.log(`Program ID: ${programId}`);
-
+// Check if program is already deployed
+function checkProgramExists(network: string, programId: Address): boolean {
   const rpcUrl = RPC_ENDPOINTS[network];
-
-  // Check if program already deployed
   try {
     const result = execSync(
       `solana program show ${programId} --url ${rpcUrl}`,
@@ -295,27 +311,326 @@ function deployProgram(
         stdio: ["pipe", "pipe", "pipe"],
       },
     );
-    if (result.includes("Program Id:")) {
-      console.log("Program already deployed, skipping...");
-      return;
-    }
+    return result.includes("Program Id:");
   } catch {
-    console.log("Program not deployed, deploying now...");
-  }
-
-  try {
-    execSync(
-      `solana program deploy ${binaryPath} ` +
-        `--program-id ${programKeypairPath} ` +
-        `--keypair ${walletKeypairPath} ` +
-        `--url ${rpcUrl}`,
-      { stdio: "inherit" },
-    );
-    console.log("Program deployed successfully");
-  } catch (error) {
-    throw new Error(`Failed to deploy program: ${error}`);
+    return false;
   }
 }
+
+// Build the program
+function buildProgram(network: string, workspaceRoot: string): void {
+  console.log("\n--- PHASE 0: Build ---");
+
+  if (network !== "localnet") {
+    console.log("Building verified build for production...");
+    execSync("solana-verify build --library-name sati", {
+      stdio: "inherit",
+      cwd: workspaceRoot,
+    });
+  } else {
+    console.log("Building for localnet...");
+    execSync("anchor build", {
+      stdio: "inherit",
+      cwd: workspaceRoot,
+    });
+  }
+  console.log("Build complete");
+}
+
+// Deploy or upgrade the program using solana CLI
+// Also handles IDL init/upgrade
+function deployOrUpgradeProgram(
+  network: string,
+  walletKeypairPath: string,
+  binaryPath: string,
+  programKeypairPath: string,
+  programId: Address,
+  workspaceRoot: string,
+): { deployed: boolean; upgraded: boolean } {
+  console.log("\n--- PHASE 1: Deploy/Upgrade Program + IDL ---");
+  console.log(`Binary: ${binaryPath}`);
+  console.log(`Program ID: ${programId}`);
+
+  const rpcUrl = RPC_ENDPOINTS[network];
+  const programExists = checkProgramExists(network, programId);
+
+  if (programExists) {
+    console.log("Program exists, upgrading...");
+    // For upgrades, use program address instead of keypair
+    try {
+      execSync(
+        `solana program deploy ${binaryPath} ` +
+          `--program-id ${programId} ` +
+          `--keypair ${walletKeypairPath} ` +
+          `--url ${rpcUrl}`,
+        { stdio: "inherit" },
+      );
+      console.log("Program upgraded successfully");
+
+      // Upgrade IDL (skip for localnet - not needed)
+      if (network !== "localnet") {
+        const idlPath = path.join(workspaceRoot, "target", "idl", "sati.json");
+        if (existsSync(idlPath)) {
+          console.log("Upgrading IDL...");
+          try {
+            execSync(
+              `anchor idl upgrade --filepath ${idlPath} ${programId} ` +
+                `--provider.cluster ${rpcUrl} ` +
+                `--provider.wallet ${walletKeypairPath}`,
+              { stdio: "inherit", cwd: workspaceRoot },
+            );
+            console.log("IDL upgraded successfully");
+          } catch (idlError) {
+            console.warn("IDL upgrade failed (may not exist yet):", idlError);
+            // Try init instead
+            console.log("Trying IDL init...");
+            execSync(
+              `anchor idl init --filepath ${idlPath} ${programId} ` +
+                `--provider.cluster ${rpcUrl} ` +
+                `--provider.wallet ${walletKeypairPath}`,
+              { stdio: "inherit", cwd: workspaceRoot },
+            );
+            console.log("IDL initialized successfully");
+          }
+        }
+      } else {
+        console.log("Skipping IDL upload (not needed for localnet)");
+      }
+
+      return { deployed: false, upgraded: true };
+    } catch (error) {
+      throw new Error(`Failed to upgrade program: ${error}`);
+    }
+  } else {
+    console.log("Program not deployed, deploying fresh...");
+    try {
+      execSync(
+        `solana program deploy ${binaryPath} ` +
+          `--program-id ${programKeypairPath} ` +
+          `--keypair ${walletKeypairPath} ` +
+          `--url ${rpcUrl}`,
+        { stdio: "inherit" },
+      );
+      console.log("Program deployed successfully");
+
+      // Initialize IDL (skip for localnet - not needed)
+      if (network !== "localnet") {
+        const idlPath = path.join(workspaceRoot, "target", "idl", "sati.json");
+        if (existsSync(idlPath)) {
+          console.log("Initializing IDL...");
+          execSync(
+            `anchor idl init --filepath ${idlPath} ${programId} ` +
+              `--provider.cluster ${rpcUrl} ` +
+              `--provider.wallet ${walletKeypairPath}`,
+            { stdio: "inherit", cwd: workspaceRoot },
+          );
+          console.log("IDL initialized successfully");
+        }
+      } else {
+        console.log("Skipping IDL upload (not needed for localnet)");
+      }
+
+      return { deployed: true, upgraded: false };
+    } catch (error) {
+      throw new Error(`Failed to deploy program: ${error}`);
+    }
+  }
+}
+
+// Deploy SAS credential and schemas (idempotent)
+async function deploySASSchemas(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>,
+  authority: KeyPairSigner,
+): Promise<SATISASConfig> {
+  console.log("\n--- PHASE 3: Deploy SAS Schemas ---");
+
+  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+
+  // Derive credential PDA
+  const [credentialPda] = await deriveSatiCredentialPda(authority.address);
+  console.log(`Credential PDA: ${credentialPda}`);
+
+  // Check if credential exists
+  const existingCredential = await fetchMaybeCredential(rpc, credentialPda);
+
+  if (existingCredential) {
+    console.log("Credential already exists, skipping creation...");
+  } else {
+    console.log("Creating credential...");
+    const credentialIx = getCreateSatiCredentialInstruction({
+      payer: authority,
+      authority,
+      credentialPda,
+      authorizedSigners: [], // No additional signers needed
+    });
+
+    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+    const tx = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(authority.address, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstructions([credentialIx], msg),
+    );
+    const signedTx = await signTransactionMessageWithSigners(tx);
+    await sendAndConfirm(signedTx as SignedBlockhashTransaction, { commitment: "confirmed" });
+    console.log("Credential created");
+  }
+
+  // Deploy each schema
+  const schemaAddresses: Record<string, Address> = {};
+  const schemaEntries = Object.entries(SATI_SCHEMAS) as [keyof typeof SATI_SCHEMAS, (typeof SATI_SCHEMAS)[keyof typeof SATI_SCHEMAS]][];
+
+  for (const [key, schema] of schemaEntries) {
+    const [schemaPda] = await deriveSatiSchemaPda(credentialPda, schema.name, 1);
+    schemaAddresses[key] = schemaPda;
+    console.log(`${schema.name}: ${schemaPda}`);
+
+    const existingSchema = await fetchMaybeSchema(rpc, schemaPda);
+    if (existingSchema) {
+      console.log(`  (already exists)`);
+      continue;
+    }
+
+    console.log(`  Creating...`);
+    const schemaIx = getCreateSatiSchemaInstruction({
+      payer: authority,
+      authority,
+      credentialPda,
+      schemaPda,
+      schema,
+    });
+
+    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+    const tx = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(authority.address, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstructions([schemaIx], msg),
+    );
+    const signedTx = await signTransactionMessageWithSigners(tx);
+    await sendAndConfirm(signedTx as SignedBlockhashTransaction, { commitment: "confirmed" });
+    console.log(`  Created`);
+  }
+
+  return {
+    credential: credentialPda,
+    schemas: {
+      feedback: schemaAddresses.feedback,
+      feedbackPublic: schemaAddresses.feedbackPublic,
+      validation: schemaAddresses.validation,
+      reputationScore: schemaAddresses.reputationScore,
+    },
+  };
+}
+
+// Create or find existing Address Lookup Table (idempotent)
+async function getOrCreateLookupTable(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>,
+  authority: KeyPairSigner,
+  addresses: Address[],
+): Promise<Address> {
+  console.log("\n--- Creating Address Lookup Table ---");
+  console.log(`Including ${addresses.length} addresses`);
+
+  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+
+  // Get current slot for ALT derivation
+  const slot = await rpc.getSlot({ commitment: "finalized" }).send();
+
+  // Derive lookup table PDA
+  const [lookupTableAddress, bump] = await findAddressLookupTablePda({
+    authority: authority.address,
+    recentSlot: slot,
+  });
+
+  console.log(`ALT Address: ${lookupTableAddress}`);
+
+  // Build instructions
+  const instructions: Instruction[] = [];
+
+  // Create lookup table
+  instructions.push(
+    getCreateLookupTableInstruction({
+      address: [lookupTableAddress, bump],
+      authority: authority.address,
+      payer: authority,
+      recentSlot: slot,
+    }),
+  );
+
+  // Extend with addresses (max 30 per instruction)
+  for (let i = 0; i < addresses.length; i += 30) {
+    const chunk = addresses.slice(i, i + 30);
+    instructions.push(
+      getExtendLookupTableInstruction({
+        address: lookupTableAddress,
+        authority,
+        payer: authority,
+        addresses: chunk,
+      }),
+    );
+  }
+
+  // Build and send transaction
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+  const tx = pipe(
+    createTransactionMessage({ version: 0 }),
+    (msg) => setTransactionMessageFeePayer(authority.address, msg),
+    (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+    (msg) => appendTransactionMessageInstructions(instructions, msg),
+  );
+
+  const signedTx = await signTransactionMessageWithSigners(tx);
+  const signature = getSignatureFromTransaction(signedTx);
+  await sendAndConfirm(signedTx as SignedBlockhashTransaction, { commitment: "confirmed" });
+  console.log(`Transaction: ${signature}`);
+
+  // Wait for ALT to be active
+  console.log("Waiting for lookup table activation...");
+  for (let i = 0; i < 20; i++) {
+    try {
+      const lut = await fetchAddressLookupTable(rpc, lookupTableAddress);
+      if (lut) {
+        console.log("Lookup table active");
+        break;
+      }
+    } catch {
+      // Table not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  return lookupTableAddress;
+}
+
+// Save deployed config to JSON file
+function saveDeployedConfig(
+  network: string,
+  authority: Address,
+  config: SATISASConfig,
+): string {
+  const deployedDir = path.join(__dirname, "..", "src", "deployed");
+  mkdirSync(deployedDir, { recursive: true });
+
+  const deployedConfig: DeployedSASConfig = {
+    network: network as "devnet" | "mainnet" | "localnet",
+    authority,
+    deployedAt: new Date().toISOString(),
+    config,
+  };
+
+  const configPath = path.join(deployedDir, `${network}.json`);
+  writeFileSync(configPath, `${JSON.stringify(deployedConfig, null, 2)}\n`);
+  console.log(`Config saved to: ${configPath}`);
+  return configPath;
+}
+
+// Type helper for signed transactions
+type SignedBlockhashTransaction = Awaited<ReturnType<typeof signTransactionMessageWithSigners>> & {
+  lifetimeConstraint: { lastValidBlockHeight: bigint; blockhash: string };
+};
 
 async function main() {
   const {
@@ -323,8 +638,12 @@ async function main() {
     keypairPath: walletKeypairPath,
     programKeypairPath: providedProgramKeypair,
     groupKeypairPath: providedGroupKeypair,
+    skipBuild,
     skipDeploy,
   } = parseArgs();
+
+  // Get workspace root for build commands
+  const workspaceRoot = path.join(process.cwd(), "..", "..");
 
   // Get paths - defaults to vanity keypairs (NEVER sati-keypair.json!)
   const {
@@ -367,7 +686,14 @@ async function main() {
   }
   console.log("=".repeat(60));
 
-  const programId = getProgramId(network, programKeypairPath);
+  // PHASE 0: Build (if not skipped)
+  if (!skipBuild) {
+    buildProgram(network, workspaceRoot);
+  } else {
+    console.log("\n--- Skipping build (--skip-build flag) ---");
+  }
+
+  const programId = await getProgramId(network, programKeypairPath);
   console.log(`\nProgram ID: ${programId}`);
 
   // Derive registry PDA
@@ -401,189 +727,230 @@ async function main() {
   const rpc = createSolanaRpc(rpcUrl);
   const rpcSubscriptions = createSolanaRpcSubscriptions(wssUrl);
 
-  // PHASE 1: Deploy program (if not skipping)
+  // PHASE 1: Deploy/Upgrade program + IDL (if not skipping)
   if (!skipDeploy) {
-    deployProgram(
+    const { deployed, upgraded } = deployOrUpgradeProgram(
       network,
       walletKeypairPath,
       binaryPath,
       programKeypairPath,
       programId,
+      workspaceRoot,
     );
     // Wait for deployment to propagate to RPC
-    console.log("Waiting for deployment to propagate...");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (deployed || upgraded) {
+      console.log("Waiting for deployment to propagate...");
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
   } else {
     console.log("\n--- Skipping deployment (--skip-deploy flag) ---");
   }
 
-  // PHASE 2: Check if registry already initialized (FAIL-FAST)
-  console.log("\n--- PHASE 2: Pre-flight Check ---");
-  const existingAccount = await rpc.getAccountInfo(registryPda).send();
-  if (existingAccount.value) {
-    console.log("\n!!! FRONTRUNNING DETECTED OR ALREADY INITIALIZED !!!");
-    console.log(`Registry account already exists!`);
-    console.log(`Owner: ${existingAccount.value.owner}`);
-    console.log(`Data length: ${existingAccount.value.data.length} bytes`);
+  // PHASE 2: Initialize Registry (idempotent)
+  console.log("\n--- PHASE 2: Initialize Registry ---");
 
-    throw new FrontrunningDetectedError(
-      "Registry already initialized. If this is unexpected, you may have been frontrun.",
-    );
+  // Check if registry already exists using fetchRegistryConfig
+  let registryInitialized = false;
+  let groupMintAddress: Address;
+
+  try {
+    const existingRegistry = await fetchRegistryConfig(rpc, registryPda, { programAddress: programId });
+    if (existingRegistry) {
+      // Registry exists - check if we're the authority
+      if (existingRegistry.data.authority === authority.address) {
+        console.log("Registry already initialized by this authority - skipping");
+        console.log(`  Authority: ${existingRegistry.data.authority}`);
+        console.log(`  Group Mint: ${existingRegistry.data.groupMint}`);
+        groupMintAddress = existingRegistry.data.groupMint;
+        registryInitialized = true;
+      } else {
+        // Different authority - frontrunning or misconfiguration
+        throw new FrontrunningDetectedError(
+          `Registry initialized by different authority: ${existingRegistry.data.authority}`,
+        );
+      }
+    }
+  } catch (error) {
+    if (error instanceof FrontrunningDetectedError) {
+      throw error;
+    }
+    // fetchRegistryConfig throws if account doesn't exist - that's expected for fresh deploy
+    console.log("Registry not initialized - proceeding with initialization...");
   }
 
-  console.log("Registry not initialized - proceeding with initialization...");
+  if (!registryInitialized) {
+    // Load group mint keypair (MUST use vanity keypair)
+    const groupMint = await loadKeypair(groupKeypairPath);
+    console.log(`Group Mint: ${groupMint.address}`);
 
-  // PHASE 3: Initialize immediately
-  console.log("\n--- PHASE 3: Initialize Registry ---");
+    // Calculate mint account size
+    // - Allocate only GroupPointer initially (InitializeGroup will reallocate for TokenGroup)
+    // - Fund with enough lamports for final size (GroupPointer + TokenGroup + buffer)
+    const mintLen = getMintLen([ExtensionType.GroupPointer]);
+    const finalSize = mintLen + TOKEN_GROUP_SIZE + 64; // extra buffer for TLV overhead
+    const lamports = await rpc
+      .getMinimumBalanceForRentExemption(BigInt(finalSize))
+      .send();
 
-  // Load group mint keypair (MUST use vanity keypair)
-  const groupMint = await loadKeypair(groupKeypairPath);
-  console.log(`Group Mint: ${groupMint.address}`);
+    // Build instructions
+    const instructions: Instruction[] = [];
 
-  // Calculate mint account size
-  // - Allocate only GroupPointer initially (InitializeGroup will reallocate for TokenGroup)
-  // - Fund with enough lamports for final size (GroupPointer + TokenGroup + buffer)
-  const mintLen = getMintLen([ExtensionType.GroupPointer]);
-  const finalSize = mintLen + TOKEN_GROUP_SIZE + 64; // extra buffer for TLV overhead
-  const lamports = await rpc
-    .getMinimumBalanceForRentExemption(BigInt(finalSize))
-    .send();
+    // 1. Create mint account with GroupPointer space (InitializeGroup reallocates)
+    instructions.push(
+      getCreateAccountInstruction({
+        payer: authority,
+        newAccount: groupMint,
+        lamports,
+        space: mintLen,
+        programAddress: TOKEN_2022_PROGRAM_ADDRESS,
+      }),
+    );
 
-  // Build instructions
-  const instructions: Instruction[] = [];
+    // 2. Initialize GroupPointer extension
+    instructions.push(
+      getInitializeGroupPointerInstruction({
+        mint: groupMint.address,
+        authority: registryPda,
+        groupAddress: groupMint.address,
+      }),
+    );
 
-  // 1. Create mint account with GroupPointer space (InitializeGroup reallocates)
-  instructions.push(
-    getCreateAccountInstruction({
-      payer: authority,
-      newAccount: groupMint,
-      lamports,
-      space: mintLen,
-      programAddress: TOKEN_2022_PROGRAM_ADDRESS,
-    }),
-  );
+    // 3. Initialize mint
+    instructions.push(
+      getInitializeMint2Instruction({
+        mint: groupMint.address,
+        decimals: 0,
+        mintAuthority: authority.address,
+        freezeAuthority: null,
+      }),
+    );
 
-  // 2. Initialize GroupPointer extension
-  instructions.push(
-    getInitializeGroupPointerInstruction({
-      mint: groupMint.address,
-      authority: registryPda,
-      groupAddress: groupMint.address,
-    }),
-  );
+    // 4. Initialize TokenGroup extension
+    instructions.push(
+      getInitializeTokenGroupInstruction({
+        group: groupMint.address,
+        mint: groupMint.address,
+        mintAuthority: authority,
+        updateAuthority: registryPda,
+        maxSize: BigInt("18446744073709551615"), // u64::MAX
+      }),
+    );
 
-  // 3. Initialize mint
-  instructions.push(
-    getInitializeMint2Instruction({
-      mint: groupMint.address,
-      decimals: 0,
-      mintAuthority: authority.address,
-      freezeAuthority: null,
-    }),
-  );
+    // 5. Transfer mint authority to registry PDA
+    instructions.push(
+      getSetAuthorityInstruction({
+        owned: groupMint.address,
+        owner: authority,
+        authorityType: AuthorityType.MintTokens,
+        newAuthority: registryPda,
+      }),
+    );
 
-  // 4. Initialize TokenGroup extension
-  instructions.push(
-    getInitializeTokenGroupInstruction({
-      group: groupMint.address,
-      mint: groupMint.address,
-      mintAuthority: authority,
-      updateAuthority: registryPda,
-      maxSize: BigInt("18446744073709551615"), // u64::MAX
-    }),
-  );
+    // 6. Initialize SATI registry (using SDK with dynamic program ID)
+    const initializeIx = await getInitializeInstructionAsync(
+      {
+        authority,
+        registryConfig: registryPda,
+        groupMint: groupMint.address,
+      },
+      { programAddress: programId },
+    );
+    instructions.push(initializeIx);
 
-  // 5. Transfer mint authority to registry PDA
-  instructions.push(
-    getSetAuthorityInstruction({
-      owned: groupMint.address,
-      owner: authority,
-      authorityType: AuthorityType.MintTokens,
-      newAuthority: registryPda,
-    }),
-  );
+    // Get latest blockhash
+    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
 
-  // 6. Initialize SATI registry (using SDK with dynamic program ID)
-  const initializeIx = await getInitializeInstructionAsync(
-    {
-      authority,
-      registryConfig: registryPda,
-      groupMint: groupMint.address,
-    },
-    { programAddress: programId },
-  );
-  instructions.push(initializeIx);
+    // Build transaction
+    let txMessage = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(authority.address, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstructions(instructions, msg),
+    );
 
-  // Get latest blockhash
-  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+    // Add compute budget
+    txMessage = prependTransactionMessageInstructions(
+      [
+        getSetComputeUnitLimitInstruction({ units: 400000 }),
+        getSetComputeUnitPriceInstruction({ microLamports: 100000n }),
+      ],
+      txMessage,
+    );
 
-  // Build transaction
-  let txMessage = pipe(
-    createTransactionMessage({ version: 0 }),
-    (msg) => setTransactionMessageFeePayer(authority.address, msg),
-    (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-    (msg) => appendTransactionMessageInstructions(instructions, msg),
-  );
+    // Sign and send
+    console.log("Signing and sending transaction...");
+    const signedTx = await signTransactionMessageWithSigners(txMessage);
+    const signature = getSignatureFromTransaction(signedTx);
 
-  // Add compute budget
-  txMessage = prependTransactionMessageInstructions(
-    [
-      getSetComputeUnitLimitInstruction({ units: 400000 }),
-      getSetComputeUnitPriceInstruction({ microLamports: 100000n }),
-    ],
-    txMessage,
-  );
+    // @solana/kit cluster-branded RPC types don't match dynamic network config
+    // Cast both the config and the transaction to satisfy the type system
+    type SendAndConfirmConfig = Parameters<
+      typeof sendAndConfirmTransactionFactory
+    >[0];
+    type SendAndConfirmTx = Parameters<
+      ReturnType<typeof sendAndConfirmTransactionFactory>
+    >[0];
+    const sendAndConfirm = sendAndConfirmTransactionFactory({
+      rpc,
+      rpcSubscriptions,
+    } as SendAndConfirmConfig);
+    await sendAndConfirm(signedTx as SendAndConfirmTx, {
+      commitment: "confirmed",
+    });
 
-  // Sign and send
-  console.log("Signing and sending transaction...");
-  const signedTx = await signTransactionMessageWithSigners(txMessage);
-  const signature = getSignatureFromTransaction(signedTx);
+    console.log(`Registry initialized: ${signature}`);
+    groupMintAddress = groupMint.address;
+  }
 
-  // @solana/kit cluster-branded RPC types don't match dynamic network config
-  // Cast both the config and the transaction to satisfy the type system
-  type SendAndConfirmConfig = Parameters<
-    typeof sendAndConfirmTransactionFactory
-  >[0];
-  type SendAndConfirmTx = Parameters<
-    ReturnType<typeof sendAndConfirmTransactionFactory>
-  >[0];
-  const sendAndConfirm = sendAndConfirmTransactionFactory({
+  // PHASE 3: Deploy SAS Schemas + Address Lookup Table
+  const sasConfig = await deploySASSchemas(rpc, rpcSubscriptions, authority);
+
+  // Collect addresses for the lookup table
+  const altAddresses: Address[] = [
+    programId,
+    registryPda,
+    groupMintAddress!,
+    sasConfig.credential,
+    sasConfig.schemas.feedback,
+    sasConfig.schemas.validation,
+    sasConfig.schemas.reputationScore,
+  ];
+  if (sasConfig.schemas.feedbackPublic) {
+    altAddresses.push(sasConfig.schemas.feedbackPublic);
+  }
+
+  // Create lookup table
+  const lookupTableAddress = await getOrCreateLookupTable(
     rpc,
     rpcSubscriptions,
-  } as SendAndConfirmConfig);
-  await sendAndConfirm(signedTx as SendAndConfirmTx, {
-    commitment: "confirmed",
-  });
+    authority,
+    altAddresses,
+  );
+  sasConfig.lookupTable = lookupTableAddress;
 
-  // PHASE 4: Verify we are the authority (DETECT LATE FRONTRUN)
-  console.log("\n--- PHASE 4: Verification ---");
-  const verifyAccount = await rpc.getAccountInfo(registryPda).send();
-  if (!verifyAccount.value) {
-    throw new Error(
-      "Registry account not found after initialization - unexpected state",
-    );
-  }
+  // PHASE 4: Finalize - Save config
+  console.log("\n--- PHASE 4: Finalize ---");
+  const configPath = saveDeployedConfig(network, authority.address, sasConfig);
 
-  console.log("Registry account exists after initialization");
-  console.log(`Owner: ${verifyAccount.value.owner}`);
-  console.log(`Data length: ${verifyAccount.value.data.length} bytes`);
-
+  // Final output
   console.log(`\n${"=".repeat(60)}`);
-  console.log("SUCCESS: Registry deployed and initialized atomically!");
+  console.log("SUCCESS: SATI deployment complete!");
   console.log("=".repeat(60));
-  console.log(`Signature:  ${signature}`);
-  console.log(`Program:    ${programId}`);
-  console.log(`Group Mint: ${groupMint.address}`);
-  console.log(`Registry:   ${registryPda}`);
-  console.log(`Authority:  ${authority.address}`);
-
-  if (network !== "localnet") {
-    const explorerUrl =
-      network === "mainnet"
-        ? `https://explorer.solana.com/tx/${signature}`
-        : `https://explorer.solana.com/tx/${signature}?cluster=${network}`;
-    console.log(`\nExplorer: ${explorerUrl}`);
-  }
+  console.log(`Network:      ${network.toUpperCase()}`);
+  console.log(`Program:      ${programId}`);
+  console.log(`Registry:     ${registryPda}`);
+  console.log(`Group Mint:   ${groupMintAddress!}`);
+  console.log(`Authority:    ${authority.address}`);
+  console.log("");
+  console.log("SAS Configuration:");
+  console.log(`  Credential:       ${sasConfig.credential}`);
+  console.log(`  Feedback:         ${sasConfig.schemas.feedback}`);
+  console.log(`  FeedbackPublic:   ${sasConfig.schemas.feedbackPublic ?? "N/A"}`);
+  console.log(`  Validation:       ${sasConfig.schemas.validation}`);
+  console.log(`  ReputationScore:  ${sasConfig.schemas.reputationScore}`);
+  console.log(`  Lookup Table:     ${sasConfig.lookupTable}`);
+  console.log("");
+  console.log(`Config saved to: ${configPath}`);
   console.log("=".repeat(60));
 }
 

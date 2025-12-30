@@ -2,7 +2,6 @@
  * SATI SDK Helpers
  *
  * Browser-compatible utility functions for PDA derivation and constants.
- * For @solana/web3.js compatibility, import from "@sati/sdk/web3-compat".
  */
 
 import { address, type Address, getProgramDerivedAddress, getAddressEncoder } from "@solana/kit";
