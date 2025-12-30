@@ -3,6 +3,9 @@
  *
  * These functions must produce identical hashes to the Rust implementations
  * in programs/sati/src/signature.rs. Uses keccak256 from @noble/hashes.
+ *
+ * Note: Throughout this module, `tokenAccount` parameters refer to the agent's mint address,
+ * not an Associated Token Account. The naming is for SAS wire format compatibility.
  */
 
 import { keccak_256 } from "@noble/hashes/sha3";
@@ -13,6 +16,7 @@ const DOMAIN_INTERACTION = new TextEncoder().encode("SATI:interaction:v1");
 const DOMAIN_FEEDBACK = new TextEncoder().encode("SATI:feedback:v1");
 const DOMAIN_VALIDATION = new TextEncoder().encode("SATI:validation:v1");
 const DOMAIN_REPUTATION = new TextEncoder().encode("SATI:reputation:v1");
+const DOMAIN_EVM_LINK = new TextEncoder().encode("SATI:evm_link:v1");
 
 /**
  * Helper to convert Address to 32-byte Uint8Array
@@ -29,7 +33,7 @@ function addressToBytes(address: Address): Uint8Array {
  *
  * @param sasSchema - SAS schema address
  * @param taskRef - 32-byte task reference (e.g., CAIP-220 tx hash)
- * @param tokenAccount - Agent's token account address
+ * @param tokenAccount - Agent's mint address (named for SAS compatibility)
  * @param dataHash - 32-byte hash of the request/interaction data
  * @returns 32-byte keccak256 hash
  */
@@ -70,7 +74,7 @@ export function computeInteractionHash(
  *
  * @param sasSchema - SAS schema address
  * @param taskRef - 32-byte task reference
- * @param tokenAccount - Agent's token account address
+ * @param tokenAccount - Agent's mint address (named for SAS compatibility)
  * @param outcome - Feedback outcome: 0=Negative, 1=Neutral, 2=Positive
  * @returns 32-byte keccak256 hash
  */
@@ -111,7 +115,7 @@ export function computeFeedbackHash(
  *
  * @param sasSchema - SAS schema address
  * @param taskRef - 32-byte task reference
- * @param tokenAccount - Agent's token account address
+ * @param tokenAccount - Agent's mint address (named for SAS compatibility)
  * @param response - Validation response score: 0-100
  * @returns 32-byte keccak256 hash
  */
@@ -151,7 +155,7 @@ export function computeValidationHash(
  * Domain: SATI:reputation:v1
  *
  * @param sasSchema - SAS schema address
- * @param tokenAccount - Agent's token account address being scored
+ * @param tokenAccount - Agent's mint address being scored (named for SAS compatibility)
  * @param provider - Reputation provider's address
  * @param score - Reputation score: 0-100
  * @returns 32-byte keccak256 hash
@@ -190,7 +194,7 @@ export function computeReputationHash(
  *
  * @param taskRef - 32-byte task reference
  * @param sasSchema - SAS schema address
- * @param tokenAccount - Agent's token account address
+ * @param tokenAccount - Agent's mint address (named for SAS compatibility)
  * @param counterparty - Counterparty's address
  * @returns 32-byte keccak256 nonce
  */
@@ -223,7 +227,7 @@ export function computeAttestationNonce(
  * One ReputationScore per (provider, agent) pair.
  *
  * @param provider - Reputation provider's address
- * @param tokenAccount - Agent's token account address
+ * @param tokenAccount - Agent's mint address (named for SAS compatibility)
  * @returns 32-byte keccak256 nonce
  */
 export function computeReputationNonce(provider: Address, tokenAccount: Address): Uint8Array {
@@ -231,6 +235,35 @@ export function computeReputationNonce(provider: Address, tokenAccount: Address)
 
   data.set(addressToBytes(provider), 0);
   data.set(addressToBytes(tokenAccount), 32);
+
+  return keccak_256(data);
+}
+
+/**
+ * Compute the hash for EVM address linking.
+ * Domain: SATI:evm_link:v1
+ *
+ * @param agentMint - Agent's mint address
+ * @param evmAddress - 20-byte EVM address (without 0x prefix)
+ * @param chainId - CAIP-2 chain identifier (e.g., "eip155:1")
+ * @returns 32-byte keccak256 hash
+ */
+export function computeEvmLinkHash(agentMint: Address, evmAddress: Uint8Array, chainId: string): Uint8Array {
+  if (evmAddress.length !== 20) {
+    throw new Error("evmAddress must be 20 bytes");
+  }
+
+  const chainIdBytes = new TextEncoder().encode(chainId);
+  const data = new Uint8Array(DOMAIN_EVM_LINK.length + 32 + 20 + chainIdBytes.length);
+
+  let offset = 0;
+  data.set(DOMAIN_EVM_LINK, offset);
+  offset += DOMAIN_EVM_LINK.length;
+  data.set(addressToBytes(agentMint), offset);
+  offset += 32;
+  data.set(evmAddress, offset);
+  offset += 20;
+  data.set(chainIdBytes, offset);
 
   return keccak_256(data);
 }
@@ -246,4 +279,5 @@ export const DOMAINS = {
   FEEDBACK: DOMAIN_FEEDBACK,
   VALIDATION: DOMAIN_VALIDATION,
   REPUTATION: DOMAIN_REPUTATION,
+  EVM_LINK: DOMAIN_EVM_LINK,
 } as const;

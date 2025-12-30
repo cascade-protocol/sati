@@ -62,7 +62,8 @@ export function AgentDetails() {
   const navigate = useNavigate();
   const { agent, isLoading, error, refetch } = useAgentDetails(mint);
   const { metadata } = useAgentMetadata(agent?.uri);
-  const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint, agent?.owner);
+  // tokenAccount in feedbacks IS the agent mint (not ATA)
+  const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint);
   const { data: demoAgentsData } = useDemoAgents();
 
   // Check if this agent can receive feedback via echo service
@@ -186,12 +187,7 @@ export function AgentDetails() {
               </Button>
             </EditMetadataDialog>
             {canGiveFeedback && (
-              <GiveFeedbackDialog
-                agentMint={agent.mint}
-                agentOwner={agent.owner}
-                agentName={agent.name}
-                onSuccess={refetch}
-              >
+              <GiveFeedbackDialog agentMint={agent.mint} agentName={agent.name} onSuccess={refetch}>
                 <Button variant="secondary">
                   <MessageCirclePlus className="h-4 w-4 mr-2" />
                   Give Feedback
@@ -244,11 +240,17 @@ export function AgentDetails() {
                   </thead>
                   <tbody>
                     {feedbacks.map((feedback) => {
-                      const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
+                      const data = feedback.data as { outcome: number; counterparty: string };
+                      const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
+                      // Use attestation address bytes as unique key
+                      const key = Array.from(feedback.address)
+                        .map((b) => b.toString(16).padStart(2, "0"))
+                        .join("")
+                        .slice(0, 16);
                       return (
-                        <tr key={feedback.hash} className="border-b">
+                        <tr key={key} className="border-b">
                           <td className="py-4 pr-4">
-                            <code className="text-sm">{truncateAddress(feedback.feedback.counterparty)}</code>
+                            <code className="text-sm">{truncateAddress(data.counterparty)}</code>
                           </td>
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>

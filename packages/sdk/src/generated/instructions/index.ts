@@ -11,6 +11,7 @@ export * from "./closeRegularAttestation";
 export * from "./createAttestation";
 export * from "./createRegularAttestation";
 export * from "./initialize";
+export * from "./linkEvmAddress";
 export * from "./registerAgent";
 export * from "./registerSchemaConfig";
 export * from "./updateRegistryAuthority";

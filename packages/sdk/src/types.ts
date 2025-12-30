@@ -5,7 +5,7 @@
  */
 
 import type { Address, KeyPairSigner } from "@solana/kit";
-import type { ParsedAttestation } from "./light-types";
+import type { ParsedAttestation } from "./compression";
 
 /**
  * Agent identity information retrieved from Token-2022 NFT
@@ -243,4 +243,44 @@ export interface AttestationWithProof {
   attestation: ParsedAttestation;
   /** Merkle proof for verification */
   proof: MerkleProofWithContext;
+}
+
+// ============ EVM LINKING TYPES ============
+
+/**
+ * Represents a verified EVM address link for a SATI agent.
+ */
+export interface EvmAddressLink {
+  /** EVM address (0x-prefixed hex string) */
+  evmAddress: string;
+  /** CAIP-2 chain identifier (e.g., "eip155:1", "eip155:8453") */
+  chainId: string;
+  /** Unix timestamp when the link was verified */
+  linkedAt?: number;
+}
+
+/**
+ * Parameters for linking an EVM address to a SATI agent.
+ */
+export interface LinkEvmAddressParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** Agent NFT mint address */
+  agentMint: Address;
+  /** EVM address (0x-prefixed hex string) */
+  evmAddress: string;
+  /** CAIP-2 chain identifier (e.g., "eip155:1", "eip155:8453") */
+  chainId: string;
+  /** secp256k1 signature (64 bytes: r || s) */
+  signature: Uint8Array;
+  /** Recovery ID (0 or 1) */
+  recoveryId: number;
+}
+
+/**
+ * Result of linking an EVM address.
+ */
+export interface LinkEvmAddressResult {
+  /** Transaction signature */
+  signature: string;
 }

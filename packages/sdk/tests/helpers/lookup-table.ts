@@ -12,6 +12,7 @@ import {
   AddressLookupTableProgram,
   TransactionMessage,
   VersionedTransaction,
+  PublicKey,
   type Keypair,
 } from "@solana/web3.js";
 import { address, type Address } from "@solana/kit";
@@ -78,10 +79,13 @@ export async function createSatiLookupTable(
     recentSlot: slot,
   });
 
+  // Convert Address strings to web3.js PublicKey instances
+  const pubkeyAddresses = addresses.map((addr) => new PublicKey(addr));
+
   // Extend lookup table with addresses (max 30 per instruction)
   const extendInstructions = [];
-  for (let i = 0; i < addresses.length; i += 30) {
-    const chunk = addresses.slice(i, i + 30);
+  for (let i = 0; i < pubkeyAddresses.length; i += 30) {
+    const chunk = pubkeyAddresses.slice(i, i + 30);
     extendInstructions.push(
       AddressLookupTableProgram.extendLookupTable({
         lookupTable: lookupTableAddress,

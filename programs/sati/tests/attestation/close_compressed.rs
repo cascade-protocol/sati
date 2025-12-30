@@ -76,7 +76,6 @@ async fn create_test_attestation(
 
 /// Test that counterparty can close attestation
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 #[allow(unused_variables)]
 async fn test_close_attestation_by_counterparty() {
     let _env = setup_light_test_env().await;
@@ -106,7 +105,6 @@ async fn test_close_attestation_by_counterparty() {
 
 /// Test that agent (token_account holder) can close attestation
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 #[allow(unused_variables)]
 async fn test_close_attestation_by_agent() {
     let _env = setup_light_test_env().await;
@@ -131,7 +129,6 @@ async fn test_close_attestation_by_agent() {
 
 /// Test that unauthorized party cannot close attestation
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 #[allow(unused_variables)]
 async fn test_close_attestation_unauthorized() {
     let _env = setup_light_test_env().await;
@@ -149,7 +146,6 @@ async fn test_close_attestation_unauthorized() {
 
 /// Test that non-closeable schema prevents close
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 #[allow(unused_variables)]
 async fn test_close_attestation_not_closeable() {
     let _env = setup_light_test_env().await;
@@ -164,7 +160,6 @@ async fn test_close_attestation_not_closeable() {
 
 /// Test that wrong storage type prevents close
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 #[allow(unused_variables)]
 async fn test_close_attestation_wrong_storage_type() {
     let _env = setup_light_test_env().await;

@@ -55,30 +55,21 @@ export {
 // Domain-separated hash functions for attestations
 export * from "./hashes";
 
-// Light Protocol / Photon types only (runtime values available via @cascade-fyi/sati-sdk/light)
-// Uses light-types.ts which has no @solana/web3.js runtime dependencies
+// Compression / Light Protocol integration (uses compression-kit)
 export type {
-  LightClient,
+  SATILightClient,
   AttestationFilter,
   ParsedAttestation,
-  QueryResult,
   ValidityProofResult,
   CreationProofResult,
   MutationProofResult,
   PackedAddressTreeInfo,
   PackedStateTreeInfo,
-  CompressedAccount,
   PublicKeyLike,
-  Rpc,
-} from "./light-types";
+  AccountMeta,
+} from "./compression";
 
-// Portable Light Protocol client for Cloudflare Workers / edge environments
-// This implementation avoids Node.js APIs (like 'events') that aren't available in Workers
-export {
-  PortableLightClient,
-  PortablePublicKey,
-  createPortableLightClient,
-} from "./light-portable";
+export { SATILightClientImpl, createSATILightClient } from "./compression";
 
 // SAS integration helpers
 export * from "./sas";
@@ -121,7 +112,7 @@ export {
 
 // High-level client and related types
 export {
-  SATI,
+  Sati,
   type AttestationResult,
   type BuiltTransaction,
   type SignatureInput,
@@ -139,6 +130,13 @@ export {
   getImageUrl,
   inferMimeType,
   stringifyRegistrationFile,
+  // SATI registration helpers
+  buildSatiRegistrationEntry,
+  hasSatiRegistration,
+  getSatiAgentIds,
+  // Constants
+  SATI_CHAIN_ID,
+  SATI_PROGRAM_ID,
   // Types
   type RegistrationFile,
   type RegistrationFileParams,

@@ -11,6 +11,7 @@ export * from "./attestationClosed";
 export * from "./attestationCreated";
 export * from "./compressedAccountMeta";
 export * from "./compressedProof";
+export * from "./evmAddressLinked";
 export * from "./metadataEntry";
 export * from "./packedAddressTreeInfo";
 export * from "./packedStateTreeInfo";

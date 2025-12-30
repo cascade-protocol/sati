@@ -10,7 +10,7 @@
 import { describe, test, expect, beforeAll } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { SATI } from "../../src";
+import { Sati } from "../../src";
 import type { DeployedSASConfig, SATISASConfig } from "../../src/types";
 
 // Load devnet config
@@ -67,9 +67,9 @@ describe("Config Loading Utilities", () => {
     expect(hasDeployedConfig("localnet")).toBe(false);
   });
 
-  test("SATI client initializes for all networks", () => {
-    expect(() => new SATI({ network: "mainnet" })).not.toThrow();
-    expect(() => new SATI({ network: "devnet" })).not.toThrow();
-    expect(() => new SATI({ network: "localnet" })).not.toThrow();
+  test("Sati client initializes for all networks", () => {
+    expect(() => new Sati({ network: "mainnet" })).not.toThrow();
+    expect(() => new Sati({ network: "devnet" })).not.toThrow();
+    expect(() => new Sati({ network: "localnet" })).not.toThrow();
   });
 });

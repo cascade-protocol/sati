@@ -91,7 +91,6 @@ fn initialize_test_registry(svm: &mut LiteSVM, authority: &Keypair) -> (Pubkey, 
 }
 
 #[test]
-#[ignore = "requires Token-2022 GroupMemberPointer setup - test via SDK integration tests"]
 fn test_register_agent_name_too_long() {
     let mut svm = setup_litesvm();
     let authority = Keypair::new();
@@ -141,7 +140,6 @@ fn test_register_agent_name_too_long() {
 }
 
 #[test]
-#[ignore = "requires Token-2022 GroupMemberPointer setup - test via SDK integration tests"]
 fn test_register_agent_symbol_too_long() {
     let mut svm = setup_litesvm();
     let authority = Keypair::new();
@@ -190,7 +188,6 @@ fn test_register_agent_symbol_too_long() {
 }
 
 #[test]
-#[ignore = "requires Token-2022 GroupMemberPointer setup - test via SDK integration tests"]
 fn test_register_agent_uri_too_long() {
     let mut svm = setup_litesvm();
     let authority = Keypair::new();
@@ -239,7 +236,6 @@ fn test_register_agent_uri_too_long() {
 }
 
 #[test]
-#[ignore = "requires Token-2022 GroupMemberPointer setup - test via SDK integration tests"]
 fn test_register_agent_too_many_metadata_entries() {
     let mut svm = setup_litesvm();
     let authority = Keypair::new();
@@ -296,7 +292,6 @@ fn test_register_agent_too_many_metadata_entries() {
 }
 
 #[test]
-#[ignore = "requires Token-2022 GroupMemberPointer setup - test via SDK integration tests"]
 fn test_register_agent_metadata_key_too_long() {
     let mut svm = setup_litesvm();
     let authority = Keypair::new();
@@ -348,7 +343,6 @@ fn test_register_agent_metadata_key_too_long() {
 }
 
 #[test]
-#[ignore = "requires Token-2022 GroupMemberPointer setup - test via SDK integration tests"]
 fn test_register_agent_metadata_value_too_long() {
     let mut svm = setup_litesvm();
     let authority = Keypair::new();

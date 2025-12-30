@@ -22,7 +22,7 @@ import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { address, createKeyPairSignerFromBytes, type KeyPairSigner, type Address } from "@solana/kit";
-import { SATI } from "../../src";
+import { Sati } from "../../src";
 import { computeInteractionHash, computeValidationHash, computeReputationHash, Outcome } from "../../src/hashes";
 
 // Import real signature helpers
@@ -63,7 +63,7 @@ function _signerToTestKeypair(signer: KeyPairSigner, secretKey: Uint8Array): Tes
 // =============================================================================
 
 describe("E2E: Attestation Flow", () => {
-  let sati: SATI;
+  let sati: Sati;
   let payer: KeyPairSigner;
   let authority: KeyPairSigner; // Registry authority (local wallet)
   let agentOwner: KeyPairSigner;
@@ -78,7 +78,7 @@ describe("E2E: Attestation Flow", () => {
 
   beforeAll(async () => {
     // Initialize SDK
-    sati = new SATI({ network: "localnet" });
+    sati = new Sati({ network: "localnet" });
 
     // Create connection for airdrops
     const connection = new Connection("http://127.0.0.1:8899", "confirmed");
@@ -345,7 +345,7 @@ describe("E2E: Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Validation Attestation Flow", () => {
-  let _sati: SATI;
+  let _sati: Sati;
   let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let validatorKeypair: TestKeypair;
@@ -354,7 +354,7 @@ describe("E2E: Validation Attestation Flow", () => {
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    _sati = new SATI({ network: "localnet" });
+    _sati = new Sati({ network: "localnet" });
 
     const payerKp = Keypair.generate();
     _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
@@ -503,14 +503,14 @@ describe("E2E: ReputationScore Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Error Handling", () => {
-  let _sati: SATI;
+  let _sati: Sati;
   let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    _sati = new SATI({ network: "localnet" });
+    _sati = new Sati({ network: "localnet" });
 
     const payerKp = Keypair.generate();
     _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);

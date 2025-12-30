@@ -141,6 +141,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `initialize` | — | Create registry + TokenGroup (one-time) |
 | `register_agent` | name, symbol*, uri, additional_metadata?, non_transferable | Create Token-2022 NFT, add to group, renounce mint |
 | `update_registry_authority` | new_authority? | Transfer or renounce (None = immutable) |
+| `link_evm_address` | evm_address, chain_id, signature, recovery_id | Verify secp256k1 signature, emit event |
 
 > \* **Note on `symbol`**: This field is vestigial from Token-2022's fungible token origin. For NFTs it has no semantic meaning. The SDK hardcodes this to an empty string `""`. The on-chain program still accepts and validates the field (max 10 bytes) for backwards compatibility.
 
@@ -150,6 +151,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 |-------|--------|
 | `AgentRegistered` | mint, owner, member_number, name, uri, non_transferable |
 | `RegistryAuthorityUpdated` | old_authority, new_authority |
+| `EvmAddressLinked` | agent_mint, evm_address, chain_id, linked_at |
 
 #### Errors
 
@@ -179,7 +181,7 @@ pub struct CompressedAttestation { /* fields below */ }
 | Field | Type | Offset | Description |
 |-------|------|--------|-------------|
 | `sas_schema` | Pubkey | 0 | Schema (memcmp filter) |
-| `token_account` | Pubkey | 32 | Agent being attested (memcmp filter) |
+| `token_account` | Pubkey | 32 | Agent mint address (memcmp filter) |
 | `data_type` | u8 | 64 | Schema data type |
 | `data` | Vec&lt;u8&gt; | 65+ | Schema-conformant bytes |
 | `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
@@ -195,6 +197,8 @@ All schemas MUST start with:
 | 64 | 32 | `counterparty` |
 
 Program parses this for signature binding; full schema parsed by indexers.
+
+> **Note on `token_account` naming**: This field stores the **agent's mint address** (the stable identity), not an Associated Token Account (ATA). The name `token_account` is inherited from the SAS specification for storage efficiency. Throughout SATI documentation and code, `token_account` = agent mint address.
 
 **Note on timestamps**: Attestation creation time is tracked via Photon's `slotCreated` field. For interaction time (when the original event occurred), clients can look up the transaction referenced in `task_ref`.
 
@@ -300,7 +304,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 | Offset | Field | Type | Description |
 |--------|-------|------|-------------|
 | 0 | task_ref | [u8;32] | CAIP-220 tx hash or arbitrary ID |
-| 32 | token_account | Pubkey | Agent |
+| 32 | token_account | Pubkey | Agent mint address |
 | 64 | counterparty | Pubkey | Client |
 | 96 | data_hash | [u8;32] | Request hash (agent's blind commitment) |
 | 128 | content_type | u8 | Content format (see Content Types) |
@@ -320,7 +324,7 @@ Program parses this for signature binding; full schema parsed by indexers.
 | Offset | Field | Type | Description |
 |--------|-------|------|-------------|
 | 0 | task_ref | [u8;32] | Task reference |
-| 32 | token_account | Pubkey | Agent |
+| 32 | token_account | Pubkey | Agent mint address |
 | 64 | counterparty | Pubkey | Validator |
 | 96 | data_hash | [u8;32] | Work hash (agent's commitment) |
 | 128 | content_type | u8 | Content format (see Content Types) |
@@ -341,7 +345,7 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 | Offset | Field | Type | Description |
 |--------|-------|------|-------------|
 | 0 | task_ref | [u8;32] | Deterministic: `keccak256(counterparty, token_account)` |
-| 32 | token_account | Pubkey | Agent being scored |
+| 32 | token_account | Pubkey | Agent mint address being scored |
 | 64 | counterparty | Pubkey | Provider (reputation scorer) |
 | 96 | score | u8 | 0-100 normalized score |
 | 97 | content_type | u8 | Content format (see Content Types) |
@@ -773,6 +777,57 @@ sati:<network>:<mint_address>
 | Registry address | `solana:5eykt4...:satiR3q7...` (CAIP-10) |
 
 See [CAIP Standards](https://github.com/ChainAgnostic/CAIPs) and [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) for full format specifications.
+
+---
+
+## EVM Address Linking
+
+Enables SATI agents to cryptographically prove ownership of EVM addresses via secp256k1 signature verification. This creates verifiable cross-chain identity links.
+
+### Instruction: `link_evm_address`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `evm_address` | [u8; 20] | Ethereum address (20 bytes) |
+| `chain_id` | String | CAIP-2 chain identifier (e.g., "eip155:1", "eip155:8453") |
+| `signature` | [u8; 64] | secp256k1 signature (r \|\| s) |
+| `recovery_id` | u8 | Recovery ID (0 or 1) |
+
+### Message Format
+
+The EVM wallet signs a domain-separated hash:
+
+```
+Domain: SATI:evm_link:v1
+Hash: keccak256(domain || agent_mint || evm_address || chain_id)
+```
+
+### Verification Flow
+
+1. Client computes message hash with agent mint, EVM address, and chain ID
+2. EVM wallet signs the hash (produces 64-byte signature + recovery ID)
+3. Call `link_evm_address` instruction with signature
+4. Program recovers public key via Solana's `secp256k1_recover` syscall
+5. Derive Ethereum address from recovered public key (keccak256, last 20 bytes)
+6. Verify recovered address matches provided `evm_address`
+7. Emit `EvmAddressLinked` event as proof
+
+### Storage
+
+**On-chain**: Event only (no account storage)
+**Off-chain**: Agent updates `registrations[]` in registration file per ERC-8004 convention
+
+### Use Cases
+
+- **ERC-8004 linking**: Prove an ERC-8004 agent (Ethereum) controls a SATI agent (Solana)
+- **Cross-chain identity**: Verifiable proof of EVM address ownership for any agent
+- **Multi-chain presence**: Same agent identity across Solana + EVM chains
+
+### Constraints
+
+- Agent owner must sign the transaction (holds agent NFT)
+- One EVM address can link to multiple SATI agents (consistent with ERC-8004)
+- No on-chain deduplication — multiple link events for same address are allowed
 
 ---
 

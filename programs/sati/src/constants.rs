@@ -48,6 +48,7 @@ pub const MAX_ATTESTATION_DATA_SIZE: usize = 768;
 
 /// Minimum size for base layout (bytes).
 /// All schemas start with: task_ref(32) + token_account(32) + counterparty(32) = 96 bytes.
+/// Note: token_account stores the agent's mint address (named for SAS compatibility).
 pub const MIN_BASE_LAYOUT_SIZE: usize = 96;
 
 /// Maximum length for tag strings in Feedback schema (chars).
@@ -64,6 +65,9 @@ pub const DOMAIN_VALIDATION: &[u8] = b"SATI:validation:v1";
 
 /// Domain separator for reputation hash (provider signs).
 pub const DOMAIN_REPUTATION: &[u8] = b"SATI:reputation:v1";
+
+/// Domain separator for EVM address linking.
+pub const DOMAIN_EVM_LINK: &[u8] = b"SATI:evm_link:v1";
 
 // ============================================================================
 // SAS (Solana Attestation Service) Layout Constants

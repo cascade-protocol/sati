@@ -17,7 +17,10 @@ export const MAX_CONTENT_SIZE = 512;
 /** Maximum tag length in characters */
 export const MAX_TAG_LENGTH = 32;
 
-/** Minimum base layout size (task_ref + token_account + counterparty) */
+/**
+ * Minimum base layout size (task_ref + token_account + counterparty).
+ * Note: token_account stores the agent's mint address (named for SAS compatibility).
+ */
 export const MIN_BASE_LAYOUT_SIZE = 96;
 
 /**
@@ -126,7 +129,7 @@ export enum StorageType {
 export interface BaseLayout {
   /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
   taskRef: Uint8Array;
-  /** Agent's token account address (32 bytes) */
+  /** Agent's mint address (32 bytes). Named tokenAccount for SAS wire format compatibility. */
   tokenAccount: Address;
   /** Counterparty address (32 bytes) */
   counterparty: Address;
@@ -156,7 +159,7 @@ export const BASE_OFFSETS = {
 export interface FeedbackData {
   /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
   taskRef: Uint8Array;
-  /** Agent's token account */
+  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
   tokenAccount: Address;
   /** Client (feedback giver) */
   counterparty: Address;
@@ -321,7 +324,7 @@ export function deserializeFeedback(bytes: Uint8Array): FeedbackData {
 export interface ValidationData {
   /** Task reference (32 bytes) */
   taskRef: Uint8Array;
-  /** Agent's token account */
+  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
   tokenAccount: Address;
   /** Validator address */
   counterparty: Address;
@@ -469,7 +472,7 @@ export function deserializeValidation(bytes: Uint8Array): ValidationData {
 export interface ReputationScoreData {
   /** Deterministic: keccak256(counterparty, token_account) (32 bytes) */
   taskRef: Uint8Array;
-  /** Agent being scored */
+  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
   tokenAccount: Address;
   /** Reputation provider */
   counterparty: Address;
@@ -591,7 +594,7 @@ export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreDa
 export interface CompressedAttestation {
   /** SAS schema address (32 bytes) - memcmp filter at offset 8 */
   sasSchema: Uint8Array;
-  /** Agent's token account (32 bytes) - memcmp filter at offset 40 */
+  /** Agent's mint address (32 bytes). Named tokenAccount for SAS wire format compatibility. */
   tokenAccount: Uint8Array;
   /** Data type discriminator: 0=Feedback, 1=Validation */
   dataType: DataType;
@@ -619,7 +622,7 @@ export interface CompressedAttestation {
 export const COMPRESSED_OFFSETS = {
   /** SAS schema pubkey offset for memcmp */
   SAS_SCHEMA: 0,
-  /** Token account pubkey offset for memcmp */
+  /** Agent mint address offset for memcmp (named tokenAccount for SAS compatibility) */
   TOKEN_ACCOUNT: 32,
   /** Data type byte offset */
   DATA_TYPE: 64,

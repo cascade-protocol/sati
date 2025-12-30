@@ -16,7 +16,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { type Outcome, findAssociatedTokenAddress, loadDeployedConfig } from "@cascade-fyi/sati-sdk";
+import { type Outcome, loadDeployedConfig } from "@cascade-fyi/sati-sdk";
 import { createPaymentClient } from "@/lib/x402";
 import { getNetwork } from "@/lib/network";
 
@@ -39,10 +39,8 @@ const deployedConfig = loadDeployedConfig(getNetwork());
 const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
 
 interface GiveFeedbackDialogProps {
-  /** Agent mint address */
+  /** Agent mint address (used as tokenAccount in attestations) */
   agentMint: Address;
-  /** Agent owner address (for ATA derivation) */
-  agentOwner: Address;
   /** Agent name for display */
   agentName: string;
   /** Trigger element */
@@ -99,7 +97,7 @@ function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
-export function GiveFeedbackDialog({ agentMint, agentOwner, agentName, children, onSuccess }: GiveFeedbackDialogProps) {
+export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }: GiveFeedbackDialogProps) {
   const [open, setOpen] = useState(false);
   const [outcome, setOutcome] = useState<string>("2"); // Default to Positive
   const queryClient = useQueryClient();
@@ -115,10 +113,10 @@ export function GiveFeedbackDialog({ agentMint, agentOwner, agentName, children,
       const toastId = toast.loading("Processing payment...");
 
       try {
-        // 1. Derive agent's token account
-        const [tokenAccount] = await findAssociatedTokenAddress(agentMint, agentOwner);
+        // tokenAccount IS the agent mint address (not ATA) - named for SAS wire format compatibility
+        const tokenAccount = agentMint;
 
-        // 2. Generate random taskRef and dataHash
+        // 1. Generate random taskRef and dataHash
         const taskRef = crypto.getRandomValues(new Uint8Array(32));
         const dataHash = crypto.getRandomValues(new Uint8Array(32));
 

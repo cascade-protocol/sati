@@ -3,7 +3,6 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   entry: {
     index: "src/index.ts",
-    "light/index": "src/light/index.ts",
     "web3-compat/index": "src/web3-compat/index.ts",
   },
   format: ["esm", "cjs"],

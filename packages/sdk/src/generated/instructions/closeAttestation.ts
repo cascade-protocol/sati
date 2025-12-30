@@ -175,7 +175,7 @@ export type CloseAttestationAsyncInput<
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** Signer must be the counterparty (provider for ReputationScore) */
+  /** Signer must be either the agent (token_account holder) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
@@ -274,7 +274,7 @@ export type CloseAttestationInput<
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** Signer must be the counterparty (provider for ReputationScore) */
+  /** Signer must be either the agent (token_account holder) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
@@ -356,7 +356,7 @@ export type ParsedCloseAttestationInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** Signer must be the counterparty (provider for ReputationScore) */
+    /** Signer must be either the agent (token_account holder) or the counterparty */
     signer: TAccountMetas[0];
     /** Schema config PDA */
     schemaConfig: TAccountMetas[1];

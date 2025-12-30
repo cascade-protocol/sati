@@ -38,9 +38,7 @@ function set(obj: Record<string, unknown>, path: string, value: unknown): void {
  * - Root-level refinement errors
  * - First-error-per-field strategy
  */
-export function zodResolver<T extends FieldValues>(
-  schema: z.ZodType<T>,
-): Resolver<T> {
+export function zodResolver<T extends FieldValues>(schema: z.ZodType<T>): Resolver<T> {
   return async (values) => {
     const result = await schema.safeParseAsync(values);
 

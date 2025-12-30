@@ -5,6 +5,7 @@
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },
     { "path": "./tsconfig.worker.json" },
-    { "path": "../../packages/sdk" }
+    { "path": "../../packages/sdk" },
+    { "path": "../../packages/compression-kit" }
   ]
 }

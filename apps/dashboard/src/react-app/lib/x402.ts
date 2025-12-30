@@ -32,9 +32,7 @@ function sessionToTransactionSigner(session: WalletSession): TransactionSigner {
   return {
     address: signerAddress,
     async signTransactions(
-      transactions: readonly (Transaction &
-        TransactionWithinSizeLimit &
-        TransactionWithLifetime)[],
+      transactions: readonly (Transaction & TransactionWithinSizeLimit & TransactionWithLifetime)[],
     ): Promise<readonly SignatureDictionary[]> {
       const signatures: SignatureDictionary[] = [];
 
@@ -43,9 +41,7 @@ function sessionToTransactionSigner(session: WalletSession): TransactionSigner {
         const signature = signed.signatures[signerAddress];
 
         if (!signature) {
-          throw new Error(
-            "Wallet did not return a signature for the connected account",
-          );
+          throw new Error("Wallet did not return a signature for the connected account");
         }
 
         signatures.push(
@@ -70,10 +66,7 @@ const V1_NETWORKS = ["solana", "solana-devnet", "solana-testnet"] as const;
  * @param rpcUrl - The RPC endpoint from the app's cluster configuration
  * @returns Configured x402Client ready for payments
  */
-export function createPaymentClient(
-  session: WalletSession,
-  rpcUrl: string,
-): x402Client {
+export function createPaymentClient(session: WalletSession, rpcUrl: string): x402Client {
   const signer = sessionToTransactionSigner(session);
   const client = new x402Client();
 
@@ -81,17 +74,11 @@ export function createPaymentClient(
   const schemeConfig = { rpcUrl };
 
   // Register V2 scheme (wildcard for all Solana networks)
-  client.register(
-    "solana:*",
-    new ExactSvmScheme(signer as never, schemeConfig),
-  );
+  client.register("solana:*", new ExactSvmScheme(signer as never, schemeConfig));
 
   // Register V1 schemes for backwards compatibility
   for (const network of V1_NETWORKS) {
-    client.registerV1(
-      network,
-      new ExactSvmSchemeV1(signer as never, schemeConfig),
-    );
+    client.registerV1(network, new ExactSvmSchemeV1(signer as never, schemeConfig));
   }
 
   return client;

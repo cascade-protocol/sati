@@ -321,22 +321,24 @@ export class PhotonRpc {
    *
    * This is the main method for obtaining ZK proofs needed to use
    * compressed accounts in transactions.
+   *
+   * Note: The Photon API expects:
+   * - `hashes`: array of base58 strings (account hashes)
+   * - `newAddressesWithTrees`: array of { address: string, tree: string }
    */
   async getValidityProof(
     hashes: HashWithTreeInfo[],
     newAddresses: AddressWithTreeInfo[],
   ): Promise<ValidityProofWithContext> {
     const method = versionedEndpoint("getValidityProof");
+    // Format params according to Photon API spec:
+    // - hashes: just base58 strings (not objects)
+    // - newAddressesWithTrees: objects with address and tree only (no queue)
     const params = {
-      hashes: hashes.map((h) => ({
-        hash: encodeBN254(h.hash),
-        tree: h.stateTreeInfo.tree,
-        queue: h.stateTreeInfo.queue,
-      })),
-      newAddresses: newAddresses.map((a) => ({
+      hashes: hashes.map((h) => encodeBN254(h.hash)),
+      newAddressesWithTrees: newAddresses.map((a) => ({
         address: encodeBN254(a.address),
         tree: a.addressTreeInfo.tree,
-        queue: a.addressTreeInfo.queue,
       })),
     };
 
@@ -519,9 +521,9 @@ interface RawCompressedAccount {
   data: {
     data: string;
     dataHash: string;
-    discriminator: string;
+    discriminator: string | number; // u64 as string or number from Photon API
   } | null;
-  lamports: string;
+  lamports: string | number; // Can be string or number from API
   owner: string;
   leafIndex: number;
   tree?: string; // V1
@@ -530,10 +532,16 @@ interface RawCompressedAccount {
     queue: string;
     treeType: number;
     cpiContext?: string | null;
+    nextTreeContext?: {
+      tree: string;
+      queue: string;
+      treeType: number;
+      cpiContext?: string | null;
+    } | null;
   }; // V2
   proveByIndex?: boolean;
-  seq?: string | null;
-  slotCreated: string;
+  seq?: string | number | null; // Can be string or number
+  slotCreated: string | number; // Can be string or number
 }
 
 interface RawMerkleProof {
@@ -545,6 +553,12 @@ interface RawMerkleProof {
     queue: string;
     treeType: number;
     cpiContext?: string | null;
+    nextTreeContext?: {
+      tree: string;
+      queue: string;
+      treeType: number;
+      cpiContext?: string | null;
+    } | null;
   }; // V2
   proof: string[];
   root: string;
@@ -571,9 +585,21 @@ interface RawValidityProof {
       tree: string;
       queue: string;
       treeType: number;
+      cpiContext?: string | null;
     };
     leafIndex: number;
-  }>; // V2
+  }>; // V2 - state tree proofs
+  addresses?: Array<{
+    address: string;
+    root: string;
+    rootIndex: number; // Note: plain number for addresses, not object
+    merkleContext: {
+      tree: string;
+      queue: string;
+      treeType: number;
+      cpiContext?: string | null;
+    };
+  }>; // V2 - address tree proofs (non-inclusion)
 }
 
 interface RawTokenAccount {
@@ -600,9 +626,9 @@ function parseCompressedAccount(raw: RawCompressedAccount): CompressedAccount {
     address: raw.address ? base58ToBytes(raw.address) : null,
     data: raw.data
       ? {
-          discriminator: hexToBytes(raw.data.discriminator),
+          discriminator: discriminatorToBytes(raw.data.discriminator),
           data: base64ToBytes(raw.data.data),
-          dataHash: base58ToBytes(raw.data.dataHash),
+          dataHash: base58ToBytesLE(raw.data.dataHash, 32),
         }
       : null,
     treeInfo,
@@ -621,7 +647,15 @@ function parseTreeInfo(raw: RawCompressedAccount | RawMerkleProof): TreeInfo {
       queue: address(ctx.queue),
       treeType: ctx.treeType as TreeType,
       cpiContext: ctx.cpiContext ? address(ctx.cpiContext) : undefined,
-      nextTreeInfo: null,
+      nextTreeInfo: ctx.nextTreeContext
+        ? {
+            tree: address(ctx.nextTreeContext.tree),
+            queue: address(ctx.nextTreeContext.queue),
+            treeType: ctx.nextTreeContext.treeType as TreeType,
+            cpiContext: ctx.nextTreeContext.cpiContext ? address(ctx.nextTreeContext.cpiContext) : undefined,
+            nextTreeInfo: null,
+          }
+        : null,
     };
   }
 
@@ -632,7 +666,15 @@ function parseTreeInfo(raw: RawCompressedAccount | RawMerkleProof): TreeInfo {
       queue: address(ctx.queue),
       treeType: ctx.treeType as TreeType,
       cpiContext: ctx.cpiContext ? address(ctx.cpiContext) : undefined,
-      nextTreeInfo: null,
+      nextTreeInfo: ctx.nextTreeContext
+        ? {
+            tree: address(ctx.nextTreeContext.tree),
+            queue: address(ctx.nextTreeContext.queue),
+            treeType: ctx.nextTreeContext.treeType as TreeType,
+            cpiContext: ctx.nextTreeContext.cpiContext ? address(ctx.nextTreeContext.cpiContext) : undefined,
+            nextTreeInfo: null,
+          }
+        : null,
     };
   }
 
@@ -671,21 +713,39 @@ function parseValidityProof(raw: RawValidityProof): ValidityProofWithContext {
     : null;
 
   // Parse based on V1 vs V2 response format
-  if (raw.accounts) {
-    // V2 format
+  if (raw.accounts || raw.addresses) {
+    // V2 format - handle both accounts (state proofs) and addresses (address proofs)
+    const accounts = raw.accounts ?? [];
+    const addresses = raw.addresses ?? [];
+
     return {
       compressedProof: proof,
-      roots: raw.accounts.map((a) => createBN254(a.root, "base58")),
-      rootIndices: raw.accounts.map((a) => a.rootIndex.rootIndex),
-      leafIndices: raw.accounts.map((a) => a.leafIndex),
-      leaves: raw.accounts.map((a) => createBN254(a.hash, "base58")),
-      treeInfos: raw.accounts.map((a) => ({
-        tree: address(a.merkleContext.tree),
-        queue: address(a.merkleContext.queue),
-        treeType: a.merkleContext.treeType as TreeType,
-        nextTreeInfo: null,
-      })),
-      proveByIndices: raw.accounts.map((a) => a.rootIndex.proveByIndex),
+      roots: accounts
+        .map((a) => createBN254(a.root, "base58"))
+        .concat(addresses.map((a) => createBN254(a.root, "base58"))),
+      rootIndices: accounts.map((a) => a.rootIndex.rootIndex).concat(addresses.map((a) => a.rootIndex)), // Plain number for addresses
+      leafIndices: accounts.map((a) => a.leafIndex).concat(addresses.map(() => 0)), // Always 0 for addresses
+      leaves: accounts
+        .map((a) => createBN254(a.hash, "base58"))
+        .concat(addresses.map((a) => createBN254(a.address, "base58"))),
+      treeInfos: accounts
+        .map((a) => ({
+          tree: address(a.merkleContext.tree),
+          queue: address(a.merkleContext.queue),
+          treeType: a.merkleContext.treeType as TreeType,
+          cpiContext: a.merkleContext.cpiContext ? address(a.merkleContext.cpiContext) : undefined,
+          nextTreeInfo: null,
+        }))
+        .concat(
+          addresses.map((a) => ({
+            tree: address(a.merkleContext.tree),
+            queue: address(a.merkleContext.queue),
+            treeType: a.merkleContext.treeType as TreeType,
+            cpiContext: a.merkleContext.cpiContext ? address(a.merkleContext.cpiContext) : undefined,
+            nextTreeInfo: null,
+          })),
+        ),
+      proveByIndices: accounts.map((a) => a.rootIndex.proveByIndex).concat(addresses.map(() => false)), // Always false for addresses
     };
   }
 
@@ -714,7 +774,7 @@ function parseTokenAccount(raw: RawTokenAccount): ParsedTokenAccount {
       owner: address(raw.tokenData.owner),
       amount: BigInt(raw.tokenData.amount),
       delegate: raw.tokenData.delegate ? address(raw.tokenData.delegate) : null,
-      state: raw.tokenData.state === "initialized" ? 1 : 0,
+      state: ["uninitialized", "initialized", "frozen"].indexOf(raw.tokenData.state),
       tlv: null,
     },
   };
@@ -739,11 +799,40 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(cleanHex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
+/**
+ * Convert u64 discriminator (as string or number) to 8-byte little-endian array.
+ * Photon API returns discriminator as a decimal string/number representing a u64.
+ */
+function discriminatorToBytes(value: string | number): Uint8Array {
+  const bigintValue = typeof value === "string" ? BigInt(value) : BigInt(value);
+  const bytes = new Uint8Array(8);
+  let v = bigintValue;
+  for (let i = 0; i < 8; i++) {
+    bytes[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return bytes;
+}
+
+/**
+ * Convert base58 string to little-endian byte array.
+ * Used for dataHash which Light Protocol stores as little-endian.
+ * Light Protocol: base58 → BN → .toArray('le', size)
+ */
+function base58ToBytesLE(value: string, size: number): Uint8Array {
+  // Decode base58 to get the raw bytes
+  const decoded = bs58.decode(value);
+  // Convert to bigint for proper LE conversion
+  let bigintValue = 0n;
+  for (let i = 0; i < decoded.length; i++) {
+    bigintValue = (bigintValue << 8n) | BigInt(decoded[i]);
+  }
+  // Convert bigint to little-endian bytes
+  const bytes = new Uint8Array(size);
+  let v = bigintValue;
+  for (let i = 0; i < size; i++) {
+    bytes[i] = Number(v & 0xffn);
+    v >>= 8n;
   }
   return bytes;
 }

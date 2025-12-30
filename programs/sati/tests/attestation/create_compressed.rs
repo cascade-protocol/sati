@@ -48,7 +48,6 @@ const SCHEMA_CONFIG_SIZE: usize = 44;
 
 /// Test successful create_attestation with DualSignature (Feedback)
 #[tokio::test]
-#[ignore = "requires localnet - run: pnpm localnet"]
 async fn test_create_attestation_feedback_success() {
     // 1. Setup Light Protocol test environment with SATI program
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
@@ -208,7 +207,6 @@ async fn test_create_attestation_feedback_success() {
 
 /// Test that create_attestation fails without Ed25519 signature instruction
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_missing_signature() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
@@ -282,7 +280,6 @@ async fn test_create_attestation_missing_signature() {
 
 /// Test that create_attestation fails with wrong signature
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_invalid_signature() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
@@ -351,7 +348,6 @@ async fn test_create_attestation_invalid_signature() {
 
 /// Test that create_attestation fails with wrong signer
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_wrong_signer() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
@@ -425,7 +421,6 @@ async fn test_create_attestation_wrong_signer() {
 
 /// Test that create_attestation fails with self-attestation
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_self_attestation() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
@@ -476,7 +471,6 @@ async fn test_create_attestation_self_attestation() {
 
 /// Test that create_attestation fails with invalid data size
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_data_too_small() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
@@ -512,7 +506,6 @@ async fn test_create_attestation_data_too_small() {
 
 /// Test that create_attestation fails with wrong storage type schema
 #[tokio::test]
-#[ignore = "requires Light Protocol prover - run with localnet"]
 async fn test_create_attestation_wrong_storage_type() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 

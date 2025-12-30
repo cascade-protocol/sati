@@ -22,7 +22,7 @@ import {
 export type AttestationClosed = {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent that was attested */
+  /** Agent mint address that was attested */
   tokenAccount: Address;
   /** Attestation address that was closed */
   address: Address;

@@ -23,7 +23,7 @@ import {
   getRegisterAgentInstructionAsync,
   findRegistryConfigPda,
   fetchRegistryConfig,
-  findAssociatedTokenAddress,
+  findAssociatedTokenAddress, // Still needed for registerAgent
   loadDeployedConfig,
   type ParsedAttestation,
   type FeedbackData,
@@ -399,36 +399,25 @@ export function useMyFeedbacks() {
  * Hook for feedbacks on a specific agent (Agent Details page)
  *
  * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters
- * on sasSchema and tokenAccount.
+ * on sasSchema and tokenAccount (which stores the agent's mint address).
+ *
+ * Note: tokenAccount in feedbacks IS the agent mint address, not an ATA.
  */
-export function useAgentFeedbacks(mint: Address | string | undefined, owner: Address | string | undefined) {
-  // Derive token account from mint and owner
-  const tokenAccountQuery = useQuery({
-    queryKey: ["tokenAccount", mint, owner],
-    queryFn: async () => {
-      if (!mint || !owner) return null;
-      const [tokenAccount] = await findAssociatedTokenAddress(mint as Address, owner as Address);
-      return tokenAccount;
-    },
-    enabled: !!mint && !!owner,
-    staleTime: Infinity, // Token account address is deterministic
-  });
-
-  const tokenAccount = tokenAccountQuery.data;
-
+export function useAgentFeedbacks(mint: Address | string | undefined) {
   const feedbacksQuery = useQuery({
-    queryKey: [...FEEDBACKS_KEY, "agent", tokenAccount],
+    queryKey: [...FEEDBACKS_KEY, "agent", mint],
     queryFn: async () => {
-      if (!tokenAccount) return [];
-      return listAgentFeedbacks(tokenAccount as Address);
+      if (!mint) return [];
+      // tokenAccount in feedbacks stores the agent mint directly (not ATA)
+      return listAgentFeedbacks(mint as Address);
     },
-    enabled: !!tokenAccount,
+    enabled: !!mint,
     staleTime: 30_000,
   });
 
   return {
     feedbacks: feedbacksQuery.data ?? [],
-    isLoading: tokenAccountQuery.isLoading || feedbacksQuery.isLoading,
+    isLoading: feedbacksQuery.isLoading,
     error: feedbacksQuery.error,
     refetch: feedbacksQuery.refetch,
   };

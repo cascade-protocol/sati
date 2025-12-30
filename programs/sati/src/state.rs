@@ -95,7 +95,8 @@ pub struct CompressedAttestation {
     /// SAS schema address (indexed via memcmp at offset 8)
     #[hash]
     pub sas_schema: [u8; 32],
-    /// Agent token account being attested (indexed via memcmp at offset 40)
+    /// Agent mint address (indexed via memcmp at offset 40).
+    /// Note: Named `token_account` for SAS wire format compatibility, but stores the agent's mint address.
     #[hash]
     pub token_account: [u8; 32],
     /// Attestation data type discriminator:

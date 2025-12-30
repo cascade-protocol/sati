@@ -1,7 +1,13 @@
+//! Signature verification and hash computation utilities.
+//!
+//! Note: Throughout this module, `token_account` parameters refer to the agent's mint address,
+//! not an Associated Token Account. The naming is for SAS wire format compatibility.
+
 use anchor_lang::prelude::*;
 use sha3::{Digest, Keccak256};
 use solana_program::{
     ed25519_program::ID as ED25519_PROGRAM_ID,
+    secp256k1_recover::secp256k1_recover,
     sysvar::instructions::{load_instruction_at_checked, ID as SYSVAR_INSTRUCTIONS_ID},
 };
 
@@ -217,6 +223,46 @@ pub fn compute_reputation_nonce(provider: &Pubkey, token_account: &Pubkey) -> [u
     hasher.update(provider.as_ref());
     hasher.update(token_account.as_ref());
     hasher.finalize().into()
+}
+
+/// Compute the hash for EVM address linking.
+/// Domain: SATI:evm_link:v1
+pub fn compute_evm_link_hash(
+    agent_mint: &Pubkey,
+    evm_address: &[u8; 20],
+    chain_id: &str,
+) -> [u8; 32] {
+    let mut hasher = Keccak256::new();
+    hasher.update(DOMAIN_EVM_LINK);
+    hasher.update(agent_mint.as_ref());
+    hasher.update(evm_address);
+    hasher.update(chain_id.as_bytes());
+    hasher.finalize().into()
+}
+
+/// Verify secp256k1 signature and check recovered address matches expected.
+/// Returns Ok(()) if signature is valid and recovered address matches.
+pub fn verify_secp256k1_signature(
+    message_hash: &[u8; 32],
+    signature: &[u8; 64],
+    recovery_id: u8,
+    expected_evm_address: &[u8; 20],
+) -> Result<()> {
+    // Recover public key from signature
+    let recovered_pubkey = secp256k1_recover(message_hash, recovery_id, signature)
+        .map_err(|_| SatiError::Secp256k1RecoveryFailed)?;
+
+    // Derive Ethereum address from public key (keccak256 of pubkey, take last 20 bytes)
+    let pubkey_hash = Keccak256::digest(recovered_pubkey.0);
+    let recovered_address: [u8; 20] = pubkey_hash[12..32].try_into().unwrap();
+
+    // Verify address matches
+    require!(
+        recovered_address == *expected_evm_address,
+        SatiError::EvmAddressMismatch
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]

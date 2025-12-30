@@ -15,7 +15,9 @@
     "paths": {
       "@/*": ["./src/react-app/*"],
       "@cascade-fyi/sati-sdk": ["../../packages/sdk/src/index.ts"],
-      "@cascade-fyi/sati-sdk/*": ["../../packages/sdk/src/*"]
+      "@cascade-fyi/sati-sdk/*": ["../../packages/sdk/src/*"],
+      "@cascade-fyi/compression-kit": ["../../packages/compression-kit/src/index.ts"],
+      "@cascade-fyi/compression-kit/*": ["../../packages/compression-kit/src/*"]
     }
   },
   "include": ["src/react-app"],

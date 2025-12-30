@@ -14,7 +14,6 @@ dist/
 *.tgz
 
 # TypeScript build artifacts
-lib/
 *.tsbuildinfo
 
 # IDEs

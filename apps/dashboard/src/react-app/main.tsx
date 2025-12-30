@@ -11,17 +11,19 @@ import { createDefaultClient } from "@solana/client";
 import { SolanaProvider } from "@solana/react-hooks";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router } from "./router";
-import { getNetwork, getRpcUrl, getWsUrl } from "./lib/network";
+import { getChain, chainToNetwork, getRpcUrl, getWsUrl } from "./lib/network";
 import "./index.css";
 
-// Read network once at startup (before React mounts)
-const currentNetwork = getNetwork();
+// Read chain once at startup (before React mounts)
+// Uses Wallet Standard chain identifiers (solana:devnet, solana:mainnet)
+const currentChain = getChain();
+const currentNetwork = chainToNetwork(currentChain);
 
-// Solana client configuration - uses selected network
+// Solana client configuration - uses selected chain
 const solanaClient = createDefaultClient({
   cluster: currentNetwork,
-  rpc: getRpcUrl(currentNetwork),
-  websocket: getWsUrl(currentNetwork),
+  rpc: getRpcUrl(currentChain),
+  websocket: getWsUrl(currentChain),
   commitment: "confirmed",
 });
 

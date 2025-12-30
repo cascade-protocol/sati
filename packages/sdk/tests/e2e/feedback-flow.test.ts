@@ -19,7 +19,7 @@ import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { address, createKeyPairSignerFromBytes, type KeyPairSigner, type Address } from "@solana/kit";
-import { SATI } from "../../src";
+import { Sati } from "../../src";
 import { computeInteractionHash, computeFeedbackHash, computeAttestationNonce, Outcome } from "../../src/hashes";
 import { DataType, ContentType, SignatureMode, StorageType } from "../../src/schemas";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
@@ -49,7 +49,7 @@ const TEST_TIMEOUT = 60000;
 // =============================================================================
 
 describe("E2E: Full Feedback Lifecycle", () => {
-  let sati: SATI;
+  let sati: Sati;
   let payer: KeyPairSigner;
   let authority: KeyPairSigner; // Registry authority (local wallet)
   let agentOwner: KeyPairSigner;
@@ -67,7 +67,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
   let lookupTableAddress: Address;
 
   beforeAll(async () => {
-    sati = new SATI({ network: "localnet" });
+    sati = new Sati({ network: "localnet" });
 
     // Create connection for airdrops
     const connection = new Connection("http://127.0.0.1:8899", "confirmed");
@@ -406,13 +406,13 @@ describe("E2E: Full Feedback Lifecycle", () => {
 // =============================================================================
 
 describe("E2E: Multiple Feedbacks Flow", () => {
-  let _sati: SATI;
+  let _sati: Sati;
   let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let sasSchema: ReturnType<typeof address>;
 
   beforeAll(async () => {
-    _sati = new SATI({ network: "localnet" });
+    _sati = new Sati({ network: "localnet" });
 
     const payerKp = Keypair.generate();
     _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);

@@ -285,3 +285,59 @@ export function getImageUrl(file: RegistrationFile | null | undefined): string |
 export function stringifyRegistrationFile(file: RegistrationFile, space = 2): string {
   return JSON.stringify(file, null, space);
 }
+
+// ============================================================================
+// SATI Registration Helpers
+// ============================================================================
+
+/** CAIP-2 chain identifier for Solana mainnet */
+export const SATI_CHAIN_ID = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
+/** SATI program ID */
+export const SATI_PROGRAM_ID = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz";
+
+/**
+ * Build a registrations[] entry for linking a SATI agent to an off-chain registration file.
+ *
+ * @param agentMint - SATI agent mint address
+ * @returns RegistrationEntry for the registrations[] array
+ *
+ * @example
+ * ```typescript
+ * const entry = buildSatiRegistrationEntry("AgentMint...");
+ * // { agentId: "AgentMint...", agentRegistry: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiR3q7..." }
+ * ```
+ */
+export function buildSatiRegistrationEntry(agentMint: string): RegistrationEntry {
+  return {
+    agentId: agentMint,
+    agentRegistry: `${SATI_CHAIN_ID}:${SATI_PROGRAM_ID}`,
+  };
+}
+
+/**
+ * Check if a registration file contains a SATI registration.
+ *
+ * @param file - Registration file to check
+ * @returns true if file contains at least one SATI registration
+ */
+export function hasSatiRegistration(file: RegistrationFile): boolean {
+  return (
+    file.registrations?.some((r) => typeof r.agentRegistry === "string" && r.agentRegistry.startsWith(SATI_CHAIN_ID)) ??
+    false
+  );
+}
+
+/**
+ * Find SATI agent IDs from a registration file.
+ *
+ * @param file - Registration file to search
+ * @returns Array of SATI agent mint addresses
+ */
+export function getSatiAgentIds(file: RegistrationFile): string[] {
+  return (
+    file.registrations
+      ?.filter((r) => typeof r.agentRegistry === "string" && r.agentRegistry.startsWith(SATI_CHAIN_ID))
+      .map((r) => String(r.agentId)) ?? []
+  );
+}

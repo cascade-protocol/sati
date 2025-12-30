@@ -140,7 +140,7 @@ export type CloseRegularAttestationAsyncInput<
 > = {
   /** Payer receives rent back */
   payer: TransactionSigner<TAccountPayer>;
-  /** Signer must be the counterparty (provider for ReputationScore) */
+  /** Signer must be either the agent (token_account holder) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
@@ -288,7 +288,7 @@ export type CloseRegularAttestationInput<
 > = {
   /** Payer receives rent back */
   payer: TransactionSigner<TAccountPayer>;
-  /** Signer must be the counterparty (provider for ReputationScore) */
+  /** Signer must be either the agent (token_account holder) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
@@ -403,7 +403,7 @@ export type ParsedCloseRegularAttestationInstruction<
   accounts: {
     /** Payer receives rent back */
     payer: TAccountMetas[0];
-    /** Signer must be the counterparty (provider for ReputationScore) */
+    /** Signer must be either the agent (token_account holder) or the counterparty */
     signer: TAccountMetas[1];
     /** Schema config PDA */
     schemaConfig: TAccountMetas[2];

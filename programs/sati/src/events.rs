@@ -50,7 +50,7 @@ pub struct SchemaConfigRegistered {
 pub struct AttestationCreated {
     /// SAS schema address
     pub sas_schema: Pubkey,
-    /// Agent being attested
+    /// Agent mint address being attested
     pub token_account: Pubkey,
     /// Counterparty (client for Feedback, validator for Validation, provider for ReputationScore)
     pub counterparty: Pubkey,
@@ -67,8 +67,25 @@ pub struct AttestationCreated {
 pub struct AttestationClosed {
     /// SAS schema address
     pub sas_schema: Pubkey,
-    /// Agent that was attested
+    /// Agent mint address that was attested
     pub token_account: Pubkey,
     /// Attestation address that was closed
     pub address: Pubkey,
+}
+
+// ============================================================================
+// EVM Linking Events
+// ============================================================================
+
+/// Emitted when an EVM address is linked to an agent
+#[event]
+pub struct EvmAddressLinked {
+    /// Agent mint address
+    pub agent_mint: Pubkey,
+    /// EVM address (20 bytes)
+    pub evm_address: [u8; 20],
+    /// CAIP-2 chain identifier (e.g., "eip155:1")
+    pub chain_id: String,
+    /// Unix timestamp when linked
+    pub linked_at: i64,
 }

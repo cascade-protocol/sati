@@ -6,13 +6,14 @@
 
 import { useState } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
-import { Bot, Plus, Wallet, MessageSquare, Loader2 } from "lucide-react";
+import { Bot, Plus, Wallet, MessageSquare, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AgentTable } from "@/components/AgentTable";
 import { RegisterAgentDialog } from "@/components/RegisterAgentDialog";
 import { useSati, useMyFeedbacks } from "@/hooks/use-sati";
 import { truncateAddress } from "@/lib/sati";
+import { getSolscanUrl } from "@/lib/network";
 
 // Helper to format outcome
 function formatOutcome(outcome: number): { text: string; color: string } {
@@ -146,11 +147,26 @@ export function Dashboard() {
                   </thead>
                   <tbody>
                     {myFeedbacks.map((feedback) => {
-                      const { text: outcomeText, color: outcomeColor } = formatOutcome(feedback.feedback.outcome);
+                      // tokenAccount is the agent's mint address (named for SAS wire format compatibility)
+                      const data = feedback.data as { outcome: number; tokenAccount: string };
+                      const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
+                      // Use attestation address bytes as unique key
+                      const key = Array.from(feedback.address)
+                        .map((b) => b.toString(16).padStart(2, "0"))
+                        .join("")
+                        .slice(0, 16);
                       return (
-                        <tr key={feedback.hash} className="border-b">
+                        <tr key={key} className="border-b">
                           <td className="py-4 pr-4">
-                            <code className="text-sm">{truncateAddress(feedback.feedback.tokenAccount)}</code>
+                            <a
+                              href={getSolscanUrl(data.tokenAccount, "account")}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
+                            >
+                              {truncateAddress(data.tokenAccount)}
+                              <ExternalLink className="h-3 w-3 opacity-50" />
+                            </a>
                           </td>
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>

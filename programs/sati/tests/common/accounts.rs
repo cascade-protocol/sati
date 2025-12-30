@@ -13,7 +13,7 @@ use spl_token_2022::{
 };
 use spl_token_group_interface::state::TokenGroup;
 
-use crate::common::setup::{SATI_PROGRAM_ID, TOKEN_2022_PROGRAM_ID};
+use crate::common::setup::{ATA_PROGRAM_ID, SATI_PROGRAM_ID, TOKEN_2022_PROGRAM_ID};
 
 /// RegistryConfig account size (matches Rust struct)
 pub const REGISTRY_CONFIG_SIZE: usize = 8 + 32 + 32 + 8 + 1; // 81 bytes
@@ -133,4 +133,98 @@ pub fn create_initialized_registry(
 
     svm.set_account(*registry_pda, account)
         .expect("Failed to set registry config");
+}
+
+/// Create a mock Token-2022 mint for testing
+///
+/// Creates a simple mint without extensions for testing purposes.
+pub fn create_mock_token22_mint(svm: &mut LiteSVM, mint: &Pubkey, mint_authority: &Pubkey) {
+    // Basic mint size (without extensions)
+    let space = 82; // Mint::LEN
+    let mut data = vec![0u8; space];
+    let lamports = svm.minimum_balance_for_rent_exemption(space);
+
+    // Initialize the mint
+    let mut state = StateWithExtensionsMut::<Mint>::unpack_uninitialized(&mut data).unwrap();
+    state.base.mint_authority = solana_sdk::program_option::COption::Some(*mint_authority);
+    state.base.supply = 1; // NFT
+    state.base.decimals = 0;
+    state.base.is_initialized = true;
+    state.base.freeze_authority = solana_sdk::program_option::COption::None;
+    state.pack_base();
+
+    let account = Account {
+        lamports,
+        data,
+        owner: TOKEN_2022_PROGRAM_ID,
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    svm.set_account(*mint, account)
+        .expect("Failed to set mock mint");
+}
+
+/// Derive ATA address for Token-2022
+pub fn derive_token22_ata(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[
+            owner.as_ref(),
+            TOKEN_2022_PROGRAM_ID.as_ref(),
+            mint.as_ref(),
+        ],
+        &ATA_PROGRAM_ID,
+    )
+    .0
+}
+
+/// Create a mock Token-2022 ATA with balance
+///
+/// Token account layout:
+/// - 0..32: mint
+/// - 32..64: owner
+/// - 64..72: amount (u64)
+/// - 72..76: delegate option
+/// - 76..108: delegate
+/// - 108..109: state
+/// - 109..117: is_native option
+/// - 117..121: delegated_amount
+/// - 121..153: close_authority option
+pub fn create_mock_token22_ata(
+    svm: &mut LiteSVM,
+    ata: &Pubkey,
+    mint: &Pubkey,
+    owner: &Pubkey,
+    amount: u64,
+) {
+    // Token account size: 165 bytes for Token-2022
+    let space = 165;
+    let mut data = vec![0u8; space];
+    let lamports = svm.minimum_balance_for_rent_exemption(space);
+
+    // mint (0..32)
+    data[0..32].copy_from_slice(mint.as_ref());
+    // owner (32..64)
+    data[32..64].copy_from_slice(owner.as_ref());
+    // amount (64..72)
+    data[64..72].copy_from_slice(&amount.to_le_bytes());
+    // delegate option (72..76) - 0 = None
+    data[72..76].copy_from_slice(&[0, 0, 0, 0]);
+    // delegate (76..108) - zeroed
+    // state (108) - 1 = Initialized
+    data[108] = 1;
+    // is_native option (109..117) - 0 = None
+    // delegated_amount (117..121) - 0
+    // close_authority option (121..153) - 0 = None
+
+    let account = Account {
+        lamports,
+        data,
+        owner: TOKEN_2022_PROGRAM_ID,
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    svm.set_account(*ata, account)
+        .expect("Failed to set mock ATA");
 }

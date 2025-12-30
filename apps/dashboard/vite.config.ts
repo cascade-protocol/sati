@@ -18,10 +18,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src/react-app"),
-      // Alias Node.js builtins to their node: prefixed versions
-      // This helps the bundler properly resolve them
-      buffer: "node:buffer",
-      events: "node:events",
     },
   },
 });

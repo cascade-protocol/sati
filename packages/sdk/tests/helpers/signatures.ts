@@ -80,6 +80,8 @@ export function createTestKeypair(seed?: number): TestKeypair {
  *
  * Agent signs the interaction hash (blind to outcome).
  * Counterparty signs the feedback hash (with outcome).
+ *
+ * @param tokenAccount - Agent's mint address to include in hash (defaults to agentKeypair.address)
  */
 export function createFeedbackSignatures(
   sasSchema: Address,
@@ -88,14 +90,18 @@ export function createFeedbackSignatures(
   counterpartyKeypair: TestKeypair,
   dataHash: Uint8Array,
   outcome: Outcome,
+  tokenAccount?: Address,
 ): SignatureData[] {
+  // Use explicit tokenAccount if provided, otherwise use agent's address
+  const tokenAddr = tokenAccount ?? agentKeypair.address;
+
   // Agent signs interaction hash (blind - doesn't know outcome)
-  const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAddr, dataHash);
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
   // Counterparty signs feedback hash (includes outcome)
   // On-chain program verifies against raw 32-byte hash
-  const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agentKeypair.address, outcome);
+  const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAddr, outcome);
   const counterpartySig = signMessage(feedbackHash, counterpartyKeypair.secretKey);
 
   return [
@@ -154,6 +160,8 @@ export function verifyFeedbackSignatures(
  *
  * Agent signs the interaction hash (blind to response).
  * Validator signs the validation hash (with response score).
+ *
+ * @param tokenAccount - Agent's mint address to include in hash (defaults to agentKeypair.address)
  */
 export function createValidationSignatures(
   sasSchema: Address,
@@ -162,13 +170,17 @@ export function createValidationSignatures(
   validatorKeypair: TestKeypair,
   dataHash: Uint8Array,
   response: number,
+  tokenAccount?: Address,
 ): SignatureData[] {
+  // Use explicit tokenAccount if provided, otherwise use agent's address
+  const tokenAddr = tokenAccount ?? agentKeypair.address;
+
   // Agent signs interaction hash (blind)
-  const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAddr, dataHash);
   const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
 
   // Validator signs validation hash (includes response)
-  const validationHash = computeValidationHash(sasSchema, taskRef, agentKeypair.address, response);
+  const validationHash = computeValidationHash(sasSchema, taskRef, tokenAddr, response);
   const validatorSig = signMessage(validationHash, validatorKeypair.secretKey);
 
   return [

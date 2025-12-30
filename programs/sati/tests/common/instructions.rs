@@ -19,6 +19,7 @@ const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("1111111111111111111111111
 // Re-export instruction and account types from the sati crate
 pub use sati::accounts;
 pub use sati::instruction;
+pub use sati::instructions::registry::link_evm_address::LinkEvmAddressParams;
 pub use sati::state::{SignatureMode, StorageType};
 
 /// Build initialize instruction using Anchor's generated types
@@ -85,6 +86,37 @@ pub fn build_update_authority_ix(
     let accounts = accounts::UpdateRegistryAuthority {
         authority: *authority,
         registry_config: *registry_config,
+    };
+
+    Instruction {
+        program_id: SATI_PROGRAM_ID,
+        accounts: accounts.to_account_metas(None),
+        data: instruction_data.data(),
+    }
+}
+
+/// Build link_evm_address instruction using Anchor's generated types
+pub fn build_link_evm_address_ix(
+    owner: &Pubkey,
+    agent_mint: &Pubkey,
+    ata: &Pubkey,
+    evm_address: [u8; 20],
+    chain_id: String,
+    signature: [u8; 64],
+    recovery_id: u8,
+) -> Instruction {
+    let instruction_data = instruction::LinkEvmAddress {
+        params: LinkEvmAddressParams {
+            evm_address,
+            chain_id,
+            signature,
+            recovery_id,
+        },
+    };
+    let accounts = accounts::LinkEvmAddress {
+        owner: *owner,
+        agent_mint: *agent_mint,
+        ata: *ata,
     };
 
     Instruction {

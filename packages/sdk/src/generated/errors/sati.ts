@@ -86,6 +86,12 @@ export const SATI_ERROR__MESSAGE_MISMATCH = 0x1791; // 6033
 export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x1792; // 6034
 /** DuplicateSigners: Duplicate signers not allowed for dual signature mode */
 export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1793; // 6035
+/** InvalidSecp256k1Signature: Invalid secp256k1 signature */
+export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1794; // 6036
+/** Secp256k1RecoveryFailed: Secp256k1 recovery failed */
+export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1795; // 6037
+/** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
+export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1796; // 6038
 
 export type SatiError =
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_LARGE
@@ -93,6 +99,7 @@ export type SatiError =
   | typeof SATI_ERROR__ATTESTATION_NOT_CLOSEABLE
   | typeof SATI_ERROR__CONTENT_TOO_LARGE
   | typeof SATI_ERROR__DUPLICATE_SIGNERS
+  | typeof SATI_ERROR__EVM_ADDRESS_MISMATCH
   | typeof SATI_ERROR__IMMUTABLE_AUTHORITY
   | typeof SATI_ERROR__INVALID_AUTHORITY
   | typeof SATI_ERROR__INVALID_CONTENT_TYPE
@@ -104,6 +111,7 @@ export type SatiError =
   | typeof SATI_ERROR__INVALID_OUTCOME
   | typeof SATI_ERROR__INVALID_RESPONSE
   | typeof SATI_ERROR__INVALID_SCORE
+  | typeof SATI_ERROR__INVALID_SECP256K1_SIGNATURE
   | typeof SATI_ERROR__INVALID_SIGNATURE
   | typeof SATI_ERROR__INVALID_SIGNATURE_COUNT
   | typeof SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED
@@ -115,6 +123,7 @@ export type SatiError =
   | typeof SATI_ERROR__NAME_TOO_LONG
   | typeof SATI_ERROR__OVERFLOW
   | typeof SATI_ERROR__SCHEMA_CONFIG_NOT_FOUND
+  | typeof SATI_ERROR__SECP256K1_RECOVERY_FAILED
   | typeof SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED
   | typeof SATI_ERROR__SIGNATURE_MISMATCH
   | typeof SATI_ERROR__STORAGE_TYPE_MISMATCH
@@ -133,6 +142,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__ATTESTATION_NOT_CLOSEABLE]: `Attestation cannot be closed for this schema`,
     [SATI_ERROR__CONTENT_TOO_LARGE]: `Content exceeds maximum size (512 bytes)`,
     [SATI_ERROR__DUPLICATE_SIGNERS]: `Duplicate signers not allowed for dual signature mode`,
+    [SATI_ERROR__EVM_ADDRESS_MISMATCH]: `EVM address mismatch - recovered address does not match expected`,
     [SATI_ERROR__IMMUTABLE_AUTHORITY]: `Authority is immutable (renounced)`,
     [SATI_ERROR__INVALID_AUTHORITY]: `Invalid authority`,
     [SATI_ERROR__INVALID_CONTENT_TYPE]: `Invalid content type (must be 0-4)`,
@@ -144,6 +154,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__INVALID_OUTCOME]: `Invalid outcome value (must be 0-2)`,
     [SATI_ERROR__INVALID_RESPONSE]: `Invalid validation response (must be 0-100)`,
     [SATI_ERROR__INVALID_SCORE]: `Invalid score value (must be 0-100)`,
+    [SATI_ERROR__INVALID_SECP256K1_SIGNATURE]: `Invalid secp256k1 signature`,
     [SATI_ERROR__INVALID_SIGNATURE]: `Invalid Ed25519 signature`,
     [SATI_ERROR__INVALID_SIGNATURE_COUNT]: `Invalid signature count for signature mode`,
     [SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED]: `Light Protocol CPI invocation failed`,
@@ -155,6 +166,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__NAME_TOO_LONG]: `Name too long (max 32 bytes)`,
     [SATI_ERROR__OVERFLOW]: `Arithmetic overflow`,
     [SATI_ERROR__SCHEMA_CONFIG_NOT_FOUND]: `Schema config not found`,
+    [SATI_ERROR__SECP256K1_RECOVERY_FAILED]: `Secp256k1 recovery failed`,
     [SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED]: `Self-attestation is not allowed (token_account == counterparty)`,
     [SATI_ERROR__SIGNATURE_MISMATCH]: `Signature pubkey does not match expected account`,
     [SATI_ERROR__STORAGE_TYPE_MISMATCH]: `Storage type mismatch`,

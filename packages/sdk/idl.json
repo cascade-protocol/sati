@@ -28,7 +28,7 @@
         {
           "name": "signer",
           "docs": [
-            "Signer must be the counterparty (provider for ReputationScore)"
+            "Signer must be either the agent (token_account holder) or the counterparty"
           ],
           "writable": true,
           "signer": true
@@ -138,7 +138,7 @@
         {
           "name": "signer",
           "docs": [
-            "Signer must be the counterparty (provider for ReputationScore)"
+            "Signer must be either the agent (token_account holder) or the counterparty"
           ],
           "signer": true
         },
@@ -604,6 +604,54 @@
       "args": []
     },
     {
+      "name": "link_evm_address",
+      "docs": [
+        "Link an EVM address to an agent via secp256k1 signature verification.",
+        "Proves the agent owner controls the specified EVM address."
+      ],
+      "discriminator": [
+        156,
+        75,
+        131,
+        178,
+        64,
+        110,
+        236,
+        64
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "docs": [
+            "Agent owner (must sign)"
+          ],
+          "signer": true
+        },
+        {
+          "name": "agent_mint",
+          "docs": [
+            "Agent mint account"
+          ]
+        },
+        {
+          "name": "ata",
+          "docs": [
+            "Owner's associated token account for this mint"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "LinkEvmAddressParams"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "register_agent",
       "docs": [
         "Register a new agent in the SATI registry.",
@@ -978,6 +1026,19 @@
       ]
     },
     {
+      "name": "EvmAddressLinked",
+      "discriminator": [
+        25,
+        224,
+        124,
+        209,
+        25,
+        240,
+        102,
+        194
+      ]
+    },
+    {
       "name": "RegistryAuthorityUpdated",
       "discriminator": [
         49,
@@ -1197,6 +1258,21 @@
       "code": 6035,
       "name": "DuplicateSigners",
       "msg": "Duplicate signers not allowed for dual signature mode"
+    },
+    {
+      "code": 6036,
+      "name": "InvalidSecp256k1Signature",
+      "msg": "Invalid secp256k1 signature"
+    },
+    {
+      "code": 6037,
+      "name": "Secp256k1RecoveryFailed",
+      "msg": "Secp256k1 recovery failed"
+    },
+    {
+      "code": 6038,
+      "name": "EvmAddressMismatch",
+      "msg": "EVM address mismatch - recovered address does not match expected"
     }
   ],
   "types": [
@@ -1250,7 +1326,7 @@
           {
             "name": "token_account",
             "docs": [
-              "Agent that was attested"
+              "Agent mint address that was attested"
             ],
             "type": "pubkey"
           },
@@ -1282,7 +1358,7 @@
           {
             "name": "token_account",
             "docs": [
-              "Agent being attested"
+              "Agent mint address being attested"
             ],
             "type": "pubkey"
           },
@@ -1596,6 +1672,99 @@
               "Expiry timestamp (0 = never expires)"
             ],
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EvmAddressLinked",
+      "docs": [
+        "Emitted when an EVM address is linked to an agent"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_mint",
+            "docs": [
+              "Agent mint address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "evm_address",
+            "docs": [
+              "EVM address (20 bytes)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "chain_id",
+            "docs": [
+              "CAIP-2 chain identifier (e.g., \"eip155:1\")"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "linked_at",
+            "docs": [
+              "Unix timestamp when linked"
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LinkEvmAddressParams",
+      "docs": [
+        "Parameters for linking an EVM address to a SATI agent."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "evm_address",
+            "docs": [
+              "EVM address (20 bytes)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                20
+              ]
+            }
+          },
+          {
+            "name": "chain_id",
+            "docs": [
+              "CAIP-2 chain identifier (e.g., \"eip155:1\", \"eip155:8453\")"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "signature",
+            "docs": [
+              "secp256k1 signature (64 bytes: r || s)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "recovery_id",
+            "docs": [
+              "Recovery ID (0 or 1)"
+            ],
+            "type": "u8"
           }
         ]
       }

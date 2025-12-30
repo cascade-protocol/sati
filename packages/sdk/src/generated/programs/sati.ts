@@ -19,6 +19,7 @@ import {
   type ParsedCreateAttestationInstruction,
   type ParsedCreateRegularAttestationInstruction,
   type ParsedInitializeInstruction,
+  type ParsedLinkEvmAddressInstruction,
   type ParsedRegisterAgentInstruction,
   type ParsedRegisterSchemaConfigInstruction,
   type ParsedUpdateRegistryAuthorityInstruction,
@@ -69,6 +70,7 @@ export enum SatiInstruction {
   CreateAttestation,
   CreateRegularAttestation,
   Initialize,
+  LinkEvmAddress,
   RegisterAgent,
   RegisterSchemaConfig,
   UpdateRegistryAuthority,
@@ -137,6 +139,17 @@ export function identifySatiInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([156, 75, 131, 178, 64, 110, 236, 64]),
+      ),
+      0,
+    )
+  ) {
+    return SatiInstruction.LinkEvmAddress;
+  }
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
         new Uint8Array([135, 157, 66, 195, 2, 113, 175, 30]),
       ),
       0,
@@ -189,6 +202,9 @@ export type ParsedSatiInstruction<
   | ({
       instructionType: SatiInstruction.Initialize;
     } & ParsedInitializeInstruction<TProgram>)
+  | ({
+      instructionType: SatiInstruction.LinkEvmAddress;
+    } & ParsedLinkEvmAddressInstruction<TProgram>)
   | ({
       instructionType: SatiInstruction.RegisterAgent;
     } & ParsedRegisterAgentInstruction<TProgram>)

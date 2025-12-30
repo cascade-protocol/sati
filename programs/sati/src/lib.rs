@@ -71,6 +71,15 @@ pub mod sati {
         instructions::registry::update_authority::handler(ctx, new_authority)
     }
 
+    /// Link an EVM address to an agent via secp256k1 signature verification.
+    /// Proves the agent owner controls the specified EVM address.
+    pub fn link_evm_address(
+        ctx: Context<LinkEvmAddress>,
+        params: LinkEvmAddressParams,
+    ) -> Result<()> {
+        instructions::registry::link_evm_address::handler(ctx, params)
+    }
+
     // =========================================================================
     // Attestation Instructions
     // =========================================================================

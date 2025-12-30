@@ -115,4 +115,16 @@ pub enum SatiError {
 
     #[msg("Duplicate signers not allowed for dual signature mode")]
     DuplicateSigners,
+
+    // ========================================================================
+    // EVM Linking Errors
+    // ========================================================================
+    #[msg("Invalid secp256k1 signature")]
+    InvalidSecp256k1Signature,
+
+    #[msg("Secp256k1 recovery failed")]
+    Secp256k1RecoveryFailed,
+
+    #[msg("EVM address mismatch - recovered address does not match expected")]
+    EvmAddressMismatch,
 }
