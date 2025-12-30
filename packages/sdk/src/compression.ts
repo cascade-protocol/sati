@@ -4,9 +4,20 @@
  * SATI-specific Light Protocol client that uses compression-kit as the underlying
  * RPC layer. This provides SATI-specific query and proof methods for compressed
  * attestations.
+ *
+ * ## Identity Model
+ * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
+ * - Named for SAS wire format compatibility (NOT an Associated Token Account)
  */
 
-import { address, type Address, getAddressEncoder, getAddressDecoder } from "@solana/kit";
+import {
+  address,
+  type Address,
+  getAddressEncoder,
+  getAddressDecoder,
+  getProgramDerivedAddress,
+  getUtf8Encoder,
+} from "@solana/kit";
 import {
   createPhotonRpc,
   type PhotonRpc,
@@ -428,6 +439,13 @@ export class SATILightClientImpl implements SATILightClient {
     const ED25519_PROGRAM = address("Ed25519SigVerify111111111111111111111111111");
     const INSTRUCTIONS_SYSVAR = address("Sysvar1nstructions1111111111111111111111111");
     const COMPUTE_BUDGET_PROGRAM = address("ComputeBudget111111111111111111111111111111");
+    const TOKEN_2022_PROGRAM = address("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+    // Derive event authority PDA: PDA(SATI_PROGRAM, ["__event_authority"])
+    const [eventAuthority] = await getProgramDerivedAddress({
+      programAddress: this.programId,
+      seeds: [getUtf8Encoder().encode("__event_authority")],
+    });
 
     return [
       // Light Protocol core
@@ -442,14 +460,16 @@ export class SATILightClientImpl implements SATILightClient {
       MERKLE_TREE_PUBKEY,
       NULLIFIER_QUEUE_PUBKEY,
 
-      // SATI program
+      // SATI program and PDAs
       this.programId,
+      eventAuthority,
 
       // Solana system programs
       SYSTEM_PROGRAM,
       ED25519_PROGRAM,
       INSTRUCTIONS_SYSVAR,
       COMPUTE_BUDGET_PROGRAM,
+      TOKEN_2022_PROGRAM,
     ];
   }
 

@@ -16,24 +16,22 @@
  * Run: pnpm test:e2e
  */
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { address, createKeyPairSignerFromBytes, type KeyPairSigner, type Address } from "@solana/kit";
-import { Sati } from "../../src";
+import { Keypair } from "@solana/web3.js";
+import { address, type KeyPairSigner, type Address } from "@solana/kit";
+import type { Sati } from "../../src";
 import { computeInteractionHash, computeValidationHash, computeReputationHash, Outcome } from "../../src/hashes";
 
-// Import real signature helpers
+// Import test helpers
 import {
-  createTestKeypair,
   createFeedbackSignatures,
   createValidationSignatures,
   createReputationSignature,
+  createTestKeypair,
   randomBytes32,
-  createSatiLookupTable,
+  setupE2ETest,
   type TestKeypair,
+  type E2ETestContext,
 } from "../helpers";
 
 // =============================================================================
@@ -42,72 +40,42 @@ import {
 
 const TEST_TIMEOUT = 60000; // 60s for network operations
 
-async function _createTestSigner(): Promise<KeyPairSigner> {
-  const keypair = Keypair.generate();
-  return createKeyPairSignerFromBytes(keypair.secretKey);
-}
-
-/**
- * Convert KeyPairSigner to TestKeypair for signature helpers
- */
-function _signerToTestKeypair(signer: KeyPairSigner, secretKey: Uint8Array): TestKeypair {
-  return {
-    publicKey: new PublicKey(signer.address),
-    secretKey,
-    address: signer.address,
-  };
-}
-
 // =============================================================================
 // E2E Tests
 // =============================================================================
 
 describe("E2E: Attestation Flow", () => {
+  let ctx: E2ETestContext;
+
+  // Aliases for cleaner test code
   let sati: Sati;
   let payer: KeyPairSigner;
-  let authority: KeyPairSigner; // Registry authority (local wallet)
+  let authority: KeyPairSigner;
   let agentOwner: KeyPairSigner;
   let counterparty: KeyPairSigner;
-  let sasSchema: ReturnType<typeof address>;
-  let agentMint: ReturnType<typeof address>;
+  let sasSchema: Address;
+  let agentMint: Address;
   let lookupTableAddress: Address;
-
-  // Keep raw keypairs for Ed25519 signing
-  let agentKeypair: TestKeypair;
+  let agentOwnerKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
 
   beforeAll(async () => {
-    // Initialize SDK
-    sati = new Sati({ network: "localnet" });
+    // Use shared test setup - handles SDK init, keypairs, agent/schema registration, lookup table
+    ctx = await setupE2ETest();
 
-    // Create connection for airdrops
-    const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+    // Create aliases for cleaner test code
+    sati = ctx.sati;
+    payer = ctx.payer;
+    authority = ctx.authority;
+    agentOwner = ctx.agentOwner;
+    counterparty = ctx.counterparty;
+    agentMint = ctx.agentMint;
+    lookupTableAddress = ctx.lookupTableAddress;
+    agentOwnerKeypair = ctx.agentOwnerKeypair;
+    counterpartyKeypair = ctx.counterpartyKeypair;
 
-    // Load local wallet as authority (matches registry initialization)
-    const walletPath = path.join(homedir(), ".config/solana/id.json");
-    const walletSecret = JSON.parse(readFileSync(walletPath, "utf-8"));
-    const authorityKp = Keypair.fromSecretKey(Uint8Array.from(walletSecret));
-    authority = await createKeyPairSignerFromBytes(authorityKp.secretKey);
-
-    // Create payer keypair and fund it
-    const payerKp = Keypair.generate();
-    const airdropSig = await connection.requestAirdrop(payerKp.publicKey, 10 * LAMPORTS_PER_SOL);
-    await connection.confirmTransaction(airdropSig, "confirmed");
-    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
-
-    // Create keypairs that we keep for Ed25519 signing
-    agentKeypair = createTestKeypair(1);
-    counterpartyKeypair = createTestKeypair(2);
-
-    agentOwner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    counterparty = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
-
-    // Generate random SAS schema address
+    // Generate random SAS schema for this test suite (separate from ctx.feedbackSchema)
     sasSchema = address(Keypair.generate().publicKey.toBase58());
-
-    // Create lookup table for transaction compression
-    const { address: lutAddress } = await createSatiLookupTable(sati, payerKp);
-    lookupTableAddress = lutAddress;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -202,20 +170,22 @@ describe("E2E: Attestation Flow", () => {
         const dataHash = randomBytes32();
         const outcome = Outcome.Positive;
 
-        // The tokenAccount in attestations is the agent's wallet address (identity),
-        // NOT the ATA that holds the NFT. This matches the signature pubkey.
-        const tokenAccount = agentOwner.address;
+        // tokenAccount = agent's MINT address (stable identity)
+        // agentOwnerKeypair = NFT owner (signer) - on-chain verifies via ATA ownership
+        const tokenAccount = agentMint;
 
         // Create real Ed25519 signatures using the helper
-        // Agent signs interaction hash (blind - doesn't know outcome)
+        // Agent OWNER signs interaction hash (blind - doesn't know outcome)
         // Counterparty signs feedback hash (includes outcome)
+        // Hashes include mint address; signatures come from owner
         const signatures = createFeedbackSignatures(
           sasSchema,
           taskRef,
-          agentKeypair,
+          agentOwnerKeypair,
           counterpartyKeypair,
           dataHash,
           outcome,
+          tokenAccount, // Pass mint address explicitly
         );
 
         // Submit attestation with real signatures
@@ -254,17 +224,18 @@ describe("E2E: Attestation Flow", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        // Use agent's wallet address as identity
-        const tokenAccount = agentOwner.address;
+        // tokenAccount = agent's MINT address (stable identity)
+        const tokenAccount = agentMint;
 
         // Sign for Positive outcome
         const signatures = createFeedbackSignatures(
           sasSchema,
           taskRef,
-          agentKeypair,
+          agentOwnerKeypair,
           counterpartyKeypair,
           dataHash,
           Outcome.Positive,
+          tokenAccount, // Pass mint address explicitly
         );
 
         // But submit with Negative outcome - should fail on-chain
@@ -303,8 +274,8 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         if (!agentMint) return;
 
-        // Use agent's wallet address as identity (matches attestation data)
-        const tokenAccount = agentOwner.address;
+        // tokenAccount = agent's MINT address (stable identity)
+        const tokenAccount = agentMint;
 
         // listFeedbacks takes filter object with tokenAccount
         const result = await sati.listFeedbacks({ tokenAccount });
@@ -319,8 +290,8 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         if (!agentMint) return;
 
-        // Use agent's wallet address as identity
-        const tokenAccount = agentOwner.address;
+        // tokenAccount = agent's MINT address (stable identity)
+        const tokenAccount = agentMint;
 
         const result = await sati.listFeedbacks({
           tokenAccount,
@@ -345,26 +316,14 @@ describe("E2E: Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Validation Attestation Flow", () => {
-  let _sati: Sati;
-  let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let validatorKeypair: TestKeypair;
-  let _agentSigner: KeyPairSigner;
-  let _validatorSigner: KeyPairSigner;
-  let sasSchema: ReturnType<typeof address>;
+  let sasSchema: Address;
 
   beforeAll(async () => {
-    _sati = new Sati({ network: "localnet" });
-
-    const payerKp = Keypair.generate();
-    _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
-
+    // These tests only verify signature creation/verification - no chain submission
     agentKeypair = createTestKeypair(10);
     validatorKeypair = createTestKeypair(11);
-
-    _agentSigner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    _validatorSigner = await createKeyPairSignerFromBytes(validatorKeypair.secretKey);
-
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
 
@@ -436,9 +395,10 @@ describe("E2E: Validation Attestation Flow", () => {
 describe("E2E: ReputationScore Attestation Flow", () => {
   let providerKeypair: TestKeypair;
   let agentKeypair: TestKeypair;
-  let sasSchema: ReturnType<typeof address>;
+  let sasSchema: Address;
 
   beforeAll(async () => {
+    // These tests only verify signature creation/verification - no chain submission
     providerKeypair = createTestKeypair(20);
     agentKeypair = createTestKeypair(21);
     sasSchema = address(Keypair.generate().publicKey.toBase58());
@@ -503,18 +463,12 @@ describe("E2E: ReputationScore Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Error Handling", () => {
-  let _sati: Sati;
-  let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
-  let sasSchema: ReturnType<typeof address>;
+  let sasSchema: Address;
 
   beforeAll(async () => {
-    _sati = new Sati({ network: "localnet" });
-
-    const payerKp = Keypair.generate();
-    _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
-
+    // These tests only verify signature error cases - no chain submission
     agentKeypair = createTestKeypair(40);
     counterpartyKeypair = createTestKeypair(41);
     sasSchema = address(Keypair.generate().publicKey.toBase58());

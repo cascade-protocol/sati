@@ -71,6 +71,12 @@ pub enum SatiError {
     #[msg("Self-attestation is not allowed (token_account == counterparty)")]
     SelfAttestationNotAllowed,
 
+    #[msg("Agent ATA mint does not match token_account in attestation data")]
+    AgentAtaMintMismatch,
+
+    #[msg("Agent ATA is empty - signer does not own the agent NFT")]
+    AgentAtaEmpty,
+
     #[msg("Unauthorized to close attestation")]
     UnauthorizedClose,
 

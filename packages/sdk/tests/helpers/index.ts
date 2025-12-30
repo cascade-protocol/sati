@@ -94,3 +94,10 @@ export {
   createSatiLookupTable,
   type CreateLookupTableResult,
 } from "./lookup-table";
+
+// E2E Test Setup
+export {
+  setupE2ETest,
+  type E2ETestContext,
+  type SetupOptions,
+} from "./test-setup";

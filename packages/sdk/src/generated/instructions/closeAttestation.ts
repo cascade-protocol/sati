@@ -65,6 +65,8 @@ export type CloseAttestationInstruction<
   TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountSigner extends string | AccountMeta<string> = string,
   TAccountSchemaConfig extends string | AccountMeta<string> = string,
+  TAccountAgentAta extends string | AccountMeta<string> = string,
+  TAccountTokenProgram extends string | AccountMeta<string> = string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -79,6 +81,12 @@ export type CloseAttestationInstruction<
       TAccountSchemaConfig extends string
         ? ReadonlyAccount<TAccountSchemaConfig>
         : TAccountSchemaConfig,
+      TAccountAgentAta extends string
+        ? ReadonlyAccount<TAccountAgentAta>
+        : TAccountAgentAta,
+      TAccountTokenProgram extends string
+        ? ReadonlyAccount<TAccountTokenProgram>
+        : TAccountTokenProgram,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -172,13 +180,23 @@ export function getCloseAttestationInstructionDataCodec(): Codec<
 export type CloseAttestationAsyncInput<
   TAccountSigner extends string = string,
   TAccountSchemaConfig extends string = string,
+  TAccountAgentAta extends string = string,
+  TAccountTokenProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** Signer must be either the agent (token_account holder) or the counterparty */
+  /** Signer must be either the agent (NFT owner via ATA) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
+  /**
+   * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+   * If provided, must hold the agent NFT (mint matches token_account from data).
+   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   */
+  agentAta?: Address<TAccountAgentAta>;
+  /** Token-2022 program for ATA verification (optional, required with agent_ata) */
+  tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   dataType: CloseAttestationInstructionDataArgs["dataType"];
@@ -194,6 +212,8 @@ export type CloseAttestationAsyncInput<
 export async function getCloseAttestationInstructionAsync<
   TAccountSigner extends string,
   TAccountSchemaConfig extends string,
+  TAccountAgentAta extends string,
+  TAccountTokenProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -201,6 +221,8 @@ export async function getCloseAttestationInstructionAsync<
   input: CloseAttestationAsyncInput<
     TAccountSigner,
     TAccountSchemaConfig,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -210,6 +232,8 @@ export async function getCloseAttestationInstructionAsync<
     TProgramAddress,
     TAccountSigner,
     TAccountSchemaConfig,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -221,6 +245,8 @@ export async function getCloseAttestationInstructionAsync<
   const originalAccounts = {
     signer: { value: input.signer ?? null, isWritable: true },
     schemaConfig: { value: input.schemaConfig ?? null, isWritable: false },
+    agentAta: { value: input.agentAta ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -252,6 +278,8 @@ export async function getCloseAttestationInstructionAsync<
     accounts: [
       getAccountMeta(accounts.signer),
       getAccountMeta(accounts.schemaConfig),
+      getAccountMeta(accounts.agentAta),
+      getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -263,6 +291,8 @@ export async function getCloseAttestationInstructionAsync<
     TProgramAddress,
     TAccountSigner,
     TAccountSchemaConfig,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -271,13 +301,23 @@ export async function getCloseAttestationInstructionAsync<
 export type CloseAttestationInput<
   TAccountSigner extends string = string,
   TAccountSchemaConfig extends string = string,
+  TAccountAgentAta extends string = string,
+  TAccountTokenProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
-  /** Signer must be either the agent (token_account holder) or the counterparty */
+  /** Signer must be either the agent (NFT owner via ATA) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
+  /**
+   * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+   * If provided, must hold the agent NFT (mint matches token_account from data).
+   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   */
+  agentAta?: Address<TAccountAgentAta>;
+  /** Token-2022 program for ATA verification (optional, required with agent_ata) */
+  tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   dataType: CloseAttestationInstructionDataArgs["dataType"];
@@ -293,6 +333,8 @@ export type CloseAttestationInput<
 export function getCloseAttestationInstruction<
   TAccountSigner extends string,
   TAccountSchemaConfig extends string,
+  TAccountAgentAta extends string,
+  TAccountTokenProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -300,6 +342,8 @@ export function getCloseAttestationInstruction<
   input: CloseAttestationInput<
     TAccountSigner,
     TAccountSchemaConfig,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -308,6 +352,8 @@ export function getCloseAttestationInstruction<
   TProgramAddress,
   TAccountSigner,
   TAccountSchemaConfig,
+  TAccountAgentAta,
+  TAccountTokenProgram,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -318,6 +364,8 @@ export function getCloseAttestationInstruction<
   const originalAccounts = {
     signer: { value: input.signer ?? null, isWritable: true },
     schemaConfig: { value: input.schemaConfig ?? null, isWritable: false },
+    agentAta: { value: input.agentAta ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -334,6 +382,8 @@ export function getCloseAttestationInstruction<
     accounts: [
       getAccountMeta(accounts.signer),
       getAccountMeta(accounts.schemaConfig),
+      getAccountMeta(accounts.agentAta),
+      getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -345,6 +395,8 @@ export function getCloseAttestationInstruction<
     TProgramAddress,
     TAccountSigner,
     TAccountSchemaConfig,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -356,12 +408,20 @@ export type ParsedCloseAttestationInstruction<
 > = {
   programAddress: Address<TProgram>;
   accounts: {
-    /** Signer must be either the agent (token_account holder) or the counterparty */
+    /** Signer must be either the agent (NFT owner via ATA) or the counterparty */
     signer: TAccountMetas[0];
     /** Schema config PDA */
     schemaConfig: TAccountMetas[1];
-    eventAuthority: TAccountMetas[2];
-    program: TAccountMetas[3];
+    /**
+     * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+     * If provided, must hold the agent NFT (mint matches token_account from data).
+     * Note: token_account in data is the MINT address; this is the holder's ATA.
+     */
+    agentAta?: TAccountMetas[2] | undefined;
+    /** Token-2022 program for ATA verification (optional, required with agent_ata) */
+    tokenProgram?: TAccountMetas[3] | undefined;
+    eventAuthority: TAccountMetas[4];
+    program: TAccountMetas[5];
   };
   data: CloseAttestationInstructionData;
 };
@@ -374,7 +434,7 @@ export function parseCloseAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCloseAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 4) {
+  if (instruction.accounts.length < 6) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -384,11 +444,19 @@ export function parseCloseAttestationInstruction<
     accountIndex += 1;
     return accountMeta;
   };
+  const getNextOptionalAccount = () => {
+    const accountMeta = getNextAccount();
+    return accountMeta.address === SATI_PROGRAM_ADDRESS
+      ? undefined
+      : accountMeta;
+  };
   return {
     programAddress: instruction.programAddress,
     accounts: {
       signer: getNextAccount(),
       schemaConfig: getNextAccount(),
+      agentAta: getNextOptionalAccount(),
+      tokenProgram: getNextOptionalAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },

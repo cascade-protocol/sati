@@ -137,13 +137,21 @@ fn derive_event_authority() -> Pubkey {
     Pubkey::find_program_address(&[b"__event_authority"], &SATI_PROGRAM_ID).0
 }
 
+/// Token-2022 program ID
+const TOKEN_2022_PROGRAM_ID: Pubkey =
+    solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
 /// Build create_attestation instruction for compressed storage
 ///
 /// Note: This instruction requires Ed25519 signature verification instructions
 /// to be included BEFORE this instruction in the same transaction.
+///
+/// The agent_ata must hold the agent NFT (mint == token_account from data).
+/// Authorization is verified via ATA ownership, not by pubkey == mint.
 pub fn build_create_attestation_ix(
     payer: &Pubkey,
     schema_config: &Pubkey,
+    agent_ata: &Pubkey,
     params: CreateParams,
     remaining_accounts: Vec<AccountMeta>,
 ) -> Instruction {
@@ -152,6 +160,8 @@ pub fn build_create_attestation_ix(
         payer: *payer,
         schema_config: *schema_config,
         instructions_sysvar: solana_sdk::sysvar::instructions::ID,
+        agent_ata: *agent_ata,
+        token_program: TOKEN_2022_PROGRAM_ID,
         event_authority: derive_event_authority(),
         program: SATI_PROGRAM_ID,
     }
@@ -168,9 +178,13 @@ pub fn build_create_attestation_ix(
 }
 
 /// Build close_attestation instruction for compressed storage
+///
+/// If the signer is the counterparty, agent_ata can be None.
+/// If the signer is the NFT owner, agent_ata must be Some(ata) to prove ownership.
 pub fn build_close_attestation_ix(
     signer: &Pubkey,
     schema_config: &Pubkey,
+    agent_ata: Option<&Pubkey>,
     params: CloseParams,
     remaining_accounts: Vec<AccountMeta>,
 ) -> Instruction {
@@ -178,6 +192,8 @@ pub fn build_close_attestation_ix(
     let mut account_metas = accounts::CloseAttestation {
         signer: *signer,
         schema_config: *schema_config,
+        agent_ata: agent_ata.copied(),
+        token_program: agent_ata.map(|_| TOKEN_2022_PROGRAM_ID),
         event_authority: derive_event_authority(),
         program: SATI_PROGRAM_ID,
     }

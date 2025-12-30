@@ -71,6 +71,9 @@ export type CreateAttestationInstruction<
   TAccountSchemaConfig extends string | AccountMeta<string> = string,
   TAccountInstructionsSysvar extends string | AccountMeta<string> =
     "Sysvar1nstructions1111111111111111111111111",
+  TAccountAgentAta extends string | AccountMeta<string> = string,
+  TAccountTokenProgram extends string | AccountMeta<string> =
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -88,6 +91,12 @@ export type CreateAttestationInstruction<
       TAccountInstructionsSysvar extends string
         ? ReadonlyAccount<TAccountInstructionsSysvar>
         : TAccountInstructionsSysvar,
+      TAccountAgentAta extends string
+        ? ReadonlyAccount<TAccountAgentAta>
+        : TAccountAgentAta,
+      TAccountTokenProgram extends string
+        ? ReadonlyAccount<TAccountTokenProgram>
+        : TAccountTokenProgram,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -170,6 +179,8 @@ export type CreateAttestationAsyncInput<
   TAccountPayer extends string = string,
   TAccountSchemaConfig extends string = string,
   TAccountInstructionsSysvar extends string = string,
+  TAccountAgentAta extends string = string,
+  TAccountTokenProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -179,6 +190,15 @@ export type CreateAttestationAsyncInput<
   schemaConfig: Address<TAccountSchemaConfig>;
   /** Instructions sysvar for Ed25519 signature verification */
   instructionsSysvar?: Address<TAccountInstructionsSysvar>;
+  /**
+   * Agent's ATA that holds the NFT - proves signer owns the agent identity.
+   * The mint must match token_account from attestation data (the agent's MINT address),
+   * amount must be >= 1, and owner must match signatures[0].pubkey.
+   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   */
+  agentAta: Address<TAccountAgentAta>;
+  /** Token-2022 program for ATA verification */
+  tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   dataType: CreateAttestationInstructionDataArgs["dataType"];
@@ -193,6 +213,8 @@ export async function getCreateAttestationInstructionAsync<
   TAccountPayer extends string,
   TAccountSchemaConfig extends string,
   TAccountInstructionsSysvar extends string,
+  TAccountAgentAta extends string,
+  TAccountTokenProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -201,6 +223,8 @@ export async function getCreateAttestationInstructionAsync<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -211,6 +235,8 @@ export async function getCreateAttestationInstructionAsync<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -226,6 +252,8 @@ export async function getCreateAttestationInstructionAsync<
       value: input.instructionsSysvar ?? null,
       isWritable: false,
     },
+    agentAta: { value: input.agentAta ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -241,6 +269,10 @@ export async function getCreateAttestationInstructionAsync<
   if (!accounts.instructionsSysvar.value) {
     accounts.instructionsSysvar.value =
       "Sysvar1nstructions1111111111111111111111111" as Address<"Sysvar1nstructions1111111111111111111111111">;
+  }
+  if (!accounts.tokenProgram.value) {
+    accounts.tokenProgram.value =
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
   }
   if (!accounts.eventAuthority.value) {
     accounts.eventAuthority.value = await getProgramDerivedAddress({
@@ -262,6 +294,8 @@ export async function getCreateAttestationInstructionAsync<
       getAccountMeta(accounts.payer),
       getAccountMeta(accounts.schemaConfig),
       getAccountMeta(accounts.instructionsSysvar),
+      getAccountMeta(accounts.agentAta),
+      getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -274,6 +308,8 @@ export async function getCreateAttestationInstructionAsync<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -283,6 +319,8 @@ export type CreateAttestationInput<
   TAccountPayer extends string = string,
   TAccountSchemaConfig extends string = string,
   TAccountInstructionsSysvar extends string = string,
+  TAccountAgentAta extends string = string,
+  TAccountTokenProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -292,6 +330,15 @@ export type CreateAttestationInput<
   schemaConfig: Address<TAccountSchemaConfig>;
   /** Instructions sysvar for Ed25519 signature verification */
   instructionsSysvar?: Address<TAccountInstructionsSysvar>;
+  /**
+   * Agent's ATA that holds the NFT - proves signer owns the agent identity.
+   * The mint must match token_account from attestation data (the agent's MINT address),
+   * amount must be >= 1, and owner must match signatures[0].pubkey.
+   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   */
+  agentAta: Address<TAccountAgentAta>;
+  /** Token-2022 program for ATA verification */
+  tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   dataType: CreateAttestationInstructionDataArgs["dataType"];
@@ -306,6 +353,8 @@ export function getCreateAttestationInstruction<
   TAccountPayer extends string,
   TAccountSchemaConfig extends string,
   TAccountInstructionsSysvar extends string,
+  TAccountAgentAta extends string,
+  TAccountTokenProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -314,6 +363,8 @@ export function getCreateAttestationInstruction<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -323,6 +374,8 @@ export function getCreateAttestationInstruction<
   TAccountPayer,
   TAccountSchemaConfig,
   TAccountInstructionsSysvar,
+  TAccountAgentAta,
+  TAccountTokenProgram,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -337,6 +390,8 @@ export function getCreateAttestationInstruction<
       value: input.instructionsSysvar ?? null,
       isWritable: false,
     },
+    agentAta: { value: input.agentAta ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -353,6 +408,10 @@ export function getCreateAttestationInstruction<
     accounts.instructionsSysvar.value =
       "Sysvar1nstructions1111111111111111111111111" as Address<"Sysvar1nstructions1111111111111111111111111">;
   }
+  if (!accounts.tokenProgram.value) {
+    accounts.tokenProgram.value =
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
+  }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
@@ -360,6 +419,8 @@ export function getCreateAttestationInstruction<
       getAccountMeta(accounts.payer),
       getAccountMeta(accounts.schemaConfig),
       getAccountMeta(accounts.instructionsSysvar),
+      getAccountMeta(accounts.agentAta),
+      getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -372,6 +433,8 @@ export function getCreateAttestationInstruction<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -389,8 +452,17 @@ export type ParsedCreateAttestationInstruction<
     schemaConfig: TAccountMetas[1];
     /** Instructions sysvar for Ed25519 signature verification */
     instructionsSysvar: TAccountMetas[2];
-    eventAuthority: TAccountMetas[3];
-    program: TAccountMetas[4];
+    /**
+     * Agent's ATA that holds the NFT - proves signer owns the agent identity.
+     * The mint must match token_account from attestation data (the agent's MINT address),
+     * amount must be >= 1, and owner must match signatures[0].pubkey.
+     * Note: token_account in data is the MINT address; this is the holder's ATA.
+     */
+    agentAta: TAccountMetas[3];
+    /** Token-2022 program for ATA verification */
+    tokenProgram: TAccountMetas[4];
+    eventAuthority: TAccountMetas[5];
+    program: TAccountMetas[6];
   };
   data: CreateAttestationInstructionData;
 };
@@ -403,7 +475,7 @@ export function parseCreateAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCreateAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 5) {
+  if (instruction.accounts.length < 7) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -419,6 +491,8 @@ export function parseCreateAttestationInstruction<
       payer: getNextAccount(),
       schemaConfig: getNextAccount(),
       instructionsSysvar: getNextAccount(),
+      agentAta: getNextAccount(),
+      tokenProgram: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },

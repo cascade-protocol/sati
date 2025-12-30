@@ -4,8 +4,11 @@
  * These functions must produce identical hashes to the Rust implementations
  * in programs/sati/src/signature.rs. Uses keccak256 from @noble/hashes.
  *
- * Note: Throughout this module, `tokenAccount` parameters refer to the agent's mint address,
- * not an Associated Token Account. The naming is for SAS wire format compatibility.
+ * ## Identity Model
+ * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
+ * - The agent NFT **OWNER** signs (verified via ATA ownership on-chain)
+ * - Hashes include the mint address; signatures come from the owner
+ * - Naming is for SAS wire format compatibility (NOT an Associated Token Account)
  */
 
 import { keccak_256 } from "@noble/hashes/sha3";

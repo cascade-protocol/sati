@@ -55,6 +55,8 @@ export type CloseRegularAttestationInstruction<
   TAccountAttestation extends string | AccountMeta<string> = string,
   TAccountSasProgram extends string | AccountMeta<string> =
     "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG",
+  TAccountAgentAta extends string | AccountMeta<string> = string,
+  TAccountTokenProgram extends string | AccountMeta<string> = string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -85,6 +87,12 @@ export type CloseRegularAttestationInstruction<
       TAccountSasProgram extends string
         ? ReadonlyAccount<TAccountSasProgram>
         : TAccountSasProgram,
+      TAccountAgentAta extends string
+        ? ReadonlyAccount<TAccountAgentAta>
+        : TAccountAgentAta,
+      TAccountTokenProgram extends string
+        ? ReadonlyAccount<TAccountTokenProgram>
+        : TAccountTokenProgram,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -135,12 +143,14 @@ export type CloseRegularAttestationAsyncInput<
   TAccountSatiCredential extends string = string,
   TAccountAttestation extends string = string,
   TAccountSasProgram extends string = string,
+  TAccountAgentAta extends string = string,
+  TAccountTokenProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
   /** Payer receives rent back */
   payer: TransactionSigner<TAccountPayer>;
-  /** Signer must be either the agent (token_account holder) or the counterparty */
+  /** Signer must be either the agent (NFT owner via ATA) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
@@ -152,6 +162,14 @@ export type CloseRegularAttestationAsyncInput<
   attestation: Address<TAccountAttestation>;
   /** SAS program */
   sasProgram?: Address<TAccountSasProgram>;
+  /**
+   * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+   * If provided, must hold the agent NFT (mint matches token_account from data).
+   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   */
+  agentAta?: Address<TAccountAgentAta>;
+  /** Token-2022 program for ATA verification (optional, required with agent_ata) */
+  tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
 };
@@ -164,6 +182,8 @@ export async function getCloseRegularAttestationInstructionAsync<
   TAccountSatiCredential extends string,
   TAccountAttestation extends string,
   TAccountSasProgram extends string,
+  TAccountAgentAta extends string,
+  TAccountTokenProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -176,6 +196,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     TAccountSatiCredential,
     TAccountAttestation,
     TAccountSasProgram,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -190,6 +212,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     TAccountSatiCredential,
     TAccountAttestation,
     TAccountSasProgram,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -206,6 +230,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     satiCredential: { value: input.satiCredential ?? null, isWritable: false },
     attestation: { value: input.attestation ?? null, isWritable: true },
     sasProgram: { value: input.sasProgram ?? null, isWritable: false },
+    agentAta: { value: input.agentAta ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -256,6 +282,8 @@ export async function getCloseRegularAttestationInstructionAsync<
       getAccountMeta(accounts.satiCredential),
       getAccountMeta(accounts.attestation),
       getAccountMeta(accounts.sasProgram),
+      getAccountMeta(accounts.agentAta),
+      getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -270,6 +298,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     TAccountSatiCredential,
     TAccountAttestation,
     TAccountSasProgram,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -283,12 +313,14 @@ export type CloseRegularAttestationInput<
   TAccountSatiCredential extends string = string,
   TAccountAttestation extends string = string,
   TAccountSasProgram extends string = string,
+  TAccountAgentAta extends string = string,
+  TAccountTokenProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
   /** Payer receives rent back */
   payer: TransactionSigner<TAccountPayer>;
-  /** Signer must be either the agent (token_account holder) or the counterparty */
+  /** Signer must be either the agent (NFT owner via ATA) or the counterparty */
   signer: TransactionSigner<TAccountSigner>;
   /** Schema config PDA */
   schemaConfig: Address<TAccountSchemaConfig>;
@@ -300,6 +332,14 @@ export type CloseRegularAttestationInput<
   attestation: Address<TAccountAttestation>;
   /** SAS program */
   sasProgram?: Address<TAccountSasProgram>;
+  /**
+   * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+   * If provided, must hold the agent NFT (mint matches token_account from data).
+   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   */
+  agentAta?: Address<TAccountAgentAta>;
+  /** Token-2022 program for ATA verification (optional, required with agent_ata) */
+  tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
 };
@@ -312,6 +352,8 @@ export function getCloseRegularAttestationInstruction<
   TAccountSatiCredential extends string,
   TAccountAttestation extends string,
   TAccountSasProgram extends string,
+  TAccountAgentAta extends string,
+  TAccountTokenProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -324,6 +366,8 @@ export function getCloseRegularAttestationInstruction<
     TAccountSatiCredential,
     TAccountAttestation,
     TAccountSasProgram,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -337,6 +381,8 @@ export function getCloseRegularAttestationInstruction<
   TAccountSatiCredential,
   TAccountAttestation,
   TAccountSasProgram,
+  TAccountAgentAta,
+  TAccountTokenProgram,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -352,6 +398,8 @@ export function getCloseRegularAttestationInstruction<
     satiCredential: { value: input.satiCredential ?? null, isWritable: false },
     attestation: { value: input.attestation ?? null, isWritable: true },
     sasProgram: { value: input.sasProgram ?? null, isWritable: false },
+    agentAta: { value: input.agentAta ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -376,6 +424,8 @@ export function getCloseRegularAttestationInstruction<
       getAccountMeta(accounts.satiCredential),
       getAccountMeta(accounts.attestation),
       getAccountMeta(accounts.sasProgram),
+      getAccountMeta(accounts.agentAta),
+      getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -390,6 +440,8 @@ export function getCloseRegularAttestationInstruction<
     TAccountSatiCredential,
     TAccountAttestation,
     TAccountSasProgram,
+    TAccountAgentAta,
+    TAccountTokenProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -403,7 +455,7 @@ export type ParsedCloseRegularAttestationInstruction<
   accounts: {
     /** Payer receives rent back */
     payer: TAccountMetas[0];
-    /** Signer must be either the agent (token_account holder) or the counterparty */
+    /** Signer must be either the agent (NFT owner via ATA) or the counterparty */
     signer: TAccountMetas[1];
     /** Schema config PDA */
     schemaConfig: TAccountMetas[2];
@@ -415,8 +467,16 @@ export type ParsedCloseRegularAttestationInstruction<
     attestation: TAccountMetas[5];
     /** SAS program */
     sasProgram: TAccountMetas[6];
-    eventAuthority: TAccountMetas[7];
-    program: TAccountMetas[8];
+    /**
+     * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+     * If provided, must hold the agent NFT (mint matches token_account from data).
+     * Note: token_account in data is the MINT address; this is the holder's ATA.
+     */
+    agentAta?: TAccountMetas[7] | undefined;
+    /** Token-2022 program for ATA verification (optional, required with agent_ata) */
+    tokenProgram?: TAccountMetas[8] | undefined;
+    eventAuthority: TAccountMetas[9];
+    program: TAccountMetas[10];
   };
   data: CloseRegularAttestationInstructionData;
 };
@@ -429,7 +489,7 @@ export function parseCloseRegularAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCloseRegularAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 9) {
+  if (instruction.accounts.length < 11) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -438,6 +498,12 @@ export function parseCloseRegularAttestationInstruction<
     const accountMeta = (instruction.accounts as TAccountMetas)[accountIndex]!;
     accountIndex += 1;
     return accountMeta;
+  };
+  const getNextOptionalAccount = () => {
+    const accountMeta = getNextAccount();
+    return accountMeta.address === SATI_PROGRAM_ADDRESS
+      ? undefined
+      : accountMeta;
   };
   return {
     programAddress: instruction.programAddress,
@@ -449,6 +515,8 @@ export function parseCloseRegularAttestationInstruction<
       satiCredential: getNextAccount(),
       attestation: getNextAccount(),
       sasProgram: getNextAccount(),
+      agentAta: getNextOptionalAccount(),
+      tokenProgram: getNextOptionalAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },

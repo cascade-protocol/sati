@@ -30,7 +30,7 @@ import {
 export type AttestationCreated = {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent mint address being attested */
+  /** Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility. */
   tokenAccount: Address;
   /** Counterparty (client for Feedback, validator for Validation, provider for ReputationScore) */
   counterparty: Address;
@@ -45,7 +45,7 @@ export type AttestationCreated = {
 export type AttestationCreatedArgs = {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent mint address being attested */
+  /** Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility. */
   tokenAccount: Address;
   /** Counterparty (client for Feedback, validator for Validation, provider for ReputationScore) */
   counterparty: Address;

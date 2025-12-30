@@ -66,7 +66,12 @@ import {
   type CompressedAccountMetaArgs,
 } from "./generated";
 
-import { findAssociatedTokenAddress, findRegistryConfigPda, findSchemaConfigPda } from "./helpers";
+import {
+  findAssociatedTokenAddress,
+  findRegistryConfigPda,
+  findSchemaConfigPda,
+  TOKEN_2022_PROGRAM_ADDRESS,
+} from "./helpers";
 
 import {
   computeInteractionHash,
@@ -948,11 +953,11 @@ export class Sati {
 
     // Parse EVM address (remove 0x prefix if present)
     const evmAddressClean = evmAddress.startsWith("0x") ? evmAddress.slice(2) : evmAddress;
-    const evmAddressBytes = new Uint8Array(evmAddressClean.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)));
-
-    if (evmAddressBytes.length !== 20) {
-      throw new Error("Invalid EVM address length");
+    const hexPairs = evmAddressClean.match(/.{2}/g);
+    if (!hexPairs || hexPairs.length !== 20) {
+      throw new Error("Invalid EVM address format or length");
     }
+    const evmAddressBytes = new Uint8Array(hexPairs.map((byte) => parseInt(byte, 16)));
     if (signature.length !== 64) {
       throw new Error("Signature must be 64 bytes");
     }
@@ -1229,6 +1234,10 @@ export class Sati {
   /**
    * Create a Feedback attestation (compressed storage)
    *
+   * Note: tokenAccount is the agent's MINT address (stable identity).
+   * The agentSignature.pubkey should be the NFT owner who signed.
+   * On-chain verification ensures the owner holds the NFT via ATA.
+   *
    * @throws Error if tokenAccount is not a registered SATI agent mint
    */
   async createFeedback(params: CreateFeedbackParams): Promise<AttestationResult> {
@@ -1281,6 +1290,13 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
+    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
+    // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+    const [agentAta] = await findAssociatedTokenAddress(
+      tokenAccount, // mint address (agent identity)
+      agentSignature.pubkey, // owner who signed
+    );
+
     const light = await this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
@@ -1316,6 +1332,8 @@ export class Sati {
     const baseCreateIx = await getCreateAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
+      agentAta, // Proves signer owns the agent NFT
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
       dataType: DataType.Feedback,
       data,
@@ -1367,6 +1385,10 @@ export class Sati {
 
   /**
    * Build a Feedback transaction without signing or sending
+   *
+   * Note: tokenAccount is the agent's MINT address (stable identity).
+   * The agentSignature.pubkey should be the NFT owner who signed.
+   * On-chain verification ensures the owner holds the NFT via ATA.
    *
    * @throws Error if tokenAccount is not a registered SATI agent mint
    */
@@ -1420,6 +1442,13 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
+    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
+    // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+    const [agentAta] = await findAssociatedTokenAddress(
+      tokenAccount, // mint address (agent identity)
+      agentSignature.pubkey, // owner who signed
+    );
+
     const light = await this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
@@ -1455,6 +1484,8 @@ export class Sati {
     const baseCreateIx = await getCreateAttestationInstructionAsync({
       payer: { address: payer } as KeyPairSigner,
       schemaConfig: schemaConfigPda,
+      agentAta, // Proves signer owns the agent NFT
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
       dataType: DataType.Feedback,
       data,
@@ -1540,6 +1571,10 @@ export class Sati {
   /**
    * Create a Validation attestation (compressed storage)
    *
+   * Note: tokenAccount is the agent's MINT address (stable identity).
+   * The agentSignature.pubkey should be the NFT owner who signed.
+   * On-chain verification ensures the owner holds the NFT via ATA.
+   *
    * @throws Error if tokenAccount is not a registered SATI agent mint
    */
   async createValidation(params: CreateValidationParams): Promise<AttestationResult> {
@@ -1591,6 +1626,13 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
+    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
+    // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+    const [agentAta] = await findAssociatedTokenAddress(
+      tokenAccount, // mint address (agent identity)
+      agentSignature.pubkey, // owner who signed
+    );
+
     const light = await this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
@@ -1629,6 +1671,8 @@ export class Sati {
     const baseCreateIx = await getCreateAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
+      agentAta, // Proves signer owns the agent NFT
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
       dataType: DataType.Validation,
       data,

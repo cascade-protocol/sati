@@ -3,6 +3,11 @@
  *
  * Data layouts for SATI attestations with fixed offsets for memcmp filtering.
  * These schemas must match the on-chain program's expectations.
+ *
+ * ## Identity Model
+ * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
+ * - Named for SAS wire format compatibility (NOT an Associated Token Account)
+ * - On-chain verification checks ATA ownership, not pubkey == mint
  */
 
 import { getAddressEncoder, getAddressDecoder, type Address } from "@solana/kit";

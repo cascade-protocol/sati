@@ -95,8 +95,13 @@ pub struct CompressedAttestation {
     /// SAS schema address (indexed via memcmp at offset 8)
     #[hash]
     pub sas_schema: [u8; 32],
-    /// Agent mint address (indexed via memcmp at offset 40).
-    /// Note: Named `token_account` for SAS wire format compatibility, but stores the agent's mint address.
+    /// Agent's MINT ADDRESS (stable identity). Indexed via memcmp at offset 40.
+    ///
+    /// NAMING CONVENTION: Named `token_account` for SAS wire format compatibility,
+    /// but this is the agent's **MINT ADDRESS**, NOT an ATA.
+    ///
+    /// Authorization is verified via `agent_ata` account in the instruction, NOT by
+    /// checking `signature.pubkey == token_account`. The NFT owner signs.
     #[hash]
     pub token_account: [u8; 32],
     /// Attestation data type discriminator:

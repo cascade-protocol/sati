@@ -1,7 +1,17 @@
 //! Signature verification and hash computation utilities.
 //!
-//! Note: Throughout this module, `token_account` parameters refer to the agent's mint address,
-//! not an Associated Token Account. The naming is for SAS wire format compatibility.
+//! # Naming Convention
+//!
+//! Throughout this module and the SATI codebase:
+//! - `token_account` = Agent's **MINT ADDRESS** (stable identity, named for SAS wire format compatibility)
+//! - NOT an Associated Token Account (ATA)
+//!
+//! # Authorization Model
+//!
+//! - **Agent signature**: Verified via ATA ownership. The NFT owner signs, not the mint.
+//!   The on-chain instruction verifies `agent_ata.owner == signatures[0].pubkey`.
+//! - **Counterparty signature**: Direct pubkey match against `counterparty` field.
+//! - Hash functions include the mint address (stable identity); signatures come from the NFT owner.
 
 use anchor_lang::prelude::*;
 use sha3::{Digest, Keccak256};

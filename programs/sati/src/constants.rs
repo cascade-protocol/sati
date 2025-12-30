@@ -48,7 +48,9 @@ pub const MAX_ATTESTATION_DATA_SIZE: usize = 768;
 
 /// Minimum size for base layout (bytes).
 /// All schemas start with: task_ref(32) + token_account(32) + counterparty(32) = 96 bytes.
-/// Note: token_account stores the agent's mint address (named for SAS compatibility).
+///
+/// NAMING CONVENTION: `token_account` = agent's **MINT ADDRESS** (stable identity).
+/// Authorization for agent signatures is verified via ATA ownership, not pubkey == mint.
 pub const MIN_BASE_LAYOUT_SIZE: usize = 96;
 
 /// Maximum length for tag strings in Feedback schema (chars).

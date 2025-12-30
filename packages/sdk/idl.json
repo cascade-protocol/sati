@@ -28,7 +28,7 @@
         {
           "name": "signer",
           "docs": [
-            "Signer must be either the agent (token_account holder) or the counterparty"
+            "Signer must be either the agent (NFT owner via ATA) or the counterparty"
           ],
           "writable": true,
           "signer": true
@@ -65,6 +65,22 @@
               }
             ]
           }
+        },
+        {
+          "name": "agent_ata",
+          "docs": [
+            "Optional: Agent's ATA (required if signer is NFT owner, not counterparty).",
+            "If provided, must hold the agent NFT (mint matches token_account from data).",
+            "Note: token_account in data is the MINT address; this is the holder's ATA."
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program for ATA verification (optional, required with agent_ata)"
+          ],
+          "optional": true
         },
         {
           "name": "event_authority",
@@ -138,7 +154,7 @@
         {
           "name": "signer",
           "docs": [
-            "Signer must be either the agent (token_account holder) or the counterparty"
+            "Signer must be either the agent (NFT owner via ATA) or the counterparty"
           ],
           "signer": true
         },
@@ -225,6 +241,22 @@
             "SAS program"
           ],
           "address": "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG"
+        },
+        {
+          "name": "agent_ata",
+          "docs": [
+            "Optional: Agent's ATA (required if signer is NFT owner, not counterparty).",
+            "If provided, must hold the agent NFT (mint matches token_account from data).",
+            "Note: token_account in data is the MINT address; this is the holder's ATA."
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program for ATA verification (optional, required with agent_ata)"
+          ],
+          "optional": true
         },
         {
           "name": "event_authority",
@@ -325,6 +357,21 @@
             "Instructions sysvar for Ed25519 signature verification"
           ],
           "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "agent_ata",
+          "docs": [
+            "Agent's ATA that holds the NFT - proves signer owns the agent identity.",
+            "The mint must match token_account from attestation data (the agent's MINT address),",
+            "amount must be >= 1, and owner must match signatures[0].pubkey.",
+            "Note: token_account in data is the MINT address; this is the holder's ATA."
+          ]
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program for ATA verification"
+          ]
         },
         {
           "name": "event_authority",
@@ -1186,91 +1233,101 @@
     },
     {
       "code": 6021,
+      "name": "AgentAtaMintMismatch",
+      "msg": "Agent ATA mint does not match token_account in attestation data"
+    },
+    {
+      "code": 6022,
+      "name": "AgentAtaEmpty",
+      "msg": "Agent ATA is empty - signer does not own the agent NFT"
+    },
+    {
+      "code": 6023,
       "name": "UnauthorizedClose",
       "msg": "Unauthorized to close attestation"
     },
     {
-      "code": 6022,
+      "code": 6024,
       "name": "AttestationNotCloseable",
       "msg": "Attestation cannot be closed for this schema"
     },
     {
-      "code": 6023,
+      "code": 6025,
       "name": "InvalidOutcome",
       "msg": "Invalid outcome value (must be 0-2)"
     },
     {
-      "code": 6024,
+      "code": 6026,
       "name": "InvalidContentType",
       "msg": "Invalid content type (must be 0-4)"
     },
     {
-      "code": 6025,
+      "code": 6027,
       "name": "InvalidDataType",
       "msg": "Invalid data type"
     },
     {
-      "code": 6026,
+      "code": 6028,
       "name": "InvalidScore",
       "msg": "Invalid score value (must be 0-100)"
     },
     {
-      "code": 6027,
+      "code": 6029,
       "name": "InvalidResponse",
       "msg": "Invalid validation response (must be 0-100)"
     },
     {
-      "code": 6028,
+      "code": 6030,
       "name": "TagTooLong",
       "msg": "Tag string exceeds maximum length (32 chars)"
     },
     {
-      "code": 6029,
+      "code": 6031,
       "name": "InvalidDataLayout",
       "msg": "Invalid data layout"
     },
     {
-      "code": 6030,
+      "code": 6032,
       "name": "LightCpiInvocationFailed",
       "msg": "Light Protocol CPI invocation failed"
     },
     {
-      "code": 6031,
+      "code": 6033,
       "name": "InvalidEd25519Instruction",
       "msg": "Invalid Ed25519 instruction format"
     },
     {
-      "code": 6032,
+      "code": 6034,
       "name": "MissingSignatures",
       "msg": "Missing required Ed25519 signatures in transaction"
     },
     {
-      "code": 6033,
+      "code": 6035,
       "name": "MessageMismatch",
       "msg": "Message hash mismatch - signature was for different data"
     },
     {
-      "code": 6034,
+      "code": 6036,
       "name": "InvalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
-      "code": 6035,
+      "code": 6037,
       "name": "DuplicateSigners",
       "msg": "Duplicate signers not allowed for dual signature mode"
     },
     {
-      "code": 6036,
+      "code": 6038,
       "name": "InvalidSecp256k1Signature",
       "msg": "Invalid secp256k1 signature"
     },
     {
-      "code": 6037,
+      "code": 6039,
       "name": "Secp256k1RecoveryFailed",
       "msg": "Secp256k1 recovery failed"
     },
     {
-      "code": 6038,
+      "code": 6040,
       "name": "EvmAddressMismatch",
       "msg": "EVM address mismatch - recovered address does not match expected"
     }
@@ -1326,7 +1383,7 @@
           {
             "name": "token_account",
             "docs": [
-              "Agent mint address that was attested"
+              "Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility."
             ],
             "type": "pubkey"
           },
@@ -1358,7 +1415,7 @@
           {
             "name": "token_account",
             "docs": [
-              "Agent mint address being attested"
+              "Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility."
             ],
             "type": "pubkey"
           },

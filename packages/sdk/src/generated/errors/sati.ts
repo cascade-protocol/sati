@@ -56,44 +56,50 @@ export const SATI_ERROR__CONTENT_TOO_LARGE = 0x1782; // 6018
 export const SATI_ERROR__SIGNATURE_MISMATCH = 0x1783; // 6019
 /** SelfAttestationNotAllowed: Self-attestation is not allowed (token_account == counterparty) */
 export const SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED = 0x1784; // 6020
+/** AgentAtaMintMismatch: Agent ATA mint does not match token_account in attestation data */
+export const SATI_ERROR__AGENT_ATA_MINT_MISMATCH = 0x1785; // 6021
+/** AgentAtaEmpty: Agent ATA is empty - signer does not own the agent NFT */
+export const SATI_ERROR__AGENT_ATA_EMPTY = 0x1786; // 6022
 /** UnauthorizedClose: Unauthorized to close attestation */
-export const SATI_ERROR__UNAUTHORIZED_CLOSE = 0x1785; // 6021
+export const SATI_ERROR__UNAUTHORIZED_CLOSE = 0x1787; // 6023
 /** AttestationNotCloseable: Attestation cannot be closed for this schema */
-export const SATI_ERROR__ATTESTATION_NOT_CLOSEABLE = 0x1786; // 6022
+export const SATI_ERROR__ATTESTATION_NOT_CLOSEABLE = 0x1788; // 6024
 /** InvalidOutcome: Invalid outcome value (must be 0-2) */
-export const SATI_ERROR__INVALID_OUTCOME = 0x1787; // 6023
+export const SATI_ERROR__INVALID_OUTCOME = 0x1789; // 6025
 /** InvalidContentType: Invalid content type (must be 0-4) */
-export const SATI_ERROR__INVALID_CONTENT_TYPE = 0x1788; // 6024
+export const SATI_ERROR__INVALID_CONTENT_TYPE = 0x178a; // 6026
 /** InvalidDataType: Invalid data type */
-export const SATI_ERROR__INVALID_DATA_TYPE = 0x1789; // 6025
+export const SATI_ERROR__INVALID_DATA_TYPE = 0x178b; // 6027
 /** InvalidScore: Invalid score value (must be 0-100) */
-export const SATI_ERROR__INVALID_SCORE = 0x178a; // 6026
+export const SATI_ERROR__INVALID_SCORE = 0x178c; // 6028
 /** InvalidResponse: Invalid validation response (must be 0-100) */
-export const SATI_ERROR__INVALID_RESPONSE = 0x178b; // 6027
+export const SATI_ERROR__INVALID_RESPONSE = 0x178d; // 6029
 /** TagTooLong: Tag string exceeds maximum length (32 chars) */
-export const SATI_ERROR__TAG_TOO_LONG = 0x178c; // 6028
+export const SATI_ERROR__TAG_TOO_LONG = 0x178e; // 6030
 /** InvalidDataLayout: Invalid data layout */
-export const SATI_ERROR__INVALID_DATA_LAYOUT = 0x178d; // 6029
+export const SATI_ERROR__INVALID_DATA_LAYOUT = 0x178f; // 6031
 /** LightCpiInvocationFailed: Light Protocol CPI invocation failed */
-export const SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED = 0x178e; // 6030
+export const SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED = 0x1790; // 6032
 /** InvalidEd25519Instruction: Invalid Ed25519 instruction format */
-export const SATI_ERROR__INVALID_ED25519_INSTRUCTION = 0x178f; // 6031
+export const SATI_ERROR__INVALID_ED25519_INSTRUCTION = 0x1791; // 6033
 /** MissingSignatures: Missing required Ed25519 signatures in transaction */
-export const SATI_ERROR__MISSING_SIGNATURES = 0x1790; // 6032
+export const SATI_ERROR__MISSING_SIGNATURES = 0x1792; // 6034
 /** MessageMismatch: Message hash mismatch - signature was for different data */
-export const SATI_ERROR__MESSAGE_MISMATCH = 0x1791; // 6033
+export const SATI_ERROR__MESSAGE_MISMATCH = 0x1793; // 6035
 /** InvalidInstructionsSysvar: Invalid instructions sysvar */
-export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x1792; // 6034
+export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x1794; // 6036
 /** DuplicateSigners: Duplicate signers not allowed for dual signature mode */
-export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1793; // 6035
+export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1795; // 6037
 /** InvalidSecp256k1Signature: Invalid secp256k1 signature */
-export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1794; // 6036
+export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1796; // 6038
 /** Secp256k1RecoveryFailed: Secp256k1 recovery failed */
-export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1795; // 6037
+export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1797; // 6039
 /** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
-export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1796; // 6038
+export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1798; // 6040
 
 export type SatiError =
+  | typeof SATI_ERROR__AGENT_ATA_EMPTY
+  | typeof SATI_ERROR__AGENT_ATA_MINT_MISMATCH
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_LARGE
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_SMALL
   | typeof SATI_ERROR__ATTESTATION_NOT_CLOSEABLE
@@ -137,6 +143,8 @@ export type SatiError =
 let satiErrorMessages: Record<SatiError, string> | undefined;
 if (process.env.NODE_ENV !== "production") {
   satiErrorMessages = {
+    [SATI_ERROR__AGENT_ATA_EMPTY]: `Agent ATA is empty - signer does not own the agent NFT`,
+    [SATI_ERROR__AGENT_ATA_MINT_MISMATCH]: `Agent ATA mint does not match token_account in attestation data`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_LARGE]: `Attestation data exceeds maximum size`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_SMALL]: `Attestation data too small (minimum 96 bytes for base layout)`,
     [SATI_ERROR__ATTESTATION_NOT_CLOSEABLE]: `Attestation cannot be closed for this schema`,

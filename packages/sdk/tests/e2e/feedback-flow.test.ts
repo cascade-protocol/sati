@@ -13,13 +13,10 @@
  * Run: pnpm test:e2e -- --grep "Feedback Lifecycle"
  */
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import path from "node:path";
 import { describe, test, expect, beforeAll } from "vitest";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { address, createKeyPairSignerFromBytes, type KeyPairSigner, type Address } from "@solana/kit";
-import { Sati } from "../../src";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { address, type KeyPairSigner, type Address } from "@solana/kit";
+import type { Sati } from "../../src";
 import { computeInteractionHash, computeFeedbackHash, computeAttestationNonce, Outcome } from "../../src/hashes";
 import { DataType, ContentType, SignatureMode, StorageType } from "../../src/schemas";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
@@ -32,10 +29,11 @@ import {
   createFeedbackSignatures,
   verifyFeedbackSignatures,
   randomBytes32,
+  setupE2ETest,
   type TestKeypair,
   type SignatureData,
+  type E2ETestContext,
   waitForIndexer,
-  createSatiLookupTable,
 } from "../helpers";
 
 // =============================================================================
@@ -49,56 +47,38 @@ const TEST_TIMEOUT = 60000;
 // =============================================================================
 
 describe("E2E: Full Feedback Lifecycle", () => {
+  let ctx: E2ETestContext;
+
+  // Aliases for cleaner test code
   let sati: Sati;
   let payer: KeyPairSigner;
-  let authority: KeyPairSigner; // Registry authority (local wallet)
+  let authority: KeyPairSigner;
   let agentOwner: KeyPairSigner;
   let counterpartySigner: KeyPairSigner;
-
-  // Keep raw keypairs for Ed25519 signing
-  let agentKeypair: TestKeypair;
+  let agentOwnerKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
-
-  // Shared state across tests
-  let sasSchema: ReturnType<typeof address>;
-  let agentMint: ReturnType<typeof address>;
-  let tokenAccount: ReturnType<typeof address>;
-  let _createdFeedbackAddress: ReturnType<typeof address>;
+  let sasSchema: Address;
+  let agentMint: Address;
+  let tokenAccount: Address;
+  let _createdFeedbackAddress: Address;
   let lookupTableAddress: Address;
 
   beforeAll(async () => {
-    sati = new Sati({ network: "localnet" });
+    // Use shared test setup - handles SDK init, keypairs, agent/schema registration, lookup table
+    ctx = await setupE2ETest();
 
-    // Create connection for airdrops
-    const connection = new Connection("http://127.0.0.1:8899", "confirmed");
+    // Create aliases for cleaner test code
+    sati = ctx.sati;
+    payer = ctx.payer;
+    authority = ctx.authority;
+    agentOwner = ctx.agentOwner;
+    counterpartySigner = ctx.counterparty;
+    agentOwnerKeypair = ctx.agentOwnerKeypair;
+    counterpartyKeypair = ctx.counterpartyKeypair;
+    lookupTableAddress = ctx.lookupTableAddress;
 
-    // Load local wallet as authority (matches registry initialization)
-    const walletPath = path.join(homedir(), ".config/solana/id.json");
-    const walletSecret = JSON.parse(readFileSync(walletPath, "utf-8"));
-    const authorityKp = Keypair.fromSecretKey(Uint8Array.from(walletSecret));
-    authority = await createKeyPairSignerFromBytes(authorityKp.secretKey);
-
-    // Create payer keypair and fund it
-    const payerKp = Keypair.generate();
-    const airdropSig = await connection.requestAirdrop(payerKp.publicKey, 10 * LAMPORTS_PER_SOL);
-    await connection.confirmTransaction(airdropSig, "confirmed");
-    payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
-
-    // Create agent and counterparty keypairs for Ed25519 signing
-    agentKeypair = createTestKeypair(100);
-    counterpartyKeypair = createTestKeypair(101);
-
-    agentOwner = await createKeyPairSignerFromBytes(agentKeypair.secretKey);
-    counterpartySigner = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
-
-    // Generate SAS schema address
+    // Generate SAS schema address for this test suite (separate from ctx.feedbackSchema)
     sasSchema = address(Keypair.generate().publicKey.toBase58());
-
-    // Create lookup table for transaction compression
-    console.log("Creating lookup table for transaction compression...");
-    const { address: lutAddress } = await createSatiLookupTable(sati, payerKp);
-    lookupTableAddress = lutAddress;
-    console.log(`Lookup table created: ${lookupTableAddress}`);
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -140,10 +120,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         if (!agentMint) return;
 
-        // The tokenAccount in attestations is the agent's wallet address (identity),
-        // NOT the ATA that holds the NFT. The agent signs with their wallet keypair,
-        // so the signature pubkey must match the tokenAccount field.
-        tokenAccount = agentOwner.address;
+        // tokenAccount = agent's MINT address (stable identity)
+        // The agent OWNER signs (verified via ATA ownership on-chain)
+        tokenAccount = agentMint;
         expect(tokenAccount).toBeDefined();
       },
       TEST_TIMEOUT,
@@ -196,20 +175,23 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const tag2 = "responsive";
 
         // Create real signatures
+        // tokenAccount = agent's MINT address (identity)
+        // agentOwnerKeypair = NFT owner (signer)
         const signatures = createFeedbackSignatures(
           sasSchema,
           taskRef,
-          agentKeypair,
+          agentOwnerKeypair,
           counterpartyKeypair,
           dataHash,
           outcome,
+          tokenAccount, // Pass mint address explicitly
         );
 
         // Verify signatures before submitting
         const verifyResult = verifyFeedbackSignatures(
           sasSchema,
           taskRef,
-          agentKeypair.address,
+          tokenAccount, // Use mint address
           dataHash,
           outcome,
           signatures,
@@ -255,13 +237,14 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        // Agent signs both roles (self-attestation)
-        const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
-        const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agentKeypair.address, Outcome.Positive);
+        // Agent owner signs both roles (self-attestation)
+        // Use tokenAccount (mint) for hash computation
+        const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+        const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
 
-        const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
-        // Agent signs as counterparty too!
-        const selfSig = signMessage(feedbackHash, agentKeypair.secretKey);
+        const agentSig = signMessage(interactionHash, agentOwnerKeypair.secretKey);
+        // Agent owner signs as counterparty too!
+        const selfSig = signMessage(feedbackHash, agentOwnerKeypair.secretKey);
 
         // This should be rejected on-chain
         await expect(
@@ -269,16 +252,16 @@ describe("E2E: Full Feedback Lifecycle", () => {
             payer,
             sasSchema,
             tokenAccount,
-            counterparty: agentKeypair.address, // Self-attestation!
+            counterparty: agentOwnerKeypair.address, // Self-attestation!
             taskRef,
             dataHash,
             outcome: Outcome.Positive,
             agentSignature: {
-              pubkey: agentKeypair.address,
+              pubkey: agentOwnerKeypair.address,
               signature: agentSig,
             },
             counterpartySignature: {
-              pubkey: agentKeypair.address, // Same as agent!
+              pubkey: agentOwnerKeypair.address, // Same as agent owner!
               signature: selfSig,
             },
             lookupTableAddress,
@@ -406,17 +389,11 @@ describe("E2E: Full Feedback Lifecycle", () => {
 // =============================================================================
 
 describe("E2E: Multiple Feedbacks Flow", () => {
-  let _sati: Sati;
-  let _payer: KeyPairSigner;
   let agentKeypair: TestKeypair;
-  let sasSchema: ReturnType<typeof address>;
+  let sasSchema: Address;
 
   beforeAll(async () => {
-    _sati = new Sati({ network: "localnet" });
-
-    const payerKp = Keypair.generate();
-    _payer = await createKeyPairSignerFromBytes(payerKp.secretKey);
-
+    // These tests only verify signature creation - no chain submission
     agentKeypair = createTestKeypair(200);
     sasSchema = address(Keypair.generate().publicKey.toBase58());
   }, TEST_TIMEOUT);
@@ -506,9 +483,10 @@ describe("E2E: Multiple Feedbacks Flow", () => {
 describe("E2E: Feedback Signature Edge Cases", () => {
   let agentKeypair: TestKeypair;
   let counterpartyKeypair: TestKeypair;
-  let sasSchema: ReturnType<typeof address>;
+  let sasSchema: Address;
 
   beforeAll(async () => {
+    // These tests only verify signature behavior - no chain submission
     agentKeypair = createTestKeypair(600);
     counterpartyKeypair = createTestKeypair(601);
     sasSchema = address(Keypair.generate().publicKey.toBase58());

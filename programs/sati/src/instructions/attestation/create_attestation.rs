@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 use light_sdk::{
     account::LightAccount,
     address::v1::derive_address,
@@ -40,6 +41,15 @@ pub struct CreateAttestation<'info> {
     /// CHECK: Verified in handler via address check
     #[account(address = instructions_sysvar::ID)]
     pub instructions_sysvar: AccountInfo<'info>,
+
+    /// Agent's ATA that holds the NFT - proves signer owns the agent identity.
+    /// The mint must match token_account from attestation data (the agent's MINT address),
+    /// amount must be >= 1, and owner must match signatures[0].pubkey.
+    /// Note: token_account in data is the MINT address; this is the holder's ATA.
+    pub agent_ata: InterfaceAccount<'info, TokenAccount>,
+
+    /// Token-2022 program for ATA verification
+    pub token_program: Interface<'info, TokenInterface>,
     // Light Protocol accounts are passed via remaining_accounts
     // and parsed by CpiAccounts::new()
 }
@@ -77,6 +87,8 @@ pub fn handler<'info>(
     );
 
     // 3. Parse base layout for signature binding
+    // token_account stores the agent's MINT ADDRESS (stable identity),
+    // NOT a wallet address. Authorization is verified via agent_ata account.
     let task_ref: [u8; 32] = params.data[0..32]
         .try_into()
         .map_err(|_| SatiError::InvalidDataLayout)?;
@@ -96,12 +108,25 @@ pub fn handler<'info>(
         SatiError::SelfAttestationNotAllowed
     );
 
-    // 5. Verify signature-data binding
-    if params.signatures.len() == 2 {
+    // 5. Verify signature authorization via NFT ownership
+    // token_account_pubkey is the MINT address (agent identity).
+    // signatures[0].pubkey must be the NFT OWNER (verified via ATA).
+    if !params.signatures.is_empty() {
+        // Verify ATA holds the correct agent NFT
         require!(
-            params.signatures[0].pubkey == token_account_pubkey,
+            ctx.accounts.agent_ata.mint == token_account_pubkey,
+            SatiError::AgentAtaMintMismatch
+        );
+        require!(ctx.accounts.agent_ata.amount >= 1, SatiError::AgentAtaEmpty);
+        // Verify signer owns the NFT
+        require!(
+            params.signatures[0].pubkey == ctx.accounts.agent_ata.owner,
             SatiError::SignatureMismatch
         );
+    }
+
+    // For DualSignature mode, also verify counterparty binding
+    if params.signatures.len() == 2 {
         require!(
             params.signatures[1].pubkey == counterparty_pubkey,
             SatiError::SignatureMismatch

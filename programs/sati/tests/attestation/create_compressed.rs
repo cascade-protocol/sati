@@ -46,6 +46,63 @@ fn compute_anchor_discriminator(account_name: &str) -> [u8; 8] {
 /// SchemaConfig account size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 1 = 44 bytes
 const SCHEMA_CONFIG_SIZE: usize = 44;
 
+/// Token-2022 program ID
+const TOKEN_2022_PROGRAM_ID: Pubkey =
+    solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+/// ATA program ID
+const ATA_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+/// Derive ATA address for Token-2022
+fn derive_token22_ata(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(
+        &[
+            owner.as_ref(),
+            TOKEN_2022_PROGRAM_ID.as_ref(),
+            mint.as_ref(),
+        ],
+        &ATA_PROGRAM_ID,
+    )
+    .0
+}
+
+/// Create mock Token-2022 mint account data
+fn create_mock_mint_data(mint_authority: &Pubkey) -> Vec<u8> {
+    use spl_token_2022::{extension::StateWithExtensionsMut, state::Mint};
+
+    let space = 82; // Mint::LEN
+    let mut data = vec![0u8; space];
+
+    let mut state = StateWithExtensionsMut::<Mint>::unpack_uninitialized(&mut data).unwrap();
+    state.base.mint_authority = solana_sdk::program_option::COption::Some(*mint_authority);
+    state.base.supply = 1; // NFT
+    state.base.decimals = 0;
+    state.base.is_initialized = true;
+    state.base.freeze_authority = solana_sdk::program_option::COption::None;
+    state.pack_base();
+
+    data
+}
+
+/// Create mock Token-2022 ATA account data
+fn create_mock_ata_data(mint: &Pubkey, owner: &Pubkey, amount: u64) -> Vec<u8> {
+    let space = 165; // Token account size for Token-2022
+    let mut data = vec![0u8; space];
+
+    // mint (0..32)
+    data[0..32].copy_from_slice(mint.as_ref());
+    // owner (32..64)
+    data[32..64].copy_from_slice(owner.as_ref());
+    // amount (64..72)
+    data[64..72].copy_from_slice(&amount.to_le_bytes());
+    // delegate option (72..76) - 0 = None
+    data[72..76].copy_from_slice(&[0, 0, 0, 0]);
+    // state (108) - 1 = Initialized
+    data[108] = 1;
+
+    data
+}
+
 /// Test successful create_attestation with DualSignature (Feedback)
 #[tokio::test]
 async fn test_create_attestation_feedback_success() {
@@ -78,19 +135,53 @@ async fn test_create_attestation_feedback_success() {
     );
 
     // 3. Create agent and counterparty Ed25519 keypairs
+    // agent_keypair = NFT OWNER (the signer)
+    // agent_mint = agent's NFT identity (token_account in data)
     let agent_keypair = generate_ed25519_keypair();
     let counterparty_keypair = generate_ed25519_keypair();
-    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair); // Owner who signs
     let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
 
+    // Create agent's NFT mint (the stable identity)
+    let agent_mint = Pubkey::new_unique();
+
+    // 3b. Mock the agent's Token-2022 mint and ATA
+    // The ATA proves agent_pubkey owns the agent_mint NFT
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    // Create mock mint account
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Create mock ATA with 1 token (NFT)
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
     // 4. Build attestation data (Feedback schema)
+    // token_account = agent_mint (NFT identity), NOT agent_pubkey
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test task data");
     let outcome: u8 = 2; // Positive feedback
 
     let mut data = vec![0u8; 132];
     data[0..32].copy_from_slice(&task_ref); // task_ref
-    data[32..64].copy_from_slice(agent_pubkey.as_ref()); // token_account
+    data[32..64].copy_from_slice(agent_mint.as_ref()); // token_account = MINT address
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref()); // counterparty
     data[96..128].copy_from_slice(&data_hash); // data_hash
     data[128] = 0; // content_type = 0 (None)
@@ -99,9 +190,9 @@ async fn test_create_attestation_feedback_success() {
     data[131] = 0; // tag2_len
 
     // 5. Compute message hashes and sign
-    let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &agent_pubkey, &data_hash);
-    let counterparty_message =
-        compute_feedback_hash(&sas_schema, &task_ref, &agent_pubkey, outcome);
+    // Hashes use agent_mint (identity), signatures come from agent_pubkey (owner)
+    let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
+    let counterparty_message = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
 
     let agent_sig = sign_message(&agent_keypair, &agent_message);
     let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_message);
@@ -115,14 +206,16 @@ async fn test_create_attestation_feedback_success() {
     let address_tree_info = rpc.get_address_tree_v1();
     let address_tree_pubkey = address_tree_info.tree;
 
+    // Nonce uses agent_mint (identity), not agent_pubkey
     let nonce =
-        compute_attestation_nonce(&task_ref, &sas_schema, &agent_pubkey, &counterparty_pubkey);
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
 
     // Build seeds matching on-chain derive_address call
+    // Uses agent_mint (the stable identity)
     let seeds: &[&[u8]] = &[
         b"attestation",
         sas_schema.as_ref(),
-        agent_pubkey.as_ref(),
+        agent_mint.as_ref(),
         &nonce,
     ];
     let (compressed_address, _address_seed) =
@@ -168,7 +261,9 @@ async fn test_create_attestation_feedback_success() {
         address_tree_info,
     };
 
-    // 11. Build instructions
+    // 11. agent_ata was already derived and mocked in step 3b
+
+    // Build instructions
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &agent_message, &agent_sig),
         (
@@ -177,8 +272,13 @@ async fn test_create_attestation_feedback_success() {
             &counterparty_sig,
         ),
     ]);
-    let attestation_ix =
-        build_create_attestation_ix(&payer.pubkey(), &schema_config_pda, params, system_accounts);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
 
     // 12. Send transaction (Ed25519 instruction MUST come before attestation)
     rpc.create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])

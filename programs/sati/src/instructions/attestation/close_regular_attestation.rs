@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 use solana_attestation_service_client::instructions::CloseAttestationCpiBuilder;
 
 use crate::constants::SAS_DATA_OFFSET;
@@ -14,7 +15,7 @@ pub struct CloseRegularAttestation<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Signer must be either the agent (token_account holder) or the counterparty
+    /// Signer must be either the agent (NFT owner via ATA) or the counterparty
     pub signer: Signer<'info>,
 
     /// Schema config PDA
@@ -47,6 +48,14 @@ pub struct CloseRegularAttestation<'info> {
     /// CHECK: Program ID verified
     #[account(address = solana_attestation_service_client::programs::SOLANA_ATTESTATION_SERVICE_ID)]
     pub sas_program: AccountInfo<'info>,
+
+    /// Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
+    /// If provided, must hold the agent NFT (mint matches token_account from data).
+    /// Note: token_account in data is the MINT address; this is the holder's ATA.
+    pub agent_ata: Option<InterfaceAccount<'info, TokenAccount>>,
+
+    /// Token-2022 program for ATA verification (optional, required with agent_ata)
+    pub token_program: Option<Interface<'info, TokenInterface>>,
 }
 
 pub fn handler<'info>(
@@ -78,10 +87,19 @@ pub fn handler<'info>(
     // Drop borrow before CPI
     drop(attestation_data);
 
-    // 2. Authorization: Either the agent (token_account holder) or counterparty can close
+    // 2. Authorization: NFT owner OR counterparty can close
+    // token_account is the MINT address (agent identity).
+    // Agent authorization verified via ATA ownership (if provided).
     let signer_key = ctx.accounts.signer.key();
+
+    let is_counterparty = signer_key == counterparty;
+    let is_agent_owner =
+        ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
+            ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+        });
+
     require!(
-        signer_key == token_account || signer_key == counterparty,
+        is_counterparty || is_agent_owner,
         SatiError::UnauthorizedClose
     );
 

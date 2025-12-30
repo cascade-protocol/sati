@@ -66,6 +66,7 @@ export async function createSatiLookupTable(
   const connection = new Connection(rpcUrl, "confirmed");
 
   // Get addresses to include in lookup table (do this first, before fetching slot)
+  // Includes Light Protocol addresses, SATI program/PDAs, and Token-2022
   const light = await sati.getLightClient();
   const addresses = await light.getLookupTableAddresses();
 

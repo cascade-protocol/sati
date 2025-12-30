@@ -205,9 +205,15 @@ Program parses this for signature binding; full schema parsed by indexers.
 #### Signature Verification (On-Chain)
 
 1. **Count**: Match `SignatureMode` (2 for DualSignature)
-2. **Binding**: `signatures[0].pubkey == token_account`, `signatures[1].pubkey == counterparty`
-3. **Self-attestation**: `token_account != counterparty`
-4. **Validity**: Each signature on its domain-separated hash
+2. **Agent authorization** (via ATA):
+   - `agent_ata.mint == token_account` (ATA holds correct NFT)
+   - `agent_ata.amount >= 1` (NFT present)
+   - `signatures[0].pubkey == agent_ata.owner` (signer owns NFT)
+3. **Counterparty binding**: `signatures[1].pubkey == counterparty`
+4. **Self-attestation**: `token_account != counterparty`
+5. **Validity**: Each signature on its domain-separated hash
+
+> **Note**: `token_account` is the agent's MINT ADDRESS (identity). The agent OWNER signs (verified via ATA ownership).
 
 #### Instructions
 
@@ -538,8 +544,9 @@ await sati.createFeedback({
 |----------|-------------|
 | Signature validity | Ed25519 verification |
 | Blind feedback | Agent signs before outcome known |
-| Signature-data binding | Pubkeys match token_account/counterparty |
-| Self-attestation prevention | token_account ≠ counterparty |
+| Agent authorization | ATA ownership (signer owns agent NFT) |
+| Counterparty binding | `signatures[1].pubkey == counterparty` |
+| Self-attestation prevention | `token_account ≠ counterparty` |
 | Duplicate prevention | Deterministic address from task_ref |
 | Outcome range | Verified ∈ {0,1,2} before storage |
 | Content type range | Verified ∈ {0,1,2,3,4} before storage |

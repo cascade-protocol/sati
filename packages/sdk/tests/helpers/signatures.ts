@@ -3,6 +3,12 @@
  *
  * Provides real Ed25519 signing for attestation tests, replacing
  * the placeholder randomBytes(64) used in E2E test stubs.
+ *
+ * ## Identity Model
+ * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
+ * - `agentKeypair` = NFT **OWNER**'s keypair (the signer)
+ * - signature[0].pubkey = owner address (NOT mint)
+ * - On-chain verifies owner via ATA ownership
  */
 
 import nacl from "tweetnacl";

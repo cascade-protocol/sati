@@ -6,6 +6,11 @@
  *
  * The signature is over the UTF-8 encoded message text, which is then
  * verified on-chain via Ed25519 precompile.
+ *
+ * ## Identity Model
+ * The NFT **OWNER** signs these messages (not the mint). The hash includes
+ * the mint address for identity binding, but authorization is verified
+ * via ATA ownership on-chain.
  */
 
 import type { Outcome } from "./schemas";

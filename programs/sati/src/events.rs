@@ -50,7 +50,7 @@ pub struct SchemaConfigRegistered {
 pub struct AttestationCreated {
     /// SAS schema address
     pub sas_schema: Pubkey,
-    /// Agent mint address being attested
+    /// Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility.
     pub token_account: Pubkey,
     /// Counterparty (client for Feedback, validator for Validation, provider for ReputationScore)
     pub counterparty: Pubkey,
@@ -67,7 +67,7 @@ pub struct AttestationCreated {
 pub struct AttestationClosed {
     /// SAS schema address
     pub sas_schema: Pubkey,
-    /// Agent mint address that was attested
+    /// Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility.
     pub token_account: Pubkey,
     /// Attestation address that was closed
     pub address: Pubkey,
