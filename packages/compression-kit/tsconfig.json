@@ -5,11 +5,10 @@
     "types": [],
     "emitDeclarationOnly": true,
     "outDir": "./lib",
-    "rootDir": "./src",
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
+  "include": ["src", "tests"],
   "exclude": ["node_modules", "dist", "lib"]
 }

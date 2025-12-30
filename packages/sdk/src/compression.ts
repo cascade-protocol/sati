@@ -91,6 +91,26 @@ export interface ParsedAttestation {
 }
 
 /**
+ * Parsed feedback attestation with FeedbackData
+ */
+export interface ParsedFeedbackAttestation {
+  address: Uint8Array;
+  raw: CompressedAccount;
+  attestation: CompressedAttestation;
+  data: FeedbackData;
+}
+
+/**
+ * Parsed validation attestation with ValidationData
+ */
+export interface ParsedValidationAttestation {
+  address: Uint8Array;
+  raw: CompressedAccount;
+  attestation: CompressedAttestation;
+  data: ValidationData;
+}
+
+/**
  * Validity proof result for instruction building
  */
 export interface ValidityProofResult {
@@ -208,10 +228,10 @@ export interface SATILightClient {
   getAttestationByAddress(addr: Address): Promise<ParsedAttestation | null>;
 
   /** List feedback attestations */
-  listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]>;
+  listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedFeedbackAttestation[]>;
 
   /** List validation attestations */
-  listValidations(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]>;
+  listValidations(filter: Partial<AttestationFilter>): Promise<ParsedValidationAttestation[]>;
 
   /** Get creation proof for a new compressed account */
   getCreationProof(addr: PublicKeyLike): Promise<CreationProofResult>;
@@ -277,15 +297,15 @@ export class SATILightClientImpl implements SATILightClient {
     return this.parseAttestation(account);
   }
 
-  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
+  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedFeedbackAttestation[]> {
     // Query compressed accounts owned by SATI program with memcmp filters
     const accounts = await this.queryAttestations(filter, 0); // DataType.Feedback = 0
-    return accounts;
+    return accounts as ParsedFeedbackAttestation[];
   }
 
-  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
+  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedValidationAttestation[]> {
     const accounts = await this.queryAttestations(filter, 1); // DataType.Validation = 1
-    return accounts;
+    return accounts as ParsedValidationAttestation[];
   }
 
   async getCreationProof(addr: PublicKeyLike): Promise<CreationProofResult> {

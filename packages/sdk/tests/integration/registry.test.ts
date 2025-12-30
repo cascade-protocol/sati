@@ -45,6 +45,15 @@ const SYSTEM_PROGRAM_ID = new PublicKey("11111111111111111111111111111111");
 // =============================================================================
 
 /**
+ * Get account data or throw if not found.
+ * Type guard to ensure account.data is defined.
+ */
+function getAccountData(account: { data: Uint8Array } | null | undefined): Uint8Array {
+  if (!account?.data) throw new Error("Account data not found");
+  return account.data;
+}
+
+/**
  * Setup LiteSVM with SATI program loaded
  */
 function setupLiteSVM(): LiteSVM {
@@ -267,7 +276,7 @@ describe("Registry Member Numbers", () => {
     const [registryPda] = deriveRegistryConfigPda();
     const account = svm.getAccount(registryPda);
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     expect(decoded.totalAgents).toBe(0n);
   });
@@ -283,7 +292,7 @@ describe("Registry Member Numbers", () => {
       const [registryPda] = deriveRegistryConfigPda();
       const account = svm.getAccount(registryPda);
       const decoder = getRegistryConfigDecoder();
-      const decoded = decoder.decode(account?.data);
+      const decoded = decoder.decode(getAccountData(account));
 
       expect(decoded.totalAgents).toBe(BigInt(i));
     }
@@ -299,7 +308,7 @@ describe("Registry Member Numbers", () => {
     const [registryPda] = deriveRegistryConfigPda();
     const account = svm.getAccount(registryPda);
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     expect(decoded.totalAgents).toBe(maxU64);
   });
@@ -325,7 +334,7 @@ describe("Registry Authority", () => {
     const [registryPda] = deriveRegistryConfigPda();
     const account = svm.getAccount(registryPda);
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     expect(decoded.authority).toBe(address(authority.toBase58()));
   });
@@ -338,7 +347,7 @@ describe("Registry Authority", () => {
     const [registryPda] = deriveRegistryConfigPda();
     const account = svm.getAccount(registryPda);
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     // System program address indicates renounced authority (immutable)
     expect(decoded.authority).toBe(address(SYSTEM_PROGRAM_ID.toBase58()));
@@ -402,7 +411,7 @@ describe("Schema Config Account", () => {
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
     const account = svm.getAccount(schemaConfigPda);
     const decoder = getSchemaConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     expect(decoded.sasSchema).toBe(address(sasSchema.toBase58()));
   });
@@ -415,7 +424,7 @@ describe("Schema Config Account", () => {
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
     const account = svm.getAccount(schemaConfigPda);
     const decoder = getSchemaConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     expect(decoded.signatureMode).toBe(GeneratedSignatureMode.SingleSigner);
     expect(decoded.storageType).toBe(GeneratedStorageType.Regular);
@@ -429,7 +438,7 @@ describe("Schema Config Account", () => {
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
     const account = svm.getAccount(schemaConfigPda);
     const decoder = getSchemaConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(getAccountData(account));
 
     expect(decoded.closeable).toBe(true);
   });
@@ -545,7 +554,7 @@ describe("Token-2022 Group Mint", () => {
     setupGroupMint(svm, groupMint, registryPda);
 
     const account = svm.getAccount(groupMint);
-    const mintInfo = MintLayout.decode(account?.data);
+    const mintInfo = MintLayout.decode(getAccountData(account));
 
     expect(mintInfo.decimals).toBe(0);
   });
@@ -557,7 +566,7 @@ describe("Token-2022 Group Mint", () => {
     setupGroupMint(svm, groupMint, registryPda);
 
     const account = svm.getAccount(groupMint);
-    const mintInfo = MintLayout.decode(account?.data);
+    const mintInfo = MintLayout.decode(getAccountData(account));
 
     expect(mintInfo.isInitialized).toBe(true);
   });

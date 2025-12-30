@@ -70,18 +70,16 @@ export {
   buildEd25519Instruction,
   buildEd25519Instructions,
   buildFeedbackEd25519Instructions,
-  addressToPublicKey,
-  publicKeyToAddress,
+  addressToBytes,
   type Ed25519SignatureParams,
 } from "./instructions";
 
 // RPC and connection utilities
 export {
-  getConnection,
+  getRpc,
   isTestValidatorReady,
   newAccountWithLamports,
   getTestKeypair,
-  keypairToSigner,
   sleep,
   waitForIndexer,
   retry,

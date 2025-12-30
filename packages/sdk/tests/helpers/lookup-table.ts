@@ -92,23 +92,19 @@ export async function createSatiLookupTable(
     recentSlot: slot,
   });
 
-  // Build instructions
-  const instructions = [];
-
   // Create lookup table instruction
-  instructions.push(
-    getCreateLookupTableInstruction({
-      address: [lookupTableAddress, bump],
-      authority: payer.address,
-      payer,
-      recentSlot: slot,
-    }),
-  );
+  const createLutIx = getCreateLookupTableInstruction({
+    address: [lookupTableAddress, bump],
+    authority: payer,
+    payer,
+    recentSlot: slot,
+  });
 
-  // Extend lookup table with addresses (max 30 per instruction)
+  // Build extend instructions (max 30 addresses per instruction)
+  const extendIxs: ReturnType<typeof getExtendLookupTableInstruction>[] = [];
   for (let i = 0; i < addresses.length; i += 30) {
     const chunk = addresses.slice(i, i + 30);
-    instructions.push(
+    extendIxs.push(
       getExtendLookupTableInstruction({
         address: lookupTableAddress,
         authority: payer,
@@ -117,6 +113,8 @@ export async function createSatiLookupTable(
       }),
     );
   }
+
+  const instructions = [createLutIx, ...extendIxs] as const;
 
   // Get latest blockhash
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();

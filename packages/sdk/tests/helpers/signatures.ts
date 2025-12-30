@@ -58,7 +58,8 @@ export interface TestKeypair {
  * Import Ed25519 public key bytes as a CryptoKey for verification.
  */
 async function importPublicKey(bytes: Uint8Array): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", bytes, { name: "Ed25519" }, true, ["verify"]);
+  // Type assertion needed: TS 5.9+ uses Uint8Array<ArrayBufferLike> but Web Crypto expects ArrayBuffer-backed
+  return crypto.subtle.importKey("raw", bytes as Uint8Array<ArrayBuffer>, { name: "Ed25519" }, true, ["verify"]);
 }
 
 /**

@@ -11,7 +11,9 @@ import {
   createSolanaRpc,
   createKeyPairSignerFromBytes,
   generateKeyPairSigner,
+  lamports,
   type KeyPairSigner,
+  type Lamports,
   type Rpc,
   type SolanaRpcApi,
 } from "@solana/kit";
@@ -32,7 +34,7 @@ const DEFAULT_CONFIG: TestRpcConfig = {
   proverUrl: process.env.PROVER_URL || "http://127.0.0.1:3001",
 };
 
-const LAMPORTS_PER_SOL = 1_000_000_000n;
+const LAMPORTS_PER_SOL: Lamports = lamports(1_000_000_000n);
 
 // =============================================================================
 // RPC Utilities
@@ -75,11 +77,11 @@ export async function isTestValidatorReady(rpcUrl?: string): Promise<boolean> {
  */
 export async function newAccountWithLamports(
   rpc: Rpc<SolanaRpcApi>,
-  lamports: bigint = LAMPORTS_PER_SOL,
+  amount: Lamports = LAMPORTS_PER_SOL,
 ): Promise<KeyPairSigner> {
   const signer = await generateKeyPairSigner();
 
-  const sig = await rpc.requestAirdrop(signer.address, lamports).send();
+  const sig = await rpc.requestAirdrop(signer.address, amount).send();
   await waitForConfirmation(rpc, sig);
 
   return signer;

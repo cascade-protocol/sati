@@ -27,6 +27,7 @@ import {
   createKeyPairSignerFromPrivateKeyBytes,
   createSolanaRpc,
   generateKeyPairSigner,
+  lamports,
   type KeyPairSigner,
   type Address,
 } from "@solana/kit";
@@ -41,7 +42,6 @@ import { createSatiLookupTable } from "./lookup-table";
 
 const LOCALNET_RPC = "http://127.0.0.1:8899";
 const LOCALNET_PHOTON = "http://127.0.0.1:8784";
-const LAMPORTS_PER_SOL = 1_000_000_000n;
 
 /** Extract seed from TestKeypair, throwing if not available (random keypairs have no seed) */
 function requireSeed(keypair: TestKeypair, name: string): Uint8Array {
@@ -148,13 +148,14 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
   const rpc = createSolanaRpc(rpcUrl);
 
   // Load local wallet as authority (matches registry initialization)
+  // Solana CLI wallets store 64-byte keypairs (32-byte seed + 32-byte pubkey)
   const walletPath = path.join(homedir(), ".config/solana/id.json");
   const walletSecret = JSON.parse(readFileSync(walletPath, "utf-8"));
-  const authority = await createKeyPairSignerFromBytes(Uint8Array.from(walletSecret));
+  const authority = await createKeyPairSignerFromPrivateKeyBytes(Uint8Array.from(walletSecret).slice(0, 32));
 
   // Create and fund payer
   const payer = await generateKeyPairSigner();
-  const airdropSig = await rpc.requestAirdrop(payer.address, 10n * LAMPORTS_PER_SOL).send();
+  const airdropSig = await rpc.requestAirdrop(payer.address, lamports(10_000_000_000n)).send();
 
   // Wait for airdrop confirmation
   await waitForConfirmation(rpc, airdropSig);

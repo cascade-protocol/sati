@@ -106,6 +106,8 @@ import {
   type SATILightClient as LightClient,
   createSATILightClient,
   type ParsedAttestation,
+  type ParsedFeedbackAttestation,
+  type ParsedValidationAttestation,
   type AttestationFilter,
 } from "./compression";
 
@@ -1740,7 +1742,7 @@ export class Sati {
   /**
    * List Feedback attestations
    */
-  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
+  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedFeedbackAttestation[]> {
     const light = await this.getLightClient();
     return light.listFeedbacks(filter);
   }
@@ -1748,7 +1750,7 @@ export class Sati {
   /**
    * List Validation attestations
    */
-  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedAttestation[]> {
+  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedValidationAttestation[]> {
     const light = await this.getLightClient();
     return light.listValidations(filter);
   }

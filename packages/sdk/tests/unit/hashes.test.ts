@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { createTestKeypair } from "../helpers/signatures";
+import { type Address, getAddressDecoder } from "@solana/kit";
 import {
   computeInteractionHash,
   computeFeedbackHash,
@@ -22,8 +22,12 @@ import {
 // Test Utilities
 // =============================================================================
 
-function randomAddress() {
-  return createTestKeypair().address;
+const addressDecoder = getAddressDecoder();
+
+function randomAddress(): Address {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return addressDecoder.decode(bytes) as Address;
 }
 
 function randomBytes(length: number): Uint8Array {

@@ -241,7 +241,8 @@ describe("SDK: PDA Derivation", () => {
     const [registryPda] = deriveRegistryConfigPda();
     const account = svm.getAccount(registryPda);
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    if (!account?.data) throw new Error("Account data not found");
+    const decoded = decoder.decode(account.data);
 
     // The group_mint in registry_config should be what we stored
     expect(decoded.groupMint).toBe(address(actualGroupMint.toBase58()));
@@ -273,10 +274,11 @@ describe("SDK: LiteSVM Integration", () => {
     // Fetch and decode
     const account = svm.getAccount(registryPda);
     expect(account).not.toBeNull();
-    expect(account?.data.length).toBe(81);
+    if (!account?.data) throw new Error("Account data not found");
+    expect(account.data.length).toBe(81);
 
     const decoder = getRegistryConfigDecoder();
-    const decoded = decoder.decode(account?.data);
+    const decoded = decoder.decode(account.data);
 
     expect(decoded.groupMint).toBe(address(groupMint.toBase58()));
     expect(decoded.authority).toBe(address(authority.publicKey.toBase58()));

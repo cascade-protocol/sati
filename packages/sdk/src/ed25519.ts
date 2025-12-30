@@ -9,7 +9,15 @@
  * @see https://solana.com/docs/core/programs#ed25519-program
  */
 
-import { address, type Address, type Instruction } from "@solana/kit";
+import { address, type Address, type Instruction, type ReadonlyUint8Array } from "@solana/kit";
+
+/**
+ * Ed25519 instruction with guaranteed data field.
+ * The Ed25519 precompile always requires instruction data.
+ */
+export interface Ed25519Instruction extends Instruction {
+  readonly data: ReadonlyUint8Array;
+}
 
 // Ed25519 precompile program address
 export const ED25519_PROGRAM_ADDRESS: Address = address("Ed25519SigVerify111111111111111111111111111");
@@ -50,7 +58,7 @@ const OFFSETS_SIZE = 14; // 7 x u16
  * @param params - Signature verification parameters
  * @returns Instruction for Ed25519SigVerify program
  */
-export function createEd25519Instruction(params: Ed25519SignatureParams): Instruction {
+export function createEd25519Instruction(params: Ed25519SignatureParams): Ed25519Instruction {
   const { publicKey, message, signature } = params;
 
   if (publicKey.length !== 32) {
@@ -132,7 +140,7 @@ export function createEd25519Instruction(params: Ed25519SignatureParams): Instru
  * @param signatures - Array of signature verification parameters
  * @returns Single Ed25519 instruction verifying all signatures
  */
-export function createBatchEd25519Instruction(signatures: Ed25519SignatureParams[]): Instruction {
+export function createBatchEd25519Instruction(signatures: Ed25519SignatureParams[]): Ed25519Instruction {
   if (signatures.length === 0) {
     throw new Error("At least one signature is required");
   }
