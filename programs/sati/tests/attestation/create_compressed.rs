@@ -310,7 +310,7 @@ async fn test_create_attestation_feedback_success() {
 async fn test_create_attestation_missing_signature() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
-    // Setup schema config (same as success case)
+    // Setup schema config
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
@@ -334,19 +334,45 @@ async fn test_create_attestation_missing_signature() {
         },
     );
 
-    // Build valid data but WITHOUT Ed25519 instruction
+    // Create keypairs and mock Token-2022 accounts
     let agent_keypair = generate_ed25519_keypair();
     let counterparty_keypair = generate_ed25519_keypair();
     let agent_pubkey = keypair_to_pubkey(&agent_keypair);
     let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
 
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Build attestation data
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
     let mut data = vec![0u8; 132];
     data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_pubkey.as_ref());
+    data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
     data[96..128].copy_from_slice(&data_hash);
     data[128] = 0;
@@ -354,31 +380,96 @@ async fn test_create_attestation_missing_signature() {
     data[130] = 0;
     data[131] = 0;
 
-    // Build signatures (valid)
+    // Build signatures
     let interaction_hash =
-        compute_interaction_hash(&sas_schema, &task_ref, &agent_pubkey, &data_hash);
-    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_pubkey, outcome);
+        compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
+    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
     let agent_sig = sign_message(&agent_keypair, &interaction_hash);
     let counterparty_sig = sign_message(&counterparty_keypair, &feedback_hash);
 
-    let signatures = vec![
-        SignatureData {
-            pubkey: agent_pubkey,
-            sig: agent_sig,
-        },
-        SignatureData {
-            pubkey: counterparty_pubkey,
-            sig: counterparty_sig,
-        },
-    ];
+    // Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
 
-    // Send transaction WITHOUT Ed25519 instruction
-    // Expect: MissingSignatures error
-    // (Would need to build and send transaction, check for error)
-    println!("test_create_attestation_missing_signature: implemented but requires localnet");
+    // Derive compressed account address
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // Get validity proof
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    // Build ONLY attestation instruction (no Ed25519 instruction)
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Send transaction WITHOUT Ed25519 instruction - should fail with MissingSignatures
+    let result = rpc
+        .create_and_send_transaction(&[attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail without Ed25519 instruction"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("MissingSignatures") || err_str.contains("6034"),
+        "Expected MissingSignatures error, got: {}",
+        err_str
+    );
 }
 
-/// Test that create_attestation fails with wrong signature
+/// Test that create_attestation fails with wrong signature (message mismatch)
 #[tokio::test]
 async fn test_create_attestation_invalid_signature() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
@@ -407,18 +498,45 @@ async fn test_create_attestation_invalid_signature() {
         },
     );
 
+    // Create keypairs and mock Token-2022 accounts
     let agent_keypair = generate_ed25519_keypair();
     let counterparty_keypair = generate_ed25519_keypair();
     let agent_pubkey = keypair_to_pubkey(&agent_keypair);
     let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
 
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Build attestation data
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
     let mut data = vec![0u8; 132];
     data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_pubkey.as_ref());
+    data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
     data[96..128].copy_from_slice(&data_hash);
     data[128] = 0;
@@ -426,27 +544,99 @@ async fn test_create_attestation_invalid_signature() {
     data[130] = 0;
     data[131] = 0;
 
-    // Sign WRONG message hashes
+    // Sign WRONG message hashes (valid signatures, but for wrong messages)
     let wrong_hash = compute_data_hash(b"wrong message");
     let agent_sig = sign_message(&agent_keypair, &wrong_hash);
     let counterparty_sig = sign_message(&counterparty_keypair, &wrong_hash);
 
-    let signatures = vec![
-        SignatureData {
-            pubkey: agent_pubkey,
-            sig: agent_sig,
-        },
-        SignatureData {
-            pubkey: counterparty_pubkey,
-            sig: counterparty_sig,
-        },
-    ];
+    // Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
 
-    // Expect: MessageMismatch error
-    println!("test_create_attestation_invalid_signature: implemented but requires localnet");
+    // Derive compressed account address
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // Get validity proof
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig.clone(),
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig.clone(),
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Ed25519 instruction with valid signatures but for WRONG messages
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &wrong_hash, &agent_sig),
+        (&counterparty_pubkey, &wrong_hash, &counterparty_sig),
+    ]);
+
+    // Send transaction - should fail with MessageMismatch
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with wrong message hash"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("MessageMismatch") || err_str.contains("6035"),
+        "Expected MessageMismatch error, got: {}",
+        err_str
+    );
 }
 
-/// Test that create_attestation fails with wrong signer
+/// Test that create_attestation fails with wrong signer (signature verification fails)
 #[tokio::test]
 async fn test_create_attestation_wrong_signer() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
@@ -474,12 +664,39 @@ async fn test_create_attestation_wrong_signer() {
         },
     );
 
+    // Create keypairs - wrong_keypair is different from agent_keypair
     let agent_keypair = generate_ed25519_keypair();
     let counterparty_keypair = generate_ed25519_keypair();
-    let wrong_keypair = generate_ed25519_keypair(); // Different from data
+    let wrong_keypair = generate_ed25519_keypair();
 
     let agent_pubkey = keypair_to_pubkey(&agent_keypair);
     let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    // Mock Token-2022 accounts
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
 
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
@@ -487,7 +704,7 @@ async fn test_create_attestation_wrong_signer() {
 
     let mut data = vec![0u8; 132];
     data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_pubkey.as_ref());
+    data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
     data[96..128].copy_from_slice(&data_hash);
     data[128] = 0;
@@ -495,31 +712,105 @@ async fn test_create_attestation_wrong_signer() {
     data[130] = 0;
     data[131] = 0;
 
-    // Sign with correct hashes but WRONG keypairs
+    // Sign with correct hashes but WRONG keypair for agent
     let interaction_hash =
-        compute_interaction_hash(&sas_schema, &task_ref, &agent_pubkey, &data_hash);
-    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_pubkey, outcome);
+        compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
+    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
 
     // Sign with wrong_keypair instead of agent_keypair
     let agent_sig = sign_message(&wrong_keypair, &interaction_hash);
     let counterparty_sig = sign_message(&counterparty_keypair, &feedback_hash);
 
-    let signatures = vec![
-        SignatureData {
-            pubkey: agent_pubkey,
-            sig: agent_sig,
-        }, // pubkey doesn't match signer
-        SignatureData {
-            pubkey: counterparty_pubkey,
-            sig: counterparty_sig,
-        },
-    ];
+    // Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
 
-    // Expect: SignatureMismatch error
-    println!("test_create_attestation_wrong_signer: implemented but requires localnet");
+    // Derive compressed account address
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // Get validity proof
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,   // Claims to be agent_pubkey
+                sig: agent_sig.clone(), // But signed by wrong_keypair
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig.clone(),
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Ed25519 instruction with pubkey that doesn't match the actual signer
+    // The Ed25519 precompile will fail because signature was created by wrong_keypair
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig), // Mismatch: pubkey vs signer
+        (&counterparty_pubkey, &feedback_hash, &counterparty_sig),
+    ]);
+
+    // Send transaction - Ed25519 precompile should reject due to signature mismatch
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(result.is_err(), "Transaction should fail with wrong signer");
+    // Ed25519 precompile returns Custom(2) for signature verification failure
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("Custom(2)")
+            || err_str.contains("InvalidAccountData")
+            || err_str.contains("SignatureVerificationFailed")
+            || err_str.contains("PrecompileError"),
+        "Expected Ed25519 signature verification failure, got: {}",
+        err_str
+    );
 }
 
-/// Test that create_attestation fails with self-attestation
+/// Test that create_attestation fails with self-attestation (token_account == counterparty)
 #[tokio::test]
 async fn test_create_attestation_self_attestation() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
@@ -547,26 +838,144 @@ async fn test_create_attestation_self_attestation() {
         },
     );
 
-    // Use SAME keypair for both agent and counterparty
+    // Use SAME identity for both agent (token_account) and counterparty
     let self_keypair = generate_ed25519_keypair();
     let self_pubkey = keypair_to_pubkey(&self_keypair);
+
+    // For self-attestation, we use the same mint for both parties
+    let self_mint = Pubkey::new_unique();
+    let self_ata = derive_token22_ata(&self_pubkey, &self_mint);
+
+    rpc.set_account(
+        self_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&self_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        self_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&self_mint, &self_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
 
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
+    // token_account = self_mint AND counterparty = self_mint (SAME!)
     let mut data = vec![0u8; 132];
     data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(self_pubkey.as_ref()); // token_account = self
-    data[64..96].copy_from_slice(self_pubkey.as_ref()); // counterparty = self (SAME!)
+    data[32..64].copy_from_slice(self_mint.as_ref()); // token_account = self_mint
+    data[64..96].copy_from_slice(self_mint.as_ref()); // counterparty = self_mint (SAME!)
     data[96..128].copy_from_slice(&data_hash);
     data[128] = 0;
     data[129] = outcome;
     data[130] = 0;
     data[131] = 0;
 
-    // Expect: SelfAttestationNotAllowed error
-    println!("test_create_attestation_self_attestation: implemented but requires localnet");
+    // Build signatures (both from same keypair, but for different message types)
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &self_mint, &data_hash);
+    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &self_mint, outcome);
+    let agent_sig = sign_message(&self_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&self_keypair, &feedback_hash);
+
+    // Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    // Derive compressed account address
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce = compute_attestation_nonce(&task_ref, &sas_schema, &self_mint, &self_mint);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        self_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // Get validity proof
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: self_pubkey,
+                sig: agent_sig.clone(),
+            },
+            SignatureData {
+                pubkey: self_pubkey, // Same pubkey for both signatures
+                sig: counterparty_sig.clone(),
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &self_ata,
+        params,
+        system_accounts,
+    );
+
+    // Ed25519 instruction with same signer for both
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&self_pubkey, &interaction_hash, &agent_sig),
+        (&self_pubkey, &feedback_hash, &counterparty_sig),
+    ]);
+
+    // Send transaction - should fail with SelfAttestationNotAllowed
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail for self-attestation"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("SelfAttestationNotAllowed")
+            || err_str.contains("DuplicateSigners")
+            || err_str.contains("6020")
+            || err_str.contains("6037"),
+        "Expected SelfAttestationNotAllowed or DuplicateSigners error, got: {}",
+        err_str
+    );
 }
 
 /// Test that create_attestation fails with invalid data size
@@ -597,11 +1006,131 @@ async fn test_create_attestation_data_too_small() {
         },
     );
 
+    // Create keypairs and mock Token-2022 accounts
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
     // Data too small (only 64 bytes, need at least 130 for Feedback)
     let data = vec![0u8; 64];
 
-    // Expect: AttestationDataTooSmall error
-    println!("test_create_attestation_data_too_small: implemented but requires localnet");
+    // Create arbitrary signatures for Ed25519 instruction (to avoid MissingSignatures error)
+    let dummy_message = compute_data_hash(b"dummy");
+    let agent_sig = sign_message(&agent_keypair, &dummy_message);
+    let counterparty_sig = sign_message(&counterparty_keypair, &dummy_message);
+
+    // Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    // Use dummy values for address derivation (won't actually be created)
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let task_ref = [1u8; 32];
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // Get validity proof
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(), // Too small!
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig.clone(),
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig.clone(),
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Ed25519 instruction (signatures are valid but for wrong messages)
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &dummy_message, &agent_sig),
+        (&counterparty_pubkey, &dummy_message, &counterparty_sig),
+    ]);
+
+    // Send transaction - should fail with AttestationDataTooSmall
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with data too small"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("AttestationDataTooSmall") || err_str.contains("6016"),
+        "Expected AttestationDataTooSmall error, got: {}",
+        err_str
+    );
 }
 
 /// Test that create_attestation fails with wrong storage type schema
@@ -633,8 +1162,144 @@ async fn test_create_attestation_wrong_storage_type() {
         },
     );
 
-    // Expect: StorageTypeMismatch error
-    println!("test_create_attestation_wrong_storage_type: implemented but requires localnet");
+    // Create keypairs and mock Token-2022 accounts
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Build valid attestation data
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    let mut data = vec![0u8; 132];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96..128].copy_from_slice(&data_hash);
+    data[128] = 0;
+    data[129] = outcome;
+    data[130] = 0;
+    data[131] = 0;
+
+    // Build valid signatures
+    let interaction_hash =
+        compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
+    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &feedback_hash);
+
+    // Build remaining_accounts for Light Protocol CPI
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    // Derive compressed account address
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    // Get validity proof
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig.clone(),
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig.clone(),
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Ed25519 instruction with valid signatures
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&counterparty_pubkey, &feedback_hash, &counterparty_sig),
+    ]);
+
+    // Send transaction - should fail with StorageTypeMismatch
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with wrong storage type"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("StorageTypeMismatch") || err_str.contains("6015"),
+        "Expected StorageTypeMismatch error, got: {}",
+        err_str
+    );
 }
 
 // ============================================================================
