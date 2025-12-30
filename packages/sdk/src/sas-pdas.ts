@@ -8,7 +8,9 @@
 import { type Address, type ProgramDerivedAddressBump, getProgramDerivedAddress, getAddressEncoder } from "@solana/kit";
 
 import { SATI_PROGRAM_ADDRESS } from "./generated";
-import { SATI_CREDENTIAL_NAME } from "./sas";
+
+// SATI credential name (duplicated here to avoid importing sas.ts which pulls in sas-lib)
+const SATI_CREDENTIAL_NAME = "SATI";
 
 // SAS Program Address (mainnet/devnet)
 export const SAS_PROGRAM_ADDRESS: Address = "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG" as Address;

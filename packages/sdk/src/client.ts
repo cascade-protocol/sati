@@ -107,14 +107,7 @@ import {
   type AttestationFilter,
 } from "./compression";
 
-// SAS imports are dynamically loaded in setupSASSchemas() to avoid bundling sas-lib
-// in browser/worker environments that don't need it
-type SASSchemaDefinition = {
-  name: string;
-  description: string;
-  layout: number[];
-  fieldNames: string[];
-};
+// Note: SAS schema setup is available via setupSASSchemas() from "@cascade-fyi/sati-sdk/sas"
 
 import { deriveReputationAttestationPda } from "./sas-pdas";
 
@@ -130,7 +123,6 @@ import type {
   CloseRegularAttestationParams,
   CloseAttestationResult,
   SignatureVerificationResult,
-  SASDeploymentResult,
   LinkEvmAddressResult,
 } from "./types";
 
@@ -1065,175 +1057,6 @@ export class Sati {
       }
       throw error;
     }
-  }
-
-  /**
-   * Setup SATI SAS schemas (admin operation)
-   */
-  async setupSASSchemas(params: {
-    payer: KeyPairSigner;
-    authority: KeyPairSigner;
-    testMode?: boolean;
-  }): Promise<SASDeploymentResult> {
-    // Dynamically import sas-lib to avoid bundling it in browser/worker environments
-    const {
-      deriveSatiCredentialPda,
-      deriveSatiSchemaPda,
-      getCreateSatiCredentialInstruction,
-      getCreateSatiSchemaInstruction,
-      fetchMaybeCredential,
-      fetchMaybeSchema,
-      SATI_SCHEMAS,
-    } = await import("./sas");
-
-    const { payer, authority, testMode = false } = params;
-    const schemaVersion = testMode ? 0 : 1;
-
-    const signatures: string[] = [];
-    const schemaStatuses: Array<{
-      name: string;
-      address: Address;
-      existed: boolean;
-      deployed: boolean;
-    }> = [];
-
-    const [credentialPda] = await deriveSatiCredentialPda(authority.address);
-    let credentialExisted = false;
-    let credentialDeployed = false;
-
-    const existingCredential = await fetchMaybeCredential(this.rpc, credentialPda);
-
-    if (existingCredential) {
-      credentialExisted = true;
-      console.log(`Credential already exists: ${credentialPda}`);
-    } else {
-      console.log(`Creating credential: ${credentialPda}`);
-      const createCredentialIx = getCreateSatiCredentialInstruction({
-        payer,
-        authority,
-        credentialPda,
-        authorizedSigners: [],
-      });
-
-      const sig = await this.sendSingleTransaction([createCredentialIx], payer);
-      signatures.push(sig);
-      credentialDeployed = true;
-      console.log(`Credential created: ${sig}`);
-    }
-
-    const schemaEntries: Array<{
-      key: "feedback" | "feedbackPublic" | "validation" | "reputationScore";
-      def: SASSchemaDefinition;
-    }> = [
-      { key: "feedback", def: SATI_SCHEMAS.feedback },
-      { key: "feedbackPublic", def: SATI_SCHEMAS.feedbackPublic },
-      { key: "validation", def: SATI_SCHEMAS.validation },
-      { key: "reputationScore", def: SATI_SCHEMAS.reputationScore },
-    ];
-
-    const schemaPdas: Record<string, Address> = {};
-
-    for (const { key, def } of schemaEntries) {
-      const [schemaPda] = await deriveSatiSchemaPda(credentialPda, def.name, schemaVersion);
-      schemaPdas[key] = schemaPda;
-
-      const existingSchema = await fetchMaybeSchema(this.rpc, schemaPda);
-
-      if (existingSchema) {
-        schemaStatuses.push({
-          name: def.name,
-          address: schemaPda,
-          existed: true,
-          deployed: false,
-        });
-        console.log(`Schema ${def.name} already exists: ${schemaPda}`);
-      } else {
-        console.log(`Creating schema ${def.name}: ${schemaPda}`);
-        const createSchemaIx = getCreateSatiSchemaInstruction({
-          payer,
-          authority,
-          credentialPda,
-          schemaPda,
-          schema: def,
-        });
-
-        const sig = await this.sendSingleTransaction([createSchemaIx], payer);
-        signatures.push(sig);
-        schemaStatuses.push({
-          name: def.name,
-          address: schemaPda,
-          existed: false,
-          deployed: true,
-        });
-        console.log(`Schema ${def.name} created: ${sig}`);
-      }
-    }
-
-    const [registryPda] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(this.rpc, registryPda);
-
-    if (registryConfig.data.authority === authority.address) {
-      console.log("\nRegistering schema configs in SATI program...");
-
-      const schemaConfigs: Array<{
-        key: "feedback" | "feedbackPublic" | "validation" | "reputationScore";
-        signatureMode: 0 | 1;
-        storageType: 0 | 1;
-        closeable: boolean;
-      }> = [
-        { key: "feedback", signatureMode: 0, storageType: 0, closeable: false },
-        { key: "feedbackPublic", signatureMode: 1, storageType: 0, closeable: false },
-        { key: "validation", signatureMode: 0, storageType: 0, closeable: false },
-        { key: "reputationScore", signatureMode: 1, storageType: 1, closeable: true },
-      ];
-
-      for (const config of schemaConfigs) {
-        const sasSchema = schemaPdas[config.key];
-        const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
-
-        try {
-          await fetchSchemaConfig(this.rpc, schemaConfigPda);
-          console.log(`SchemaConfig for ${config.key} already registered`);
-        } catch {
-          console.log(`Registering SchemaConfig for ${config.key}...`);
-          const registerIx = await getRegisterSchemaConfigInstructionAsync({
-            payer,
-            authority,
-            registryConfig: registryPda,
-            sasSchema,
-            signatureMode: config.signatureMode,
-            storageType: config.storageType,
-            closeable: config.closeable,
-          });
-
-          const sig = await this.sendSingleTransaction([registerIx], payer);
-          signatures.push(sig);
-          console.log(`SchemaConfig for ${config.key} registered: ${sig}`);
-        }
-      }
-    } else {
-      console.log("\nSkipping SATI schema config registration (not registry authority)");
-    }
-
-    return {
-      success: true,
-      credential: {
-        address: credentialPda,
-        existed: credentialExisted,
-        deployed: credentialDeployed,
-      },
-      schemas: schemaStatuses,
-      signatures,
-      config: {
-        credential: credentialPda,
-        schemas: {
-          feedback: schemaPdas.feedback,
-          feedbackPublic: schemaPdas.feedbackPublic,
-          validation: schemaPdas.validation,
-          reputationScore: schemaPdas.reputationScore,
-        },
-      },
-    };
   }
 
   // ============================================================
