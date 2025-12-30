@@ -81,26 +81,35 @@ pub fn verify_ed25519_signatures(
                 );
 
                 // Parse offsets from the structure
-                let sig_offset =
-                    u16::from_le_bytes(data[offset_pos..offset_pos + 2].try_into().unwrap())
-                        as usize;
-                let pubkey_offset =
-                    u16::from_le_bytes(data[offset_pos + 4..offset_pos + 6].try_into().unwrap())
-                        as usize;
-                let msg_offset =
-                    u16::from_le_bytes(data[offset_pos + 8..offset_pos + 10].try_into().unwrap())
-                        as usize;
-                let msg_size =
-                    u16::from_le_bytes(data[offset_pos + 10..offset_pos + 12].try_into().unwrap())
-                        as usize;
+                let sig_offset = u16::from_le_bytes(
+                    data[offset_pos..offset_pos + 2]
+                        .try_into()
+                        .map_err(|_| SatiError::InvalidEd25519Instruction)?,
+                ) as usize;
+                let pubkey_offset = u16::from_le_bytes(
+                    data[offset_pos + 4..offset_pos + 6]
+                        .try_into()
+                        .map_err(|_| SatiError::InvalidEd25519Instruction)?,
+                ) as usize;
+                let msg_offset = u16::from_le_bytes(
+                    data[offset_pos + 8..offset_pos + 10]
+                        .try_into()
+                        .map_err(|_| SatiError::InvalidEd25519Instruction)?,
+                ) as usize;
+                let msg_size = u16::from_le_bytes(
+                    data[offset_pos + 10..offset_pos + 12]
+                        .try_into()
+                        .map_err(|_| SatiError::InvalidEd25519Instruction)?,
+                ) as usize;
 
                 // Extract and verify pubkey
                 require!(
                     data.len() >= pubkey_offset + 32,
                     SatiError::InvalidEd25519Instruction
                 );
-                let pubkey_bytes: [u8; 32] =
-                    data[pubkey_offset..pubkey_offset + 32].try_into().unwrap();
+                let pubkey_bytes: [u8; 32] = data[pubkey_offset..pubkey_offset + 32]
+                    .try_into()
+                    .map_err(|_| SatiError::InvalidEd25519Instruction)?;
                 let pubkey = Pubkey::new_from_array(pubkey_bytes);
 
                 // Check if this pubkey matches any expected signature
@@ -122,7 +131,9 @@ pub fn verify_ed25519_signatures(
                             data.len() >= sig_offset + 64,
                             SatiError::InvalidEd25519Instruction
                         );
-                        let sig: [u8; 64] = data[sig_offset..sig_offset + 64].try_into().unwrap();
+                        let sig: [u8; 64] = data[sig_offset..sig_offset + 64]
+                            .try_into()
+                            .map_err(|_| SatiError::InvalidEd25519Instruction)?;
                         require!(sig == expected.sig, SatiError::SignatureMismatch);
 
                         verified_count += 1;
@@ -264,7 +275,9 @@ pub fn verify_secp256k1_signature(
 
     // Derive Ethereum address from public key (keccak256 of pubkey, take last 20 bytes)
     let pubkey_hash = Keccak256::digest(recovered_pubkey.0);
-    let recovered_address: [u8; 20] = pubkey_hash[12..32].try_into().unwrap();
+    let recovered_address: [u8; 20] = pubkey_hash[12..32]
+        .try_into()
+        .map_err(|_| SatiError::InvalidEvmAddressRecovery)?;
 
     // Verify address matches
     require!(

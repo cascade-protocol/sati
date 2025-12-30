@@ -503,7 +503,8 @@ export class SATILightClientImpl implements SATILightClient {
   private async queryAttestations(filter: Partial<AttestationFilter>, dataType: number): Promise<ParsedAttestation[]> {
     // Build memcmp filters based on SATI schema offsets
     // For now, query by owner and filter in memory
-    // TODO: Use proper memcmp filters when supported by compression-kit
+    // TODO: Use MemcmpFilter interface from compression-kit when Photon RPC supports server-side filtering.
+    // Interface is ready - waiting on Light Protocol indexer support.
 
     const result = await this.rpc.getCompressedAccountsByOwner(this.programId);
     const attestations: ParsedAttestation[] = [];

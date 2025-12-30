@@ -593,11 +593,11 @@ async fn test_create_attestation_invalid_signature() {
         signatures: vec![
             SignatureData {
                 pubkey: agent_pubkey,
-                sig: agent_sig.clone(),
+                sig: agent_sig,
             },
             SignatureData {
                 pubkey: counterparty_pubkey,
-                sig: counterparty_sig.clone(),
+                sig: counterparty_sig,
             },
         ],
         output_state_tree_index,
@@ -764,12 +764,12 @@ async fn test_create_attestation_wrong_signer() {
         data: data.clone(),
         signatures: vec![
             SignatureData {
-                pubkey: agent_pubkey,   // Claims to be agent_pubkey
-                sig: agent_sig.clone(), // But signed by wrong_keypair
+                pubkey: agent_pubkey, // Claims to be agent_pubkey
+                sig: agent_sig,       // But signed by wrong_keypair
             },
             SignatureData {
                 pubkey: counterparty_pubkey,
-                sig: counterparty_sig.clone(),
+                sig: counterparty_sig,
             },
         ],
         output_state_tree_index,
@@ -932,11 +932,11 @@ async fn test_create_attestation_self_attestation() {
         signatures: vec![
             SignatureData {
                 pubkey: self_pubkey,
-                sig: agent_sig.clone(),
+                sig: agent_sig,
             },
             SignatureData {
                 pubkey: self_pubkey, // Same pubkey for both signatures
-                sig: counterparty_sig.clone(),
+                sig: counterparty_sig,
             },
         ],
         output_state_tree_index,
@@ -1090,11 +1090,11 @@ async fn test_create_attestation_data_too_small() {
         signatures: vec![
             SignatureData {
                 pubkey: agent_pubkey,
-                sig: agent_sig.clone(),
+                sig: agent_sig,
             },
             SignatureData {
                 pubkey: counterparty_pubkey,
-                sig: counterparty_sig.clone(),
+                sig: counterparty_sig,
             },
         ],
         output_state_tree_index,
@@ -1259,11 +1259,11 @@ async fn test_create_attestation_wrong_storage_type() {
         signatures: vec![
             SignatureData {
                 pubkey: agent_pubkey,
-                sig: agent_sig.clone(),
+                sig: agent_sig,
             },
             SignatureData {
                 pubkey: counterparty_pubkey,
-                sig: counterparty_sig.clone(),
+                sig: counterparty_sig,
             },
         ],
         output_state_tree_index,

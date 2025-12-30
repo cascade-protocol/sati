@@ -119,7 +119,11 @@ pub fn handler<'info>(
 
         // Validate content size if present
         if params.data.len() >= 102 {
-            let content_len = u32::from_le_bytes(params.data[98..102].try_into().unwrap()) as usize;
+            let content_len = u32::from_le_bytes(
+                params.data[98..102]
+                    .try_into()
+                    .map_err(|_| SatiError::InvalidDataLayout)?,
+            ) as usize;
             require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
         }
     }

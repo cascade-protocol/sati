@@ -141,7 +141,7 @@ cd packages/sdk && pnpm build && pnpm test
 
 - **Code comments:** Explain _why_, not _what_
 - **Function docs:** Document all public APIs
-- **Examples:** Add usage examples in `examples/`
+- **Examples:** Add usage examples in SDK documentation
 - **Specification:** Update spec for protocol changes
 
 ## Community

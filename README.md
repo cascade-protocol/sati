@@ -1,7 +1,6 @@
 # SATI: Solana Agent Trust Infrastructure
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status: Implementation Ready](https://img.shields.io/badge/Status-Implementation_Ready-green.svg)]()
 
 **Trust infrastructure for million-agent economies on Solana** — identity, reputation, and validation designed for continuous feedback at scale.
 
@@ -131,7 +130,7 @@ const { attestation } = await sati.giveFeedback({
 });
 ```
 
-See [examples/](./examples/) for complete usage examples.
+See the [SDK documentation](./packages/sdk/README.md) for complete usage examples.
 
 ---
 
@@ -199,7 +198,6 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 
 - [Complete Specification](./docs/specification.md) - Full technical specification
 - [TypeScript SDK](./packages/sdk/) - Developer SDK with generated client
-- [Examples](./examples/) - Usage examples
 
 ---
 

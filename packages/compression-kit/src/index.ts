@@ -249,6 +249,7 @@ export type {
   WithContext,
   WithCursor,
   PaginatedOptions,
+  MemcmpFilter,
   GetCompressedAccountsByOwnerConfig,
   GetCompressedTokenAccountsConfig,
   HashWithTreeInfo,

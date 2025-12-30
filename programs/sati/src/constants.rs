@@ -87,3 +87,54 @@ pub const SAS_HEADER_SIZE: usize = 1 + 32 + 32 + 32 + 4; // 101 bytes
 
 /// Offset to the data payload in SAS attestation account.
 pub const SAS_DATA_OFFSET: usize = SAS_HEADER_SIZE;
+
+// ============================================================================
+// Data Layout Offsets (must match SDK schemas.ts)
+// ============================================================================
+
+/// Base layout offsets (all schemas).
+/// All schemas start with: task_ref(32) + token_account(32) + counterparty(32).
+pub mod offsets {
+    /// task_ref offset (32 bytes)
+    pub const TASK_REF: usize = 0;
+    /// token_account (agent mint address) offset (32 bytes)
+    pub const TOKEN_ACCOUNT: usize = 32;
+    /// counterparty offset (32 bytes)
+    pub const COUNTERPARTY: usize = 64;
+
+    /// Feedback schema offsets (data_type = 0)
+    pub mod feedback {
+        /// data_hash offset (32 bytes)
+        pub const DATA_HASH: usize = 96;
+        /// content_type offset (1 byte)
+        pub const CONTENT_TYPE: usize = 128;
+        /// outcome offset (1 byte) - fixed for memcmp filtering
+        pub const OUTCOME: usize = 129;
+        /// tag1_len offset (1 byte, variable-length string follows)
+        pub const TAG1_LEN: usize = 130;
+    }
+
+    /// Validation schema offsets (data_type = 1)
+    pub mod validation {
+        /// data_hash offset (32 bytes)
+        pub const DATA_HASH: usize = 96;
+        /// content_type offset (1 byte)
+        pub const CONTENT_TYPE: usize = 128;
+        /// validation_type offset (1 byte)
+        pub const VALIDATION_TYPE: usize = 129;
+        /// response offset (1 byte) - fixed for memcmp filtering
+        pub const RESPONSE: usize = 130;
+        /// content_len offset (4 bytes u32)
+        pub const CONTENT_LEN: usize = 131;
+    }
+
+    /// ReputationScore schema offsets (data_type = 2)
+    pub mod reputation_score {
+        /// score offset (1 byte, 0-100)
+        pub const SCORE: usize = 96;
+        /// content_type offset (1 byte)
+        pub const CONTENT_TYPE: usize = 97;
+        /// content_len offset (4 bytes u32)
+        pub const CONTENT_LEN: usize = 98;
+    }
+}

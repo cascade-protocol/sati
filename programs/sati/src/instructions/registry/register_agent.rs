@@ -328,6 +328,17 @@ pub fn handler(
         ],
     )?;
 
+    // Verify ATA was properly created with correct address
+    let expected_ata = spl_associated_token_account::get_associated_token_address_with_program_id(
+        ctx.accounts.owner.key,
+        &ctx.accounts.agent_mint.key(),
+        &anchor_spl::token_2022::ID,
+    );
+    require!(
+        ctx.accounts.agent_token_account.key() == expected_ata,
+        SatiError::InvalidAuthority
+    );
+
     // 2j. Mint exactly 1 token to owner's ATA
     let mint_to_ix = mint_to(
         &anchor_spl::token_2022::ID,

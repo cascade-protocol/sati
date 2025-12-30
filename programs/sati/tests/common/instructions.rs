@@ -117,6 +117,7 @@ pub fn build_link_evm_address_ix(
         owner: *owner,
         agent_mint: *agent_mint,
         ata: *ata,
+        token_program: TOKEN_2022_PROGRAM_ID,
     };
 
     Instruction {

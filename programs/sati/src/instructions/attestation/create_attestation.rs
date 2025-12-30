@@ -264,7 +264,7 @@ fn validate_schema_fields(params: &CreateParams) -> Result<()> {
                     let content_len = u32::from_le_bytes(
                         params.data[content_start..content_start + 4]
                             .try_into()
-                            .unwrap(),
+                            .map_err(|_| SatiError::InvalidDataLayout)?,
                     ) as usize;
                     require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
                 }
@@ -281,8 +281,11 @@ fn validate_schema_fields(params: &CreateParams) -> Result<()> {
 
                 // Validate content size if present
                 if params.data.len() >= 135 {
-                    let content_len =
-                        u32::from_le_bytes(params.data[131..135].try_into().unwrap()) as usize;
+                    let content_len = u32::from_le_bytes(
+                        params.data[131..135]
+                            .try_into()
+                            .map_err(|_| SatiError::InvalidDataLayout)?,
+                    ) as usize;
                     require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
                 }
             }

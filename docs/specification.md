@@ -2,7 +2,7 @@
 
 ## Solana Agent Trust Infrastructure
 
-**Status**: Implementation Ready | **Version**: 2.1.0 | **Updated**: 2025-12-23 | **License**: Apache 2.0
+**Version**: 2.1.0 | **Updated**: 2025-12-23 | **License**: Apache 2.0
 
 ---
 
@@ -714,10 +714,18 @@ await sati.createFeedback({
 
 ### Addresses
 
-| Network | SATI Program | Registry Config | Group Mint |
-|---------|--------------|-----------------|------------|
-| Devnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | TBD | TBD |
-| Mainnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | TBD | TBD |
+| Network | SATI Program | SAS Credential | Lookup Table |
+|---------|--------------|----------------|--------------|
+| Devnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` | `EfAZzjfYQmd51o7kWJCtGBeoHssBrME1tqpLcVLpdns` |
+| Mainnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` | `8VLiASqKuGBzNdHpEiPCpMt4aLWkFifFKymHbquiguNK` |
+
+**SAS Schemas** (same on Devnet and Mainnet):
+- Feedback: `6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB`
+- FeedbackPublic: `HFVmsUxbCjTmDzWKdBcXhqFBGv7dhq9uuPxo9WejDYz3`
+- Validation: `5VBFsqkX6mG2zBhXBpkCnfvPNcc9mY9UQdCHtnTFHQEF`
+- ReputationScore: `7Pm1CmkMfU8XM3ehApgfsMjfGg6A63y9egVfD1VN8EPd`
+
+**Note**: Registry Config PDA is derived from seeds `[b"registry"]`. Group Mint is created during `initialize()`.
 
 ### Governance
 

@@ -82,11 +82,34 @@ export interface PaginatedOptions {
 }
 
 /**
+ * Memcmp filter for compressed account queries.
+ *
+ * NOTE: Photon RPC (Light Protocol indexer) does not yet support memcmp filters.
+ * This interface is prepared for when support is added.
+ * Track: https://github.com/Lightprotocol/light-protocol/issues
+ */
+export interface MemcmpFilter {
+  /** Byte offset into account data to start comparison */
+  offset: number;
+  /** Bytes to compare (base58 or base64 encoded, or raw Uint8Array) */
+  bytes: string | Uint8Array;
+  /** Encoding of bytes string ("base58" or "base64"), ignored if bytes is Uint8Array */
+  encoding?: "base58" | "base64";
+}
+
+/**
  * Options for getCompressedAccountsByOwner.
  */
 export interface GetCompressedAccountsByOwnerConfig {
   cursor?: string;
   limit?: number;
+  /**
+   * Memcmp filters for server-side filtering.
+   *
+   * NOTE: Not yet supported by Photon RPC. Filters are passed through but
+   * will be ignored until Light Protocol adds support.
+   */
+  filters?: MemcmpFilter[];
 }
 
 /**
@@ -254,6 +277,9 @@ export class PhotonRpc {
 
   /**
    * Get compressed accounts by owner.
+   *
+   * NOTE: `filters` parameter is prepared for when Photon RPC supports memcmp filters.
+   * Currently filters are passed through but may be ignored by the server.
    */
   async getCompressedAccountsByOwner(
     owner: Address,
@@ -264,6 +290,8 @@ export class PhotonRpc {
       owner,
       cursor: config?.cursor,
       limit: config?.limit,
+      // Pass through filters when Photon RPC adds support
+      filters: config?.filters,
     };
 
     const result = await this.requestWithContext<{

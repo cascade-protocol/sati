@@ -25,6 +25,7 @@ use sati::state::MetadataEntry;
 const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("11111111111111111111111111111111");
 
 /// Build register_agent instruction
+#[allow(clippy::too_many_arguments)]
 fn build_register_agent_ix(
     payer: &Pubkey,
     owner: &Pubkey,

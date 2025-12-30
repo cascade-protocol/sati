@@ -133,4 +133,7 @@ pub enum SatiError {
 
     #[msg("EVM address mismatch - recovered address does not match expected")]
     EvmAddressMismatch,
+
+    #[msg("Failed to extract EVM address from secp256k1 key recovery")]
+    InvalidEvmAddressRecovery,
 }
