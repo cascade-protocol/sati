@@ -107,16 +107,14 @@ import {
   type AttestationFilter,
 } from "./compression";
 
-import {
-  deriveSatiCredentialPda,
-  deriveSatiSchemaPda,
-  getCreateSatiCredentialInstruction,
-  getCreateSatiSchemaInstruction,
-  fetchMaybeCredential,
-  fetchMaybeSchema,
-  SATI_SCHEMAS,
-  type SASSchemaDefinition,
-} from "./sas";
+// SAS imports are dynamically loaded in setupSASSchemas() to avoid bundling sas-lib
+// in browser/worker environments that don't need it
+type SASSchemaDefinition = {
+  name: string;
+  description: string;
+  layout: number[];
+  fieldNames: string[];
+};
 
 import { deriveReputationAttestationPda } from "./sas-pdas";
 
@@ -1077,6 +1075,17 @@ export class Sati {
     authority: KeyPairSigner;
     testMode?: boolean;
   }): Promise<SASDeploymentResult> {
+    // Dynamically import sas-lib to avoid bundling it in browser/worker environments
+    const {
+      deriveSatiCredentialPda,
+      deriveSatiSchemaPda,
+      getCreateSatiCredentialInstruction,
+      getCreateSatiSchemaInstruction,
+      fetchMaybeCredential,
+      fetchMaybeSchema,
+      SATI_SCHEMAS,
+    } = await import("./sas");
+
     const { payer, authority, testMode = false } = params;
     const schemaVersion = testMode ? 0 : 1;
 

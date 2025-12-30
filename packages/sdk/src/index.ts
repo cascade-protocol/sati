@@ -71,8 +71,9 @@ export type {
 
 export { SATILightClientImpl, createSATILightClient } from "./compression";
 
-// SAS integration helpers
-export * from "./sas";
+// SAS integration helpers - NOT exported from main entry to avoid bundling sas-lib
+// Use: import { ... } from "@cascade-fyi/sati-sdk/sas"
+// export * from "./sas";
 
 // SAS PDA derivation helpers (SATI-specific)
 export {
