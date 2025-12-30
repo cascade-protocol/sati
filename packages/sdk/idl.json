@@ -683,7 +683,67 @@
         {
           "name": "ata",
           "docs": [
-            "Owner's associated token account for this mint"
+            "Owner's associated token account for this mint",
+            "Validated to be correct ATA for the agent_mint and have balance > 0"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "agent_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program for ATA verification"
           ]
         }
       ],
@@ -1330,6 +1390,11 @@
       "code": 6040,
       "name": "EvmAddressMismatch",
       "msg": "EVM address mismatch - recovered address does not match expected"
+    },
+    {
+      "code": 6041,
+      "name": "InvalidEvmAddressRecovery",
+      "msg": "Failed to extract EVM address from secp256k1 key recovery"
     }
   ],
   "types": [

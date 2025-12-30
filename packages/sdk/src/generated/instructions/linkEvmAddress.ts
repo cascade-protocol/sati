@@ -12,8 +12,10 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
+  getAddressEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
   getU32Decoder,
@@ -38,7 +40,11 @@ import {
   type TransactionSigner,
 } from "@solana/kit";
 import { SATI_PROGRAM_ADDRESS } from "../programs";
-import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
+import {
+  expectAddress,
+  getAccountMetaFactory,
+  type ResolvedAccount,
+} from "../shared";
 
 export const LINK_EVM_ADDRESS_DISCRIMINATOR = new Uint8Array([
   156, 75, 131, 178, 64, 110, 236, 64,
@@ -55,6 +61,8 @@ export type LinkEvmAddressInstruction<
   TAccountOwner extends string | AccountMeta<string> = string,
   TAccountAgentMint extends string | AccountMeta<string> = string,
   TAccountAta extends string | AccountMeta<string> = string,
+  TAccountTokenProgram extends string | AccountMeta<string> =
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
 > = Instruction<TProgram> &
   InstructionWithData<ReadonlyUint8Array> &
@@ -68,6 +76,9 @@ export type LinkEvmAddressInstruction<
         ? ReadonlyAccount<TAccountAgentMint>
         : TAccountAgentMint,
       TAccountAta extends string ? ReadonlyAccount<TAccountAta> : TAccountAta,
+      TAccountTokenProgram extends string
+        ? ReadonlyAccount<TAccountTokenProgram>
+        : TAccountTokenProgram,
       ...TRemainingAccounts,
     ]
   >;
@@ -128,17 +139,125 @@ export function getLinkEvmAddressInstructionDataCodec(): Codec<
   );
 }
 
-export type LinkEvmAddressInput<
+export type LinkEvmAddressAsyncInput<
   TAccountOwner extends string = string,
   TAccountAgentMint extends string = string,
   TAccountAta extends string = string,
+  TAccountTokenProgram extends string = string,
 > = {
   /** Agent owner (must sign) */
   owner: TransactionSigner<TAccountOwner>;
   /** Agent mint account */
   agentMint: Address<TAccountAgentMint>;
-  /** Owner's associated token account for this mint */
+  /**
+   * Owner's associated token account for this mint
+   * Validated to be correct ATA for the agent_mint and have balance > 0
+   */
+  ata?: Address<TAccountAta>;
+  /** Token-2022 program for ATA verification */
+  tokenProgram?: Address<TAccountTokenProgram>;
+  evmAddress: LinkEvmAddressInstructionDataArgs["evmAddress"];
+  chainId: LinkEvmAddressInstructionDataArgs["chainId"];
+  signature: LinkEvmAddressInstructionDataArgs["signature"];
+  recoveryId: LinkEvmAddressInstructionDataArgs["recoveryId"];
+};
+
+export async function getLinkEvmAddressInstructionAsync<
+  TAccountOwner extends string,
+  TAccountAgentMint extends string,
+  TAccountAta extends string,
+  TAccountTokenProgram extends string,
+  TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
+>(
+  input: LinkEvmAddressAsyncInput<
+    TAccountOwner,
+    TAccountAgentMint,
+    TAccountAta,
+    TAccountTokenProgram
+  >,
+  config?: { programAddress?: TProgramAddress },
+): Promise<
+  LinkEvmAddressInstruction<
+    TProgramAddress,
+    TAccountOwner,
+    TAccountAgentMint,
+    TAccountAta,
+    TAccountTokenProgram
+  >
+> {
+  // Program address.
+  const programAddress = config?.programAddress ?? SATI_PROGRAM_ADDRESS;
+
+  // Original accounts.
+  const originalAccounts = {
+    owner: { value: input.owner ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
+    ata: { value: input.ata ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+  };
+  const accounts = originalAccounts as Record<
+    keyof typeof originalAccounts,
+    ResolvedAccount
+  >;
+
+  // Original args.
+  const args = { ...input };
+
+  // Resolve default values.
+  if (!accounts.tokenProgram.value) {
+    accounts.tokenProgram.value =
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
+  }
+  if (!accounts.ata.value) {
+    accounts.ata.value = await getProgramDerivedAddress({
+      programAddress:
+        "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" as Address<"ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL">,
+      seeds: [
+        getAddressEncoder().encode(expectAddress(accounts.owner.value)),
+        getAddressEncoder().encode(expectAddress(accounts.tokenProgram.value)),
+        getAddressEncoder().encode(expectAddress(accounts.agentMint.value)),
+      ],
+    });
+  }
+
+  const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
+  return Object.freeze({
+    accounts: [
+      getAccountMeta(accounts.owner),
+      getAccountMeta(accounts.agentMint),
+      getAccountMeta(accounts.ata),
+      getAccountMeta(accounts.tokenProgram),
+    ],
+    data: getLinkEvmAddressInstructionDataEncoder().encode(
+      args as LinkEvmAddressInstructionDataArgs,
+    ),
+    programAddress,
+  } as LinkEvmAddressInstruction<
+    TProgramAddress,
+    TAccountOwner,
+    TAccountAgentMint,
+    TAccountAta,
+    TAccountTokenProgram
+  >);
+}
+
+export type LinkEvmAddressInput<
+  TAccountOwner extends string = string,
+  TAccountAgentMint extends string = string,
+  TAccountAta extends string = string,
+  TAccountTokenProgram extends string = string,
+> = {
+  /** Agent owner (must sign) */
+  owner: TransactionSigner<TAccountOwner>;
+  /** Agent mint account */
+  agentMint: Address<TAccountAgentMint>;
+  /**
+   * Owner's associated token account for this mint
+   * Validated to be correct ATA for the agent_mint and have balance > 0
+   */
   ata: Address<TAccountAta>;
+  /** Token-2022 program for ATA verification */
+  tokenProgram?: Address<TAccountTokenProgram>;
   evmAddress: LinkEvmAddressInstructionDataArgs["evmAddress"];
   chainId: LinkEvmAddressInstructionDataArgs["chainId"];
   signature: LinkEvmAddressInstructionDataArgs["signature"];
@@ -149,15 +268,22 @@ export function getLinkEvmAddressInstruction<
   TAccountOwner extends string,
   TAccountAgentMint extends string,
   TAccountAta extends string,
+  TAccountTokenProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
-  input: LinkEvmAddressInput<TAccountOwner, TAccountAgentMint, TAccountAta>,
+  input: LinkEvmAddressInput<
+    TAccountOwner,
+    TAccountAgentMint,
+    TAccountAta,
+    TAccountTokenProgram
+  >,
   config?: { programAddress?: TProgramAddress },
 ): LinkEvmAddressInstruction<
   TProgramAddress,
   TAccountOwner,
   TAccountAgentMint,
-  TAccountAta
+  TAccountAta,
+  TAccountTokenProgram
 > {
   // Program address.
   const programAddress = config?.programAddress ?? SATI_PROGRAM_ADDRESS;
@@ -167,6 +293,7 @@ export function getLinkEvmAddressInstruction<
     owner: { value: input.owner ?? null, isWritable: false },
     agentMint: { value: input.agentMint ?? null, isWritable: false },
     ata: { value: input.ata ?? null, isWritable: false },
+    tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
   };
   const accounts = originalAccounts as Record<
     keyof typeof originalAccounts,
@@ -176,12 +303,19 @@ export function getLinkEvmAddressInstruction<
   // Original args.
   const args = { ...input };
 
+  // Resolve default values.
+  if (!accounts.tokenProgram.value) {
+    accounts.tokenProgram.value =
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
+  }
+
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
   return Object.freeze({
     accounts: [
       getAccountMeta(accounts.owner),
       getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.ata),
+      getAccountMeta(accounts.tokenProgram),
     ],
     data: getLinkEvmAddressInstructionDataEncoder().encode(
       args as LinkEvmAddressInstructionDataArgs,
@@ -191,7 +325,8 @@ export function getLinkEvmAddressInstruction<
     TProgramAddress,
     TAccountOwner,
     TAccountAgentMint,
-    TAccountAta
+    TAccountAta,
+    TAccountTokenProgram
   >);
 }
 
@@ -205,8 +340,13 @@ export type ParsedLinkEvmAddressInstruction<
     owner: TAccountMetas[0];
     /** Agent mint account */
     agentMint: TAccountMetas[1];
-    /** Owner's associated token account for this mint */
+    /**
+     * Owner's associated token account for this mint
+     * Validated to be correct ATA for the agent_mint and have balance > 0
+     */
     ata: TAccountMetas[2];
+    /** Token-2022 program for ATA verification */
+    tokenProgram: TAccountMetas[3];
   };
   data: LinkEvmAddressInstructionData;
 };
@@ -219,7 +359,7 @@ export function parseLinkEvmAddressInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedLinkEvmAddressInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 3) {
+  if (instruction.accounts.length < 4) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -235,6 +375,7 @@ export function parseLinkEvmAddressInstruction<
       owner: getNextAccount(),
       agentMint: getNextAccount(),
       ata: getNextAccount(),
+      tokenProgram: getNextAccount(),
     },
     data: getLinkEvmAddressInstructionDataDecoder().decode(instruction.data),
   };

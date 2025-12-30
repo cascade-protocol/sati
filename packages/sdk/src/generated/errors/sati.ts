@@ -96,6 +96,8 @@ export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1796; // 6038
 export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1797; // 6039
 /** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
 export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1798; // 6040
+/** InvalidEvmAddressRecovery: Failed to extract EVM address from secp256k1 key recovery */
+export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x1799; // 6041
 
 export type SatiError =
   | typeof SATI_ERROR__AGENT_ATA_EMPTY
@@ -112,6 +114,7 @@ export type SatiError =
   | typeof SATI_ERROR__INVALID_DATA_LAYOUT
   | typeof SATI_ERROR__INVALID_DATA_TYPE
   | typeof SATI_ERROR__INVALID_ED25519_INSTRUCTION
+  | typeof SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY
   | typeof SATI_ERROR__INVALID_GROUP_MINT
   | typeof SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR
   | typeof SATI_ERROR__INVALID_OUTCOME
@@ -157,6 +160,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__INVALID_DATA_LAYOUT]: `Invalid data layout`,
     [SATI_ERROR__INVALID_DATA_TYPE]: `Invalid data type`,
     [SATI_ERROR__INVALID_ED25519_INSTRUCTION]: `Invalid Ed25519 instruction format`,
+    [SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY]: `Failed to extract EVM address from secp256k1 key recovery`,
     [SATI_ERROR__INVALID_GROUP_MINT]: `Invalid group mint - must be owned by Token-2022 with TokenGroup extension`,
     [SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR]: `Invalid instructions sysvar`,
     [SATI_ERROR__INVALID_OUTCOME]: `Invalid outcome value (must be 0-2)`,
