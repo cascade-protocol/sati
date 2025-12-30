@@ -12,7 +12,7 @@
  *   0. Build (anchor build for localnet, solana-verify for devnet/mainnet)
  *   1. Deploy/Upgrade Program + IDL
  *   2. Initialize Registry (skip if already initialized by us)
- *   3. Deploy SAS Schemas + Address Lookup Table
+ *   3. Deploy SAS Schemas + Register SATI Schema Configs + Address Lookup Table
  *   4. Save config and finalize
  *
  * Usage:
@@ -77,7 +77,14 @@ import {
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import { getMintLen, ExtensionType, TOKEN_GROUP_SIZE } from "@solana/spl-token";
-import { getInitializeInstructionAsync, fetchRegistryConfig } from "../src/generated";
+import {
+  getInitializeInstructionAsync,
+  fetchRegistryConfig,
+  getRegisterSchemaConfigInstructionAsync,
+  fetchMaybeSchemaConfig,
+} from "../src/generated";
+import { findSchemaConfigPda } from "../src/helpers";
+import { SCHEMA_CONFIGS, SignatureMode, StorageType } from "../src/schemas";
 import {
   findAddressLookupTablePda,
   getCreateLookupTableInstruction,
@@ -510,6 +517,74 @@ async function deploySASSchemas(
   };
 }
 
+// Register SATI SchemaConfig accounts for each SAS schema (idempotent)
+// This links SAS schemas to the SATI program with configuration (signatureMode, storageType, closeable)
+async function registerSchemaConfigs(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>,
+  authority: KeyPairSigner,
+  sasSchemas: Record<string, Address>,
+): Promise<void> {
+  console.log("\n--- Registering SATI Schema Configs ---");
+
+  const sendAndConfirm = sendAndConfirmTransactionFactory({
+    rpc,
+    rpcSubscriptions,
+  } as SendAndConfirmConfig);
+
+  // Map SAS schema keys to SCHEMA_CONFIGS keys
+  const schemaMapping: Record<string, keyof typeof SCHEMA_CONFIGS> = {
+    feedback: "Feedback",
+    feedbackPublic: "FeedbackPublic",
+    validation: "Validation",
+    reputationScore: "ReputationScore",
+  };
+
+  for (const [key, sasSchema] of Object.entries(sasSchemas)) {
+    const configKey = schemaMapping[key];
+    if (!configKey) {
+      console.log(`  ${key}: skipped (no config defined)`);
+      continue;
+    }
+
+    const config = SCHEMA_CONFIGS[configKey];
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+    console.log(`${configKey}: ${schemaConfigPda}`);
+
+    // Check if already registered
+    const existingConfig = await fetchMaybeSchemaConfig(rpc, schemaConfigPda);
+    if (existingConfig.exists) {
+      console.log(`  (already registered)`);
+      continue;
+    }
+
+    console.log(
+      `  Registering with mode=${SignatureMode[config.signatureMode]}, storage=${StorageType[config.storageType]}, closeable=${config.closeable}...`,
+    );
+
+    const registerIx = await getRegisterSchemaConfigInstructionAsync({
+      payer: authority,
+      authority,
+      sasSchema,
+      schemaConfig: schemaConfigPda,
+      signatureMode: config.signatureMode,
+      storageType: config.storageType,
+      closeable: config.closeable,
+    });
+
+    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+    const tx = pipe(
+      createTransactionMessage({ version: 0 }),
+      (msg) => setTransactionMessageFeePayer(authority.address, msg),
+      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+      (msg) => appendTransactionMessageInstructions([registerIx], msg),
+    );
+    const signedTx = await signTransactionMessageWithSigners(tx);
+    await sendAndConfirm(signedTx as SendAndConfirmTx, { commitment: "confirmed" });
+    console.log(`  Registered`);
+  }
+}
+
 // Create or find existing Address Lookup Table (idempotent)
 async function getOrCreateLookupTable(
   rpc: ReturnType<typeof createSolanaRpc>,
@@ -873,8 +948,11 @@ async function main() {
     groupMintAddress = groupMint.address;
   }
 
-  // PHASE 3: Deploy SAS Schemas + Address Lookup Table
+  // PHASE 3: Deploy SAS Schemas + Register Schema Configs + Address Lookup Table
   const sasConfig = await deploySASSchemas(rpc, rpcSubscriptions, authority);
+
+  // Register schema configs in SATI program (links SAS schemas to SATI)
+  await registerSchemaConfigs(rpc, rpcSubscriptions, authority, sasConfig.schemas);
 
   // Collect addresses for the lookup table
   // Must include all addresses used in Light Protocol transactions for compression
