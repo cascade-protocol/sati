@@ -27,10 +27,13 @@ import {
   createValidationSignatures,
   createReputationSignature,
   createTestKeypair,
+  verifySignature,
   randomBytes32,
   setupE2ETest,
+  setupSignatureTest,
   type TestKeypair,
   type E2ETestContext,
+  type SignatureTestContext,
 } from "../helpers";
 
 // =============================================================================
@@ -74,7 +77,8 @@ describe("E2E: Attestation Flow", () => {
     counterpartyKeypair = ctx.counterpartyKeypair;
 
     // Generate random SAS schema for this test suite (separate from ctx.feedbackSchema)
-    sasSchema = createTestKeypair().address;
+    const schemaKeypair = await createTestKeypair();
+    sasSchema = schemaKeypair.address;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -177,7 +181,7 @@ describe("E2E: Attestation Flow", () => {
         // Agent OWNER signs interaction hash (blind - doesn't know outcome)
         // Counterparty signs feedback hash (includes outcome)
         // Hashes include mint address; signatures come from owner
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           sasSchema,
           taskRef,
           agentOwnerKeypair,
@@ -227,7 +231,7 @@ describe("E2E: Attestation Flow", () => {
         const tokenAccount = agentMint;
 
         // Sign for Positive outcome
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           sasSchema,
           taskRef,
           agentOwnerKeypair,
@@ -315,32 +319,26 @@ describe("E2E: Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Validation Attestation Flow", () => {
-  let agentKeypair: TestKeypair;
-  let validatorKeypair: TestKeypair;
-  let sasSchema: Address;
+  let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // These tests only verify signature creation/verification - no chain submission
-    agentKeypair = createTestKeypair(10);
-    validatorKeypair = createTestKeypair(11);
-    sasSchema = createTestKeypair().address;
+    // Use lightweight fixture - no RPC needed for these signature-only tests
+    sigCtx = await setupSignatureTest(10);
   }, TEST_TIMEOUT);
 
   test(
     "creates validation attestation with real signatures",
     async () => {
+      const { agentKeypair, validatorKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
       const response = 95; // High validation score
 
-      // In a real test with registered agent:
-      // const tokenAccount = address(...);
-
-      // For now, use the agent keypair address as token account stand-in
+      // Use the agent keypair address as token account stand-in
       const tokenAccount = agentKeypair.address;
 
       // Create real Ed25519 signatures
-      const signatures = createValidationSignatures(
+      const signatures = await createValidationSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -360,8 +358,7 @@ describe("E2E: Validation Attestation Flow", () => {
       const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
 
       // Validator signature should verify against validation hash
-      const { verifySignature } = await import("../helpers/signatures");
-      const isValid = verifySignature(validationHash, signatures[1].sig, validatorKeypair.publicKey);
+      const isValid = await verifySignature(validationHash, signatures[1].sig, validatorKeypair.publicKey);
       expect(isValid).toBe(true);
     },
     TEST_TIMEOUT,
@@ -370,12 +367,20 @@ describe("E2E: Validation Attestation Flow", () => {
   test(
     "different response scores produce different validator signatures",
     async () => {
+      const { agentKeypair, validatorKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
-      const sig50 = createValidationSignatures(sasSchema, taskRef, agentKeypair, validatorKeypair, dataHash, 50);
+      const sig50 = await createValidationSignatures(sasSchema, taskRef, agentKeypair, validatorKeypair, dataHash, 50);
 
-      const sig100 = createValidationSignatures(sasSchema, taskRef, agentKeypair, validatorKeypair, dataHash, 100);
+      const sig100 = await createValidationSignatures(
+        sasSchema,
+        taskRef,
+        agentKeypair,
+        validatorKeypair,
+        dataHash,
+        100,
+      );
 
       // Agent signatures should be same (blind to response)
       expect(sig50[0].sig).toEqual(sig100[0].sig);
@@ -392,24 +397,21 @@ describe("E2E: Validation Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: ReputationScore Attestation Flow", () => {
-  let providerKeypair: TestKeypair;
-  let agentKeypair: TestKeypair;
-  let sasSchema: Address;
+  let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // These tests only verify signature creation/verification - no chain submission
-    providerKeypair = createTestKeypair(20);
-    agentKeypair = createTestKeypair(21);
-    sasSchema = createTestKeypair().address;
+    // Use lightweight fixture - no RPC needed for these signature-only tests
+    sigCtx = await setupSignatureTest(20);
   }, TEST_TIMEOUT);
 
   test(
     "creates reputation signature (SingleSigner mode)",
     async () => {
+      const { agentKeypair, providerKeypair, sasSchema } = sigCtx;
       const score = 85;
 
       // ReputationScore uses SingleSigner mode - only provider signs
-      const signatures = createReputationSignature(sasSchema, agentKeypair.address, providerKeypair, score);
+      const signatures = await createReputationSignature(sasSchema, agentKeypair.address, providerKeypair, score);
 
       // Only one signature (provider)
       expect(signatures).toHaveLength(1);
@@ -419,8 +421,7 @@ describe("E2E: ReputationScore Attestation Flow", () => {
       // Verify signature is bound to score
       const reputationHash = computeReputationHash(sasSchema, agentKeypair.address, providerKeypair.address, score);
 
-      const { verifySignature } = await import("../helpers/signatures");
-      const isValid = verifySignature(reputationHash, signatures[0].sig, providerKeypair.publicKey);
+      const isValid = await verifySignature(reputationHash, signatures[0].sig, providerKeypair.publicKey);
       expect(isValid).toBe(true);
     },
     TEST_TIMEOUT,
@@ -429,9 +430,11 @@ describe("E2E: ReputationScore Attestation Flow", () => {
   test(
     "different scores produce different signatures",
     async () => {
-      const sig50 = createReputationSignature(sasSchema, agentKeypair.address, providerKeypair, 50);
+      const { agentKeypair, providerKeypair, sasSchema } = sigCtx;
 
-      const sig90 = createReputationSignature(sasSchema, agentKeypair.address, providerKeypair, 90);
+      const sig50 = await createReputationSignature(sasSchema, agentKeypair.address, providerKeypair, 50);
+
+      const sig90 = await createReputationSignature(sasSchema, agentKeypair.address, providerKeypair, 90);
 
       // Different scores should produce different signatures
       expect(sig50[0].sig).not.toEqual(sig90[0].sig);
@@ -442,13 +445,14 @@ describe("E2E: ReputationScore Attestation Flow", () => {
   test(
     "signature uniqueness per (provider, agent) pair",
     async () => {
-      const agent1 = createTestKeypair(30);
-      const agent2 = createTestKeypair(31);
+      const { providerKeypair, sasSchema } = sigCtx;
+      const agent1 = await createTestKeypair(30);
+      const agent2 = await createTestKeypair(31);
       const score = 75;
 
-      const sig1 = createReputationSignature(sasSchema, agent1.address, providerKeypair, score);
+      const sig1 = await createReputationSignature(sasSchema, agent1.address, providerKeypair, score);
 
-      const sig2 = createReputationSignature(sasSchema, agent2.address, providerKeypair, score);
+      const sig2 = await createReputationSignature(sasSchema, agent2.address, providerKeypair, score);
 
       // Same score but different agents should produce different signatures
       expect(sig1[0].sig).not.toEqual(sig2[0].sig);
@@ -462,26 +466,23 @@ describe("E2E: ReputationScore Attestation Flow", () => {
 // =============================================================================
 
 describe("E2E: Error Handling", () => {
-  let agentKeypair: TestKeypair;
-  let counterpartyKeypair: TestKeypair;
-  let sasSchema: Address;
+  let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // These tests only verify signature error cases - no chain submission
-    agentKeypair = createTestKeypair(40);
-    counterpartyKeypair = createTestKeypair(41);
-    sasSchema = createTestKeypair().address;
+    // Use lightweight fixture - no RPC needed for these signature error tests
+    sigCtx = await setupSignatureTest(40);
   }, TEST_TIMEOUT);
 
   test(
     "detects tampered signature",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
       const outcome = Outcome.Positive;
 
       // Create valid signatures
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -495,10 +496,9 @@ describe("E2E: Error Handling", () => {
       tamperedSig[0] ^= 0xff; // Flip bits
 
       // Verification should fail
-      const { verifySignature } = await import("../helpers/signatures");
       const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
 
-      const isValid = verifySignature(interactionHash, tamperedSig, agentKeypair.publicKey);
+      const isValid = await verifySignature(interactionHash, tamperedSig, agentKeypair.publicKey);
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,
@@ -507,12 +507,13 @@ describe("E2E: Error Handling", () => {
   test(
     "detects wrong signer",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
-      const wrongKeypair = createTestKeypair(99);
+      const wrongKeypair = await createTestKeypair(99);
 
-      // Create signatures with wrong keypair
-      const signatures = createFeedbackSignatures(
+      // Create signatures with correct keypairs
+      const signatures = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -522,10 +523,9 @@ describe("E2E: Error Handling", () => {
       );
 
       // Try to verify with wrong public key
-      const { verifySignature } = await import("../helpers/signatures");
       const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
 
-      const isValid = verifySignature(
+      const isValid = await verifySignature(
         interactionHash,
         signatures[0].sig,
         wrongKeypair.publicKey, // Wrong key!
@@ -538,10 +538,11 @@ describe("E2E: Error Handling", () => {
   test(
     "detects wrong message hash",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -559,8 +560,7 @@ describe("E2E: Error Handling", () => {
         dataHash,
       );
 
-      const { verifySignature } = await import("../helpers/signatures");
-      const isValid = verifySignature(wrongHash, signatures[0].sig, agentKeypair.publicKey);
+      const isValid = await verifySignature(wrongHash, signatures[0].sig, agentKeypair.publicKey);
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,
@@ -569,14 +569,14 @@ describe("E2E: Error Handling", () => {
   test(
     "validates signature count for DualSignature mode",
     async () => {
-      // DualSignature mode requires exactly 2 signatures
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const { verifyFeedbackSignatures } = await import("../helpers/signatures");
 
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
       // Create valid signatures
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -586,7 +586,7 @@ describe("E2E: Error Handling", () => {
       );
 
       // Verify with only one signature should fail
-      const result = verifyFeedbackSignatures(
+      const result = await verifyFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair.address,
@@ -603,12 +603,13 @@ describe("E2E: Error Handling", () => {
   test(
     "validates swapped signatures fail",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const { verifyFeedbackSignatures } = await import("../helpers/signatures");
 
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -620,7 +621,7 @@ describe("E2E: Error Handling", () => {
       // Swap the signatures
       const swapped = [signatures[1], signatures[0]];
 
-      const result = verifyFeedbackSignatures(
+      const result = await verifyFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair.address,

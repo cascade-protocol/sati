@@ -30,6 +30,8 @@ import {
   createSolanaRpcSubscriptions,
   sendAndConfirmTransactionFactory,
   address,
+  verifySignature,
+  signatureBytes,
   type Address,
   type KeyPairSigner,
   type AddressesByLookupTableAddress,
@@ -107,6 +109,8 @@ import {
   type AttestationFilter,
 } from "./compression";
 
+import { importEd25519PublicKey } from "@cascade-fyi/compression-kit";
+
 // Note: SAS schema setup is available via setupSASSchemas() from "@cascade-fyi/sati-sdk/sas"
 
 import { deriveReputationAttestationPda } from "./sas-pdas";
@@ -125,8 +129,6 @@ import type {
   SignatureVerificationResult,
   LinkEvmAddressResult,
 } from "./types";
-
-import nacl from "tweetnacl";
 
 // Re-export enums and types
 export { Outcome } from "./hashes";
@@ -1866,7 +1868,7 @@ export class Sati {
   /**
    * Verify signatures on a parsed attestation
    */
-  verifySignatures(attestation: ParsedAttestation): SignatureVerificationResult {
+  async verifySignatures(attestation: ParsedAttestation): Promise<SignatureVerificationResult> {
     const { attestation: compressed, data } = attestation;
     const addressEncoder = getAddressEncoder();
 
@@ -1877,8 +1879,9 @@ export class Sati {
     const signature1 = compressed.signature1;
     const signature2 = compressed.signature2;
 
-    // Convert tokenAccount Address to bytes for nacl verification
-    const agentPubkey = new Uint8Array(addressEncoder.encode(tokenAccount));
+    // Convert tokenAccount Address to bytes for Web Crypto verification
+    const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(tokenAccount));
+    const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
 
     if (compressed.dataType === DataType.Feedback) {
       const feedbackData = data as FeedbackData;
@@ -1892,10 +1895,11 @@ export class Sati {
 
       const feedbackHash = computeFeedbackHash(sasSchema, feedbackData.taskRef, tokenAccount, feedbackData.outcome);
 
-      const counterpartyPubkey = new Uint8Array(addressEncoder.encode(feedbackData.counterparty));
+      const counterpartyPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.counterparty));
+      const counterpartyKey = await importEd25519PublicKey(counterpartyPubkeyBytes);
 
-      const agentValid = nacl.sign.detached.verify(interactionHash, signature1, agentPubkey);
-      const counterpartyValid = nacl.sign.detached.verify(feedbackHash, signature2, counterpartyPubkey);
+      const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
+      const counterpartyValid = await verifySignature(counterpartyKey, signatureBytes(signature2), feedbackHash);
 
       return {
         valid: agentValid && counterpartyValid,
@@ -1919,10 +1923,11 @@ export class Sati {
         validationData.response,
       );
 
-      const validatorPubkey = new Uint8Array(addressEncoder.encode(validationData.counterparty));
+      const validatorPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.counterparty));
+      const validatorKey = await importEd25519PublicKey(validatorPubkeyBytes);
 
-      const agentValid = nacl.sign.detached.verify(interactionHash, signature1, agentPubkey);
-      const counterpartyValid = nacl.sign.detached.verify(validationHash, signature2, validatorPubkey);
+      const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
+      const counterpartyValid = await verifySignature(validatorKey, signatureBytes(signature2), validationHash);
 
       return {
         valid: agentValid && counterpartyValid,

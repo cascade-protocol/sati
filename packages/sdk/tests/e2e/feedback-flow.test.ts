@@ -29,9 +29,11 @@ import {
   verifyFeedbackSignatures,
   randomBytes32,
   setupE2ETest,
+  setupSignatureTest,
   type TestKeypair,
   type SignatureData,
   type E2ETestContext,
+  type SignatureTestContext,
   waitForIndexer,
 } from "../helpers";
 
@@ -77,7 +79,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
     lookupTableAddress = ctx.lookupTableAddress;
 
     // Generate SAS schema address for this test suite (separate from ctx.feedbackSchema)
-    sasSchema = createTestKeypair().address;
+    const schemaKeypair = await createTestKeypair();
+    sasSchema = schemaKeypair.address;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -109,7 +112,6 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const agent = await sati.loadAgent(agentMint);
         expect(agent).not.toBeNull();
         expect(agent?.name).toBe(name);
-        // symbol field was removed from AgentIdentity (vestigial from fungible tokens)
       },
       TEST_TIMEOUT,
     );
@@ -176,7 +178,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         // Create real signatures
         // tokenAccount = agent's MINT address (identity)
         // agentOwnerKeypair = NFT owner (signer)
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           sasSchema,
           taskRef,
           agentOwnerKeypair,
@@ -187,7 +189,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         );
 
         // Verify signatures before submitting
-        const verifyResult = verifyFeedbackSignatures(
+        const verifyResult = await verifyFeedbackSignatures(
           sasSchema,
           taskRef,
           tokenAccount, // Use mint address
@@ -241,9 +243,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
         const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
 
-        const agentSig = signMessage(interactionHash, agentOwnerKeypair.secretKey);
+        const agentSig = await signMessage(interactionHash, agentOwnerKeypair.keyPair);
         // Agent owner signs as counterparty too!
-        const selfSig = signMessage(feedbackHash, agentOwnerKeypair.secretKey);
+        const selfSig = await signMessage(feedbackHash, agentOwnerKeypair.keyPair);
 
         // This should be rejected on-chain
         await expect(
@@ -387,18 +389,17 @@ describe("E2E: Full Feedback Lifecycle", () => {
 // =============================================================================
 
 describe("E2E: Multiple Feedbacks Flow", () => {
-  let agentKeypair: TestKeypair;
-  let sasSchema: Address;
+  let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // These tests only verify signature creation - no chain submission
-    agentKeypair = createTestKeypair(200);
-    sasSchema = createTestKeypair().address;
+    // Use lightweight fixture - no RPC needed for these signature-only tests
+    sigCtx = await setupSignatureTest(200);
   }, TEST_TIMEOUT);
 
   test(
     "creates multiple feedbacks with different outcomes",
     async () => {
+      const { agentKeypair, sasSchema } = sigCtx;
       const _tokenAccount = agentKeypair.address;
 
       // Create feedbacks with different outcomes
@@ -406,11 +407,11 @@ describe("E2E: Multiple Feedbacks Flow", () => {
       const createdFeedbacks: SignatureData[][] = [];
 
       for (const outcome of outcomes) {
-        const counterpartyKp = createTestKeypair(300 + outcome);
+        const counterpartyKp = await createTestKeypair(300 + outcome);
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           sasSchema,
           taskRef,
           agentKeypair,
@@ -422,7 +423,7 @@ describe("E2E: Multiple Feedbacks Flow", () => {
         createdFeedbacks.push(signatures);
 
         // Verify each signature set is valid
-        const result = verifyFeedbackSignatures(
+        const result = await verifyFeedbackSignatures(
           sasSchema,
           taskRef,
           agentKeypair.address,
@@ -442,9 +443,10 @@ describe("E2E: Multiple Feedbacks Flow", () => {
   test(
     "different counterparties produce unique attestation addresses",
     async () => {
+      const { agentKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
-      const counterparty1 = createTestKeypair(400);
-      const counterparty2 = createTestKeypair(401);
+      const counterparty1 = await createTestKeypair(400);
+      const counterparty2 = await createTestKeypair(401);
 
       // Compute nonces for each (task, agent, counterparty) tuple
       const nonce1 = computeAttestationNonce(taskRef, sasSchema, agentKeypair.address, counterparty1.address);
@@ -460,8 +462,9 @@ describe("E2E: Multiple Feedbacks Flow", () => {
   test(
     "same (task, agent, counterparty) produces same address (collision prevention)",
     async () => {
+      const { agentKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
-      const counterparty = createTestKeypair(500);
+      const counterparty = await createTestKeypair(500);
 
       const nonce1 = computeAttestationNonce(taskRef, sasSchema, agentKeypair.address, counterparty.address);
 
@@ -479,25 +482,22 @@ describe("E2E: Multiple Feedbacks Flow", () => {
 // =============================================================================
 
 describe("E2E: Feedback Signature Edge Cases", () => {
-  let agentKeypair: TestKeypair;
-  let counterpartyKeypair: TestKeypair;
-  let sasSchema: Address;
+  let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // These tests only verify signature behavior - no chain submission
-    agentKeypair = createTestKeypair(600);
-    counterpartyKeypair = createTestKeypair(601);
-    sasSchema = createTestKeypair().address;
+    // Use lightweight fixture - no RPC needed
+    sigCtx = await setupSignatureTest(600);
   }, TEST_TIMEOUT);
 
   test(
     "agent signature is blind to outcome",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
       // Create signatures for Positive and Negative outcomes
-      const sigPositive = createFeedbackSignatures(
+      const sigPositive = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -506,7 +506,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         Outcome.Positive,
       );
 
-      const sigNegative = createFeedbackSignatures(
+      const sigNegative = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -527,11 +527,12 @@ describe("E2E: Feedback Signature Edge Cases", () => {
   test(
     "same dataHash with different taskRef produces different agent signatures",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef1 = randomBytes32();
       const taskRef2 = randomBytes32();
       const dataHash = randomBytes32();
 
-      const sig1 = createFeedbackSignatures(
+      const sig1 = await createFeedbackSignatures(
         sasSchema,
         taskRef1,
         agentKeypair,
@@ -540,7 +541,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         Outcome.Positive,
       );
 
-      const sig2 = createFeedbackSignatures(
+      const sig2 = await createFeedbackSignatures(
         sasSchema,
         taskRef2,
         agentKeypair,
@@ -558,16 +559,17 @@ describe("E2E: Feedback Signature Edge Cases", () => {
   test(
     "counterparty cannot forge agent signature",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
       // Counterparty tries to sign as agent
       const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
 
-      const forgedSig = signMessage(interactionHash, counterpartyKeypair.secretKey);
+      const forgedSig = await signMessage(interactionHash, counterpartyKeypair.keyPair);
 
       // Forged signature should fail verification against agent's public key
-      const isValid = verifySignature(interactionHash, forgedSig, agentKeypair.publicKey);
+      const isValid = await verifySignature(interactionHash, forgedSig, agentKeypair.publicKey);
       expect(isValid).toBe(false);
     },
     TEST_TIMEOUT,
@@ -576,12 +578,13 @@ describe("E2E: Feedback Signature Edge Cases", () => {
   test(
     "signatures for wrong tokenAccount fail verification",
     async () => {
+      const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
-      const wrongAgent = createTestKeypair(700);
+      const wrongAgent = await createTestKeypair(700);
 
       // Create signatures for correct agent
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -591,7 +594,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       );
 
       // Try to verify with wrong tokenAccount
-      const result = verifyFeedbackSignatures(
+      const result = await verifyFeedbackSignatures(
         sasSchema,
         taskRef,
         wrongAgent.address, // Wrong agent!

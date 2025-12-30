@@ -16,7 +16,7 @@
  * ```
  */
 
-// Signature utilities (Ed25519 signing with tweetnacl)
+// Signature utilities (Ed25519 signing with @solana/kit Web Crypto)
 export {
   signMessage,
   verifySignature,
@@ -95,9 +95,11 @@ export {
   type CreateLookupTableResult,
 } from "./lookup-table";
 
-// E2E Test Setup
+// Test Setup
 export {
   setupE2ETest,
+  setupSignatureTest,
   type E2ETestContext,
+  type SignatureTestContext,
   type SetupOptions,
 } from "./test-setup";

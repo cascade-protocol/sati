@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
-  createKeyPairSignerFromBytes,
+  createKeyPairSignerFromPrivateKeyBytes,
   createSolanaRpc,
   generateKeyPairSigner,
   type KeyPairSigner,
@@ -42,6 +42,16 @@ import { createSatiLookupTable } from "./lookup-table";
 const LOCALNET_RPC = "http://127.0.0.1:8899";
 const LOCALNET_PHOTON = "http://127.0.0.1:8784";
 const LAMPORTS_PER_SOL = 1_000_000_000n;
+
+/** Extract seed from TestKeypair, throwing if not available (random keypairs have no seed) */
+function requireSeed(keypair: TestKeypair, name: string): Uint8Array {
+  if (!keypair.seed) {
+    throw new Error(
+      `${name} was created without a seed - use createTestKeypair(seedNumber) for deterministic keypairs`,
+    );
+  }
+  return keypair.seed;
+}
 
 // =============================================================================
 // Types
@@ -95,6 +105,23 @@ export interface SetupOptions {
   photonRpcUrl?: string;
 }
 
+/**
+ * Lightweight test context for signature-only tests (no RPC required).
+ * Use this for unit tests that only verify signature creation/verification.
+ */
+export interface SignatureTestContext {
+  /** Agent keypair for signing */
+  agentKeypair: TestKeypair;
+  /** Counterparty keypair for dual signatures */
+  counterpartyKeypair: TestKeypair;
+  /** Validator keypair for validation attestations */
+  validatorKeypair: TestKeypair;
+  /** Provider keypair for reputation attestations */
+  providerKeypair: TestKeypair;
+  /** SAS schema address */
+  sasSchema: Address;
+}
+
 // =============================================================================
 // Setup Function
 // =============================================================================
@@ -134,14 +161,14 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
 
   // Create test keypairs for Ed25519 signing
   // agentOwnerKeypair is the NFT owner - use this for signing attestations
-  const agentOwnerKeypair = createTestKeypair(1);
-  const counterpartyKeypair = createTestKeypair(2);
-  const validatorKeypair = createTestKeypair(3);
-  const providerKeypair = createTestKeypair(4);
+  const agentOwnerKeypair = await createTestKeypair(1);
+  const counterpartyKeypair = await createTestKeypair(2);
+  const validatorKeypair = await createTestKeypair(3);
+  const providerKeypair = await createTestKeypair(4);
 
-  // Create signers from keypairs
-  const agentOwner = await createKeyPairSignerFromBytes(agentOwnerKeypair.secretKey);
-  const counterparty = await createKeyPairSignerFromBytes(counterpartyKeypair.secretKey);
+  // Create signers from keypairs (using 32-byte seed)
+  const agentOwner = await createKeyPairSignerFromPrivateKeyBytes(requireSeed(agentOwnerKeypair, "agentOwner"));
+  const counterparty = await createKeyPairSignerFromPrivateKeyBytes(requireSeed(counterpartyKeypair, "counterparty"));
 
   // Register agent
   let agentMint: Address;
@@ -200,6 +227,32 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
     providerKeypair,
     feedbackSchema,
     lookupTableAddress,
+  };
+}
+
+/**
+ * Set up a lightweight test context for signature-only tests.
+ *
+ * Creates keypairs for signature testing without any RPC operations.
+ * Use this for unit tests that don't need on-chain submission.
+ *
+ * @param baseSeed - Optional base seed for deterministic keypair generation
+ */
+export async function setupSignatureTest(baseSeed = 100): Promise<SignatureTestContext> {
+  const [agentKeypair, counterpartyKeypair, validatorKeypair, providerKeypair, schemaKeypair] = await Promise.all([
+    createTestKeypair(baseSeed),
+    createTestKeypair(baseSeed + 1),
+    createTestKeypair(baseSeed + 2),
+    createTestKeypair(baseSeed + 3),
+    createTestKeypair(baseSeed + 4),
+  ]);
+
+  return {
+    agentKeypair,
+    counterpartyKeypair,
+    validatorKeypair,
+    providerKeypair,
+    sasSchema: schemaKeypair.address,
   };
 }
 

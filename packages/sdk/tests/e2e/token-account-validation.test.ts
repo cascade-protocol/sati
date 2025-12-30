@@ -27,9 +27,9 @@ import {
   createReputationSignature,
   randomBytes32,
   setupE2ETest,
-  waitForIndexer,
   type TestKeypair,
   type E2ETestContext,
+  waitForIndexer,
 } from "../helpers";
 
 // =============================================================================
@@ -87,8 +87,14 @@ describe("E2E: tokenAccount validation", () => {
     feedbackSchema = ctx.feedbackSchema;
 
     // Register additional schemas for validation and reputation tests
-    validationSchema = createTestKeypair().address;
-    reputationSchema = createTestKeypair().address;
+    const [validationSchemaKeypair, reputationSchemaKeypair, credentialKeypair] = await Promise.all([
+      createTestKeypair(),
+      createTestKeypair(),
+      createTestKeypair(),
+    ]);
+    validationSchema = validationSchemaKeypair.address;
+    reputationSchema = reputationSchemaKeypair.address;
+    satiCredential = credentialKeypair.address;
 
     await sati.registerSchemaConfig({
       payer,
@@ -107,9 +113,6 @@ describe("E2E: tokenAccount validation", () => {
       storageType: StorageType.Regular,
       closeable: true,
     });
-
-    // For reputation scores, we need a credential (use a placeholder)
-    satiCredential = createTestKeypair().address;
   }, TEST_TIMEOUT * 2);
 
   // ---------------------------------------------------------------------------
@@ -121,13 +124,14 @@ describe("E2E: tokenAccount validation", () => {
       "rejects non-registered mint as tokenAccount",
       async () => {
         // Generate a random address that is NOT a registered agent
-        const nonRegisteredMint = createTestKeypair().address;
+        const nonRegisteredKeypair = await createTestKeypair();
+        const nonRegisteredMint = nonRegisteredKeypair.address;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
         // Create signatures using the non-registered address as token account
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           feedbackSchema,
           taskRef,
           agentOwnerKeypair,
@@ -168,7 +172,7 @@ describe("E2E: tokenAccount validation", () => {
         const dataHash = randomBytes32();
 
         // agentOwnerKeypair is the NFT owner - must use this for signing
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           feedbackSchema,
           taskRef,
           agentOwnerKeypair,
@@ -214,12 +218,13 @@ describe("E2E: tokenAccount validation", () => {
     test(
       "rejects non-registered mint as tokenAccount",
       async () => {
-        const nonRegisteredMint = createTestKeypair().address;
+        const nonRegisteredKeypair = await createTestKeypair();
+        const nonRegisteredMint = nonRegisteredKeypair.address;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           feedbackSchema,
           taskRef,
           agentOwnerKeypair,
@@ -259,7 +264,7 @@ describe("E2E: tokenAccount validation", () => {
         const dataHash = randomBytes32();
 
         // agentOwnerKeypair is the NFT owner - must use this for signing
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           feedbackSchema,
           taskRef,
           agentOwnerKeypair,
@@ -304,13 +309,14 @@ describe("E2E: tokenAccount validation", () => {
     test(
       "rejects non-registered mint as tokenAccount",
       async () => {
-        const nonRegisteredMint = createTestKeypair().address;
+        const nonRegisteredKeypair = await createTestKeypair();
+        const nonRegisteredMint = nonRegisteredKeypair.address;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
         const response = 85; // Score 0-100
 
-        const signatures = createValidationSignatures(
+        const signatures = await createValidationSignatures(
           validationSchema,
           taskRef,
           agentOwnerKeypair,
@@ -352,7 +358,7 @@ describe("E2E: tokenAccount validation", () => {
         const response = 90;
 
         // agentOwnerKeypair is the NFT owner - must use this for signing
-        const signatures = createValidationSignatures(
+        const signatures = await createValidationSignatures(
           validationSchema,
           taskRef,
           agentOwnerKeypair,
@@ -397,11 +403,12 @@ describe("E2E: tokenAccount validation", () => {
     test(
       "rejects non-registered mint as tokenAccount",
       async () => {
-        const nonRegisteredMint = createTestKeypair().address;
+        const nonRegisteredKeypair = await createTestKeypair();
+        const nonRegisteredMint = nonRegisteredKeypair.address;
 
         const score = 75;
 
-        const signatures = createReputationSignature(reputationSchema, nonRegisteredMint, providerKeypair, score);
+        const signatures = await createReputationSignature(reputationSchema, nonRegisteredMint, providerKeypair, score);
 
         await expect(
           sati.createReputationScore({
@@ -425,7 +432,12 @@ describe("E2E: tokenAccount validation", () => {
       async () => {
         const score = 88;
 
-        const signatures = createReputationSignature(reputationSchema, registeredAgentMint, providerKeypair, score);
+        const signatures = await createReputationSignature(
+          reputationSchema,
+          registeredAgentMint,
+          providerKeypair,
+          score,
+        );
 
         const result = await sati.createReputationScore({
           payer,
@@ -458,7 +470,7 @@ describe("E2E: tokenAccount validation", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           feedbackSchema,
           taskRef,
           agentOwnerKeypair,
@@ -500,7 +512,7 @@ describe("E2E: tokenAccount validation", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const signatures = createFeedbackSignatures(
+        const signatures = await createFeedbackSignatures(
           feedbackSchema,
           taskRef,
           agentOwnerKeypair,
@@ -595,7 +607,8 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
     registeredAgentMint = ctx.agentMint;
 
     // Register SingleSigner schema for this test
-    feedbackPublicSchema = createTestKeypair().address;
+    const schemaKeypair = await createTestKeypair();
+    feedbackPublicSchema = schemaKeypair.address;
     await sati.registerSchemaConfig({
       payer,
       authority,
@@ -609,13 +622,14 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
   test(
     "createFeedback (SingleSigner) rejects non-registered mint",
     async () => {
-      const nonRegisteredMint = createTestKeypair().address;
+      const nonRegisteredKeypair = await createTestKeypair();
+      const nonRegisteredMint = nonRegisteredKeypair.address;
 
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
       // SingleSigner mode - only agent signature required
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         feedbackPublicSchema,
         taskRef,
         agentOwnerKeypair,
@@ -652,7 +666,7 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
       const dataHash = randomBytes32();
 
       // agentOwnerKeypair is the NFT owner - must use this for signing
-      const signatures = createFeedbackSignatures(
+      const signatures = await createFeedbackSignatures(
         feedbackPublicSchema,
         taskRef,
         agentOwnerKeypair,

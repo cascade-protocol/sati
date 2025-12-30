@@ -1,8 +1,8 @@
 /**
  * Ed25519 Signature Utilities for SATI Tests
  *
- * Provides real Ed25519 signing for attestation tests, replacing
- * the placeholder randomBytes(64) used in E2E test stubs.
+ * Provides real Ed25519 signing for attestation tests using @solana/kit's
+ * Web Crypto implementation.
  *
  * ## Identity Model
  * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
@@ -11,8 +11,17 @@
  * - On-chain verifies owner via ATA ownership
  */
 
-import nacl from "tweetnacl";
-import { type Address, address, getAddressEncoder, getBase58Decoder } from "@solana/kit";
+import {
+  type Address,
+  address,
+  getAddressEncoder,
+  getAddressDecoder,
+  generateKeyPair,
+  createKeyPairFromPrivateKeyBytes,
+  signBytes,
+  verifySignature as kitVerifySignature,
+  signatureBytes,
+} from "@solana/kit";
 import {
   computeInteractionHash,
   computeFeedbackHash,
@@ -31,12 +40,33 @@ export interface SignatureData {
 }
 
 export interface TestKeypair {
-  /** Raw 32-byte Ed25519 public key */
+  /** CryptoKeyPair for Web Crypto operations */
+  keyPair: CryptoKeyPair;
+  /** Raw 32-byte Ed25519 public key (for test assertions) */
   publicKey: Uint8Array;
-  /** Full 64-byte Ed25519 secret key (seed + public key) */
-  secretKey: Uint8Array;
+  /** 32-byte seed for creating signers (only available for seeded keypairs) */
+  seed?: Uint8Array;
   /** Base58-encoded address */
   address: Address;
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Import Ed25519 public key bytes as a CryptoKey for verification.
+ */
+async function importPublicKey(bytes: Uint8Array): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", bytes, { name: "Ed25519" }, true, ["verify"]);
+}
+
+/**
+ * Export public key bytes from a CryptoKey.
+ */
+async function exportPublicKeyBytes(key: CryptoKey): Promise<Uint8Array> {
+  const exported = await crypto.subtle.exportKey("raw", key);
+  return new Uint8Array(exported);
 }
 
 // =============================================================================
@@ -44,41 +74,49 @@ export interface TestKeypair {
 // =============================================================================
 
 /**
- * Sign a message with Ed25519 using tweetnacl
+ * Sign a message with Ed25519 using Web Crypto
  */
-export function signMessage(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
-  return nacl.sign.detached(message, secretKey);
+export async function signMessage(message: Uint8Array, keyPair: CryptoKeyPair): Promise<Uint8Array> {
+  return signBytes(keyPair.privateKey, message);
 }
 
 /**
- * Verify an Ed25519 signature
+ * Verify an Ed25519 signature using Web Crypto
  */
-export function verifySignature(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
-  return nacl.sign.detached.verify(message, signature, publicKey);
+export async function verifySignature(
+  message: Uint8Array,
+  signature: Uint8Array,
+  publicKeyBytes: Uint8Array,
+): Promise<boolean> {
+  const publicKey = await importPublicKey(publicKeyBytes);
+  return kitVerifySignature(publicKey, signatureBytes(signature), message);
 }
 
 /**
- * Create a test keypair using nacl (kit-native, no web3.js dependency)
+ * Create a test keypair using Web Crypto
  */
-export function createTestKeypair(seed?: number): TestKeypair {
-  let keypair: nacl.SignKeyPair;
+export async function createTestKeypair(seed?: number): Promise<TestKeypair> {
+  let keyPair: CryptoKeyPair;
+  let seedBytes: Uint8Array | undefined;
 
   if (seed !== undefined && seed < 256) {
     // Deterministic keypair for reproducible tests
-    const seedBytes = new Uint8Array(32);
+    seedBytes = new Uint8Array(32);
     seedBytes[0] = seed;
-    keypair = nacl.sign.keyPair.fromSeed(seedBytes);
+    keyPair = await createKeyPairFromPrivateKeyBytes(seedBytes, true);
   } else {
-    keypair = nacl.sign.keyPair();
+    keyPair = await generateKeyPair();
   }
 
-  // Convert public key to base58 address
-  const base58Decoder = getBase58Decoder();
-  const addressStr = base58Decoder.decode(keypair.publicKey);
+  // Export public key and convert to base58 address
+  const publicKey = await exportPublicKeyBytes(keyPair.publicKey);
+  const addressDecoder = getAddressDecoder();
+  const addressStr = addressDecoder.decode(publicKey);
 
   return {
-    publicKey: keypair.publicKey,
-    secretKey: keypair.secretKey,
+    keyPair,
+    publicKey,
+    seed: seedBytes,
     address: address(addressStr),
   };
 }
@@ -95,7 +133,7 @@ export function createTestKeypair(seed?: number): TestKeypair {
  *
  * @param tokenAccount - Agent's mint address to include in hash (defaults to agentKeypair.address)
  */
-export function createFeedbackSignatures(
+export async function createFeedbackSignatures(
   sasSchema: Address,
   taskRef: Uint8Array,
   agentKeypair: TestKeypair,
@@ -103,18 +141,18 @@ export function createFeedbackSignatures(
   dataHash: Uint8Array,
   outcome: Outcome,
   tokenAccount?: Address,
-): SignatureData[] {
+): Promise<SignatureData[]> {
   // Use explicit tokenAccount if provided, otherwise use agent's address
   const tokenAddr = tokenAccount ?? agentKeypair.address;
 
   // Agent signs interaction hash (blind - doesn't know outcome)
   const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAddr, dataHash);
-  const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
+  const agentSig = await signMessage(interactionHash, agentKeypair.keyPair);
 
   // Counterparty signs feedback hash (includes outcome)
   // On-chain program verifies against raw 32-byte hash
   const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAddr, outcome);
-  const counterpartySig = signMessage(feedbackHash, counterpartyKeypair.secretKey);
+  const counterpartySig = await signMessage(feedbackHash, counterpartyKeypair.keyPair);
 
   return [
     { pubkey: agentKeypair.address, sig: agentSig },
@@ -126,14 +164,14 @@ export function createFeedbackSignatures(
  * Verify feedback signatures are valid.
  * Returns { valid: boolean, agentValid: boolean, counterpartyValid: boolean }
  */
-export function verifyFeedbackSignatures(
+export async function verifyFeedbackSignatures(
   sasSchema: Address,
   taskRef: Uint8Array,
   tokenAccount: Address,
   dataHash: Uint8Array,
   outcome: Outcome,
   signatures: SignatureData[],
-): { valid: boolean; agentValid: boolean; counterpartyValid: boolean } {
+): Promise<{ valid: boolean; agentValid: boolean; counterpartyValid: boolean }> {
   if (signatures.length !== 2) {
     return { valid: false, agentValid: false, counterpartyValid: false };
   }
@@ -144,13 +182,13 @@ export function verifyFeedbackSignatures(
 
   const encoder = getAddressEncoder();
 
-  const agentValid = verifySignature(
+  const agentValid = await verifySignature(
     interactionHash,
     signatures[0].sig,
     new Uint8Array(encoder.encode(signatures[0].pubkey)),
   );
 
-  const counterpartyValid = verifySignature(
+  const counterpartyValid = await verifySignature(
     feedbackHash,
     signatures[1].sig,
     new Uint8Array(encoder.encode(signatures[1].pubkey)),
@@ -175,7 +213,7 @@ export function verifyFeedbackSignatures(
  *
  * @param tokenAccount - Agent's mint address to include in hash (defaults to agentKeypair.address)
  */
-export function createValidationSignatures(
+export async function createValidationSignatures(
   sasSchema: Address,
   taskRef: Uint8Array,
   agentKeypair: TestKeypair,
@@ -183,17 +221,17 @@ export function createValidationSignatures(
   dataHash: Uint8Array,
   response: number,
   tokenAccount?: Address,
-): SignatureData[] {
+): Promise<SignatureData[]> {
   // Use explicit tokenAccount if provided, otherwise use agent's address
   const tokenAddr = tokenAccount ?? agentKeypair.address;
 
   // Agent signs interaction hash (blind)
   const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAddr, dataHash);
-  const agentSig = signMessage(interactionHash, agentKeypair.secretKey);
+  const agentSig = await signMessage(interactionHash, agentKeypair.keyPair);
 
   // Validator signs validation hash (includes response)
   const validationHash = computeValidationHash(sasSchema, taskRef, tokenAddr, response);
-  const validatorSig = signMessage(validationHash, validatorKeypair.secretKey);
+  const validatorSig = await signMessage(validationHash, validatorKeypair.keyPair);
 
   return [
     { pubkey: agentKeypair.address, sig: agentSig },
@@ -210,15 +248,15 @@ export function createValidationSignatures(
  *
  * Only the provider signs (SingleSigner mode).
  */
-export function createReputationSignature(
+export async function createReputationSignature(
   sasSchema: Address,
   tokenAccount: Address,
   providerKeypair: TestKeypair,
   score: number,
-): SignatureData[] {
+): Promise<SignatureData[]> {
   const reputationHash = computeReputationHash(sasSchema, tokenAccount, providerKeypair.address, score);
 
-  const providerSig = signMessage(reputationHash, providerKeypair.secretKey);
+  const providerSig = await signMessage(reputationHash, providerKeypair.keyPair);
 
   return [{ pubkey: providerKeypair.address, sig: providerSig }];
 }

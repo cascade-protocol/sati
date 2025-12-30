@@ -13,8 +13,6 @@
     "check:rust": "cargo fmt --all -- --check && cargo clippy -p sati -- -D warnings",
     "test": "cargo test -p sati && pnpm test:sdk",
     "test:sdk": "pnpm --filter @cascade-fyi/sati-sdk test",
-    "test:smoke": "SOLANA_CLUSTER=devnet pnpm vitest run tests/smoke/",
-    "test:smoke:mainnet": "SOLANA_CLUSTER=mainnet pnpm vitest run tests/smoke/",
     "clean": "pnpm -r --if-present run clean && rm -rf target test-ledger .anchor",
     "size": "pnpm build && size-limit"
   },

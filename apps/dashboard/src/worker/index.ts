@@ -7,8 +7,7 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { type Address, isAddress } from "@solana/kit";
-import nacl from "tweetnacl";
+import { type Address, isAddress, createKeyPairFromBytes, signBytes } from "@solana/kit";
 import {
   computeInteractionHash,
   loadDeployedConfig,
@@ -132,6 +131,8 @@ function createApp(env: EchoEnv) {
   // Get agent address for payment routing
   let agentAddress: string | undefined;
   let agentSignerBytes: Uint8Array | undefined;
+  // CryptoKeyPair is created lazily in the route handler (async)
+  let agentKeyPair: CryptoKeyPair | undefined;
 
   if (env.SATI_AGENT_SIGNER_KEY) {
     try {
@@ -235,8 +236,13 @@ function createApp(env: EchoEnv) {
       dataHashBytes,
     );
 
-    // Sign the interaction hash with agent's private key
-    const signature = nacl.sign.detached(interactionHash, agentSignerBytes);
+    // Create keypair lazily (async) - cache for subsequent requests
+    if (!agentKeyPair) {
+      agentKeyPair = await createKeyPairFromBytes(agentSignerBytes);
+    }
+
+    // Sign the interaction hash with agent's private key using Web Crypto
+    const signature = await signBytes(agentKeyPair.privateKey, interactionHash);
 
     // Return the agent's signature
     return c.json({

@@ -238,6 +238,9 @@ export {
   PackedAccounts,
 } from "./utils/instruction.js";
 
+// Crypto utilities (Web Crypto API)
+export { importEd25519PublicKey } from "./utils/crypto.js";
+
 // =============================================================================
 // RPC Client
 // =============================================================================

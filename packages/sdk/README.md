@@ -251,10 +251,10 @@ const result = await sati.closeReputationScore({
 SATI uses Light Protocol's compressed accounts. Query via Helius Photon:
 
 ```typescript
-import { createRpc } from "@lightprotocol/stateless.js";
+import { createPhotonRpc } from "@cascade-fyi/compression-kit";
 import { SATI_PROGRAM_ADDRESS, FEEDBACK_OFFSETS } from "@cascade-fyi/sati-sdk";
 
-const rpc = createRpc("https://devnet.helius-rpc.com?api-key=YOUR_KEY");
+const rpc = createPhotonRpc("https://devnet.helius-rpc.com?api-key=YOUR_KEY");
 
 // Query all feedbacks for an agent
 const feedbacks = await rpc.getCompressedAccountsByOwner({
