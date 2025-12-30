@@ -585,15 +585,62 @@ async function registerSchemaConfigs(
   }
 }
 
-// Create or find existing Address Lookup Table (idempotent)
+// Check if existing ALT has all required addresses
+async function checkExistingAlt(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  existingAltAddress: Address | undefined,
+  requiredAddresses: Address[],
+): Promise<{ valid: boolean; existingAddresses: Address[] }> {
+  if (!existingAltAddress) {
+    return { valid: false, existingAddresses: [] };
+  }
+
+  try {
+    const lut = await fetchAddressLookupTable(rpc, existingAltAddress);
+    if (!lut || !lut.data.addresses) {
+      return { valid: false, existingAddresses: [] };
+    }
+
+    const existingSet = new Set(lut.data.addresses.map((a) => a.toString()));
+    const missingAddresses = requiredAddresses.filter((a) => !existingSet.has(a.toString()));
+
+    if (missingAddresses.length === 0) {
+      return { valid: true, existingAddresses: lut.data.addresses };
+    }
+
+    console.log(`  Existing ALT missing ${missingAddresses.length} addresses:`);
+    for (const addr of missingAddresses) {
+      console.log(`    - ${addr}`);
+    }
+    return { valid: false, existingAddresses: lut.data.addresses };
+  } catch {
+    return { valid: false, existingAddresses: [] };
+  }
+}
+
+// Create or reuse existing Address Lookup Table (idempotent)
 async function getOrCreateLookupTable(
   rpc: ReturnType<typeof createSolanaRpc>,
   rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>,
   authority: KeyPairSigner,
   addresses: Address[],
+  existingAltAddress?: Address,
 ): Promise<Address> {
-  console.log("\n--- Creating Address Lookup Table ---");
-  console.log(`Including ${addresses.length} addresses`);
+  console.log("\n--- Address Lookup Table ---");
+  console.log(`Required addresses: ${addresses.length}`);
+
+  // Check if existing ALT is valid
+  if (existingAltAddress) {
+    console.log(`Checking existing ALT: ${existingAltAddress}`);
+    const { valid, existingAddresses } = await checkExistingAlt(rpc, existingAltAddress, addresses);
+    if (valid) {
+      console.log(`  ALT is valid with ${existingAddresses.length} addresses - reusing`);
+      return existingAltAddress;
+    }
+    console.log("  ALT needs to be recreated");
+  }
+
+  console.log("Creating new Address Lookup Table...");
 
   const sendAndConfirm = sendAndConfirmTransactionFactory({
     rpc,
@@ -609,7 +656,7 @@ async function getOrCreateLookupTable(
     recentSlot: slot,
   });
 
-  console.log(`ALT Address: ${lookupTableAddress}`);
+  console.log(`New ALT Address: ${lookupTableAddress}`);
 
   // Build instructions
   const instructions: Instruction[] = [];
@@ -667,6 +714,20 @@ async function getOrCreateLookupTable(
   }
 
   return lookupTableAddress;
+}
+
+// Load existing deployed config (if any)
+function loadExistingConfig(network: string): DeployedSASConfig | null {
+  const configPath = path.join(__dirname, "..", "src", "deployed", `${network}.json`);
+  if (!existsSync(configPath)) {
+    return null;
+  }
+  try {
+    const data = readFileSync(configPath, "utf-8");
+    return JSON.parse(data) as DeployedSASConfig;
+  } catch {
+    return null;
+  }
 }
 
 // Save deployed config to JSON file
@@ -1004,10 +1065,22 @@ async function main() {
   if (sasConfig.schemas.feedbackPublic) {
     altAddresses.push(sasConfig.schemas.feedbackPublic);
   }
-  console.log(`\nIncluding ${altAddresses.length} addresses in lookup table`);
+  console.log(`\nRequired addresses for lookup table: ${altAddresses.length}`);
 
-  // Create lookup table
-  const lookupTableAddress = await getOrCreateLookupTable(rpc, rpcSubscriptions, authority, altAddresses);
+  // Load existing config to check if ALT can be reused
+  const existingConfig = loadExistingConfig(network);
+  const existingAltAddress = existingConfig?.config.lookupTable
+    ? address(existingConfig.config.lookupTable)
+    : undefined;
+
+  // Create or reuse lookup table
+  const lookupTableAddress = await getOrCreateLookupTable(
+    rpc,
+    rpcSubscriptions,
+    authority,
+    altAddresses,
+    existingAltAddress,
+  );
   sasConfig.lookupTable = lookupTableAddress;
 
   // PHASE 4: Finalize - Save config
