@@ -66,10 +66,7 @@ import {
   type Instruction,
   type Address,
 } from "@solana/kit";
-import {
-  getSetComputeUnitLimitInstruction,
-  getSetComputeUnitPriceInstruction,
-} from "@solana-program/compute-budget";
+import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
 import {
   TOKEN_2022_PROGRAM_ADDRESS,
   getInitializeGroupPointerInstruction,
@@ -80,10 +77,7 @@ import {
 } from "@solana-program/token-2022";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import { getMintLen, ExtensionType, TOKEN_GROUP_SIZE } from "@solana/spl-token";
-import {
-  getInitializeInstructionAsync,
-  fetchRegistryConfig,
-} from "../src/generated";
+import { getInitializeInstructionAsync, fetchRegistryConfig } from "../src/generated";
 import {
   findAddressLookupTablePda,
   getCreateLookupTableInstruction,
@@ -101,19 +95,20 @@ import {
 } from "../src/sas";
 import type { DeployedSASConfig, SATISASConfig } from "../src/types";
 
+// Type aliases for sendAndConfirmTransactionFactory - avoids cluster brand mismatch
+// when the script dynamically selects network (localnet/devnet/mainnet)
+type SendAndConfirmConfig = Parameters<typeof sendAndConfirmTransactionFactory>[0];
+type SendAndConfirmTx = Parameters<ReturnType<typeof sendAndConfirmTransactionFactory>>[0];
+
 // Production program ID (used for devnet/mainnet)
-const PRODUCTION_PROGRAM_ID = address(
-  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
-);
+const PRODUCTION_PROGRAM_ID = address("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
 
 // Production authority - only this keypair can deploy to devnet/mainnet
 const PRODUCTION_AUTHORITY = "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z";
 
 // REQUIRED keypair filenames - NEVER use sati-keypair.json for production!
-const PROGRAM_KEYPAIR_FILENAME =
-  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json";
-const GROUP_KEYPAIR_FILENAME =
-  "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json";
+const PROGRAM_KEYPAIR_FILENAME = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json";
+const GROUP_KEYPAIR_FILENAME = "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json";
 
 // Network RPC endpoints
 const RPC_ENDPOINTS: Record<string, string> = {
@@ -162,18 +157,14 @@ function parseArgs() {
         console.error("Error: --program-keypair requires a path argument");
         process.exit(1);
       }
-      programKeypairPath = nextArg.startsWith("~")
-        ? nextArg.replace("~", os.homedir())
-        : nextArg;
+      programKeypairPath = nextArg.startsWith("~") ? nextArg.replace("~", os.homedir()) : nextArg;
     } else if (arg === "--group-keypair") {
       const nextArg = args[++i];
       if (!nextArg) {
         console.error("Error: --group-keypair requires a path argument");
         process.exit(1);
       }
-      groupKeypairPath = nextArg.startsWith("~")
-        ? nextArg.replace("~", os.homedir())
-        : nextArg;
+      groupKeypairPath = nextArg.startsWith("~") ? nextArg.replace("~", os.homedir()) : nextArg;
     } else if (!arg.startsWith("--")) {
       keypairPath = arg.startsWith("~") ? arg.replace("~", os.homedir()) : arg;
     }
@@ -188,9 +179,7 @@ function parseArgs() {
     console.error("This could corrupt an existing production deployment!");
     console.error("");
     console.error("If you are SURE you want to proceed, add --confirm flag:");
-    console.error(
-      `  pnpm tsx scripts/deploy-and-initialize.ts ${network} --program-keypair <path> --confirm`,
-    );
+    console.error(`  pnpm tsx scripts/deploy-and-initialize.ts ${network} --program-keypair <path> --confirm`);
     console.error("=".repeat(60));
     process.exit(1);
   }
@@ -200,9 +189,7 @@ function parseArgs() {
     console.error("=".repeat(60));
     console.error("MISSING PROGRAM KEYPAIR");
     console.error("=".repeat(60));
-    console.error(
-      `Deploying to ${network.toUpperCase()} requires the vanity program keypair.`,
-    );
+    console.error(`Deploying to ${network.toUpperCase()} requires the vanity program keypair.`);
     console.error("");
     console.error("Provide the keypair file with --program-keypair:");
     console.error(
@@ -245,9 +232,7 @@ async function getProgramId(network: string, programKeypairPath: string): Promis
     console.error(`Expected: ${PRODUCTION_PROGRAM_ID}`);
     console.error(`Got:      ${derivedId}`);
     console.error("");
-    console.error(
-      "The provided --program-keypair does not match the expected vanity address.",
-    );
+    console.error("The provided --program-keypair does not match the expected vanity address.");
     console.error("=".repeat(60));
     process.exit(1);
   }
@@ -278,23 +263,11 @@ function getProgramPaths(): {
   const binaryPath = path.join(workspaceRoot, "target", "deploy", "sati.so");
 
   // ALWAYS use vanity keypairs - NEVER sati-keypair.json!
-  const programKeypairPath = path.join(
-    workspaceRoot,
-    "target",
-    "deploy",
-    PROGRAM_KEYPAIR_FILENAME,
-  );
-  const groupKeypairPath = path.join(
-    workspaceRoot,
-    "target",
-    "deploy",
-    GROUP_KEYPAIR_FILENAME,
-  );
+  const programKeypairPath = path.join(workspaceRoot, "target", "deploy", PROGRAM_KEYPAIR_FILENAME);
+  const groupKeypairPath = path.join(workspaceRoot, "target", "deploy", GROUP_KEYPAIR_FILENAME);
 
   if (!existsSync(binaryPath)) {
-    throw new Error(
-      `Program binary not found at ${binaryPath}. Run 'solana-verify build --library-name sati' first.`,
-    );
+    throw new Error(`Program binary not found at ${binaryPath}. Run 'solana-verify build --library-name sati' first.`);
   }
 
   return { binaryPath, programKeypairPath, groupKeypairPath };
@@ -304,13 +277,10 @@ function getProgramPaths(): {
 function checkProgramExists(network: string, programId: Address): boolean {
   const rpcUrl = RPC_ENDPOINTS[network];
   try {
-    const result = execSync(
-      `solana program show ${programId} --url ${rpcUrl}`,
-      {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+    const result = execSync(`solana program show ${programId} --url ${rpcUrl}`, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     return result.includes("Program Id:");
   } catch {
     return false;
@@ -445,7 +415,10 @@ async function deploySASSchemas(
 ): Promise<SATISASConfig> {
   console.log("\n--- PHASE 3: Deploy SAS Schemas ---");
 
-  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+  const sendAndConfirm = sendAndConfirmTransactionFactory({
+    rpc,
+    rpcSubscriptions,
+  } as SendAndConfirmConfig);
 
   // Derive credential PDA
   const [credentialPda] = await deriveSatiCredentialPda(authority.address);
@@ -479,7 +452,10 @@ async function deploySASSchemas(
 
   // Deploy each schema
   const schemaAddresses: Record<string, Address> = {};
-  const schemaEntries = Object.entries(SATI_SCHEMAS) as [keyof typeof SATI_SCHEMAS, (typeof SATI_SCHEMAS)[keyof typeof SATI_SCHEMAS]][];
+  const schemaEntries = Object.entries(SATI_SCHEMAS) as [
+    keyof typeof SATI_SCHEMAS,
+    (typeof SATI_SCHEMAS)[keyof typeof SATI_SCHEMAS],
+  ][];
 
   for (const [key, schema] of schemaEntries) {
     const [schemaPda] = await deriveSatiSchemaPda(credentialPda, schema.name, 1);
@@ -534,7 +510,10 @@ async function getOrCreateLookupTable(
   console.log("\n--- Creating Address Lookup Table ---");
   console.log(`Including ${addresses.length} addresses`);
 
-  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+  const sendAndConfirm = sendAndConfirmTransactionFactory({
+    rpc,
+    rpcSubscriptions,
+  } as SendAndConfirmConfig);
 
   // Get current slot for ALT derivation
   const slot = await rpc.getSlot({ commitment: "finalized" }).send();
@@ -554,7 +533,7 @@ async function getOrCreateLookupTable(
   instructions.push(
     getCreateLookupTableInstruction({
       address: [lookupTableAddress, bump],
-      authority: authority.address,
+      authority,
       payer: authority,
       recentSlot: slot,
     }),
@@ -606,11 +585,7 @@ async function getOrCreateLookupTable(
 }
 
 // Save deployed config to JSON file
-function saveDeployedConfig(
-  network: string,
-  authority: Address,
-  config: SATISASConfig,
-): string {
+function saveDeployedConfig(network: string, authority: Address, config: SATISASConfig): string {
   const deployedDir = path.join(__dirname, "..", "src", "deployed");
   mkdirSync(deployedDir, { recursive: true });
 
@@ -653,23 +628,20 @@ async function main() {
   } = getProgramPaths();
 
   // Use provided keypairs or default to vanity keypairs
-  const programKeypairPath =
-    providedProgramKeypair ?? defaultProgramKeypairPath;
+  const programKeypairPath = providedProgramKeypair ?? defaultProgramKeypairPath;
   const groupKeypairPath = providedGroupKeypair ?? defaultGroupKeypairPath;
 
   // Validate program keypair exists
   if (!existsSync(programKeypairPath)) {
     throw new Error(
-      `Program keypair not found at ${programKeypairPath}.\n` +
-        `Expected vanity keypair: ${PROGRAM_KEYPAIR_FILENAME}`,
+      `Program keypair not found at ${programKeypairPath}.\n` + `Expected vanity keypair: ${PROGRAM_KEYPAIR_FILENAME}`,
     );
   }
 
   // Validate group keypair exists
   if (!existsSync(groupKeypairPath)) {
     throw new Error(
-      `Group keypair not found at ${groupKeypairPath}.\n` +
-        `Expected vanity keypair: ${GROUP_KEYPAIR_FILENAME}`,
+      `Group keypair not found at ${groupKeypairPath}.\n` + `Expected vanity keypair: ${GROUP_KEYPAIR_FILENAME}`,
     );
   }
 
@@ -714,9 +686,7 @@ async function main() {
     console.error(`Expected: ${PRODUCTION_AUTHORITY}`);
     console.error(`Got:      ${authority.address}`);
     console.error("");
-    console.error(
-      "Only the production authority can deploy to devnet/mainnet.",
-    );
+    console.error("Only the production authority can deploy to devnet/mainnet.");
     console.error("=".repeat(60));
     process.exit(1);
   }
@@ -751,10 +721,11 @@ async function main() {
 
   // Check if registry already exists using fetchRegistryConfig
   let registryInitialized = false;
-  let groupMintAddress: Address;
+  // Definite assignment: always set in either the existing-registry or fresh-init branch
+  let groupMintAddress!: Address;
 
   try {
-    const existingRegistry = await fetchRegistryConfig(rpc, registryPda, { programAddress: programId });
+    const existingRegistry = await fetchRegistryConfig(rpc, registryPda);
     if (existingRegistry) {
       // Registry exists - check if we're the authority
       if (existingRegistry.data.authority === authority.address) {
@@ -788,9 +759,7 @@ async function main() {
     // - Fund with enough lamports for final size (GroupPointer + TokenGroup + buffer)
     const mintLen = getMintLen([ExtensionType.GroupPointer]);
     const finalSize = mintLen + TOKEN_GROUP_SIZE + 64; // extra buffer for TLV overhead
-    const lamports = await rpc
-      .getMinimumBalanceForRentExemption(BigInt(finalSize))
-      .send();
+    const lamports = await rpc.getMinimumBalanceForRentExemption(BigInt(finalSize)).send();
 
     // Build instructions
     const instructions: Instruction[] = [];
@@ -882,14 +851,6 @@ async function main() {
     const signedTx = await signTransactionMessageWithSigners(txMessage);
     const signature = getSignatureFromTransaction(signedTx);
 
-    // @solana/kit cluster-branded RPC types don't match dynamic network config
-    // Cast both the config and the transaction to satisfy the type system
-    type SendAndConfirmConfig = Parameters<
-      typeof sendAndConfirmTransactionFactory
-    >[0];
-    type SendAndConfirmTx = Parameters<
-      ReturnType<typeof sendAndConfirmTransactionFactory>
-    >[0];
     const sendAndConfirm = sendAndConfirmTransactionFactory({
       rpc,
       rpcSubscriptions,
@@ -909,7 +870,7 @@ async function main() {
   const altAddresses: Address[] = [
     programId,
     registryPda,
-    groupMintAddress!,
+    groupMintAddress,
     sasConfig.credential,
     sasConfig.schemas.feedback,
     sasConfig.schemas.validation,
@@ -920,12 +881,7 @@ async function main() {
   }
 
   // Create lookup table
-  const lookupTableAddress = await getOrCreateLookupTable(
-    rpc,
-    rpcSubscriptions,
-    authority,
-    altAddresses,
-  );
+  const lookupTableAddress = await getOrCreateLookupTable(rpc, rpcSubscriptions, authority, altAddresses);
   sasConfig.lookupTable = lookupTableAddress;
 
   // PHASE 4: Finalize - Save config
@@ -939,7 +895,7 @@ async function main() {
   console.log(`Network:      ${network.toUpperCase()}`);
   console.log(`Program:      ${programId}`);
   console.log(`Registry:     ${registryPda}`);
-  console.log(`Group Mint:   ${groupMintAddress!}`);
+  console.log(`Group Mint:   ${groupMintAddress}`);
   console.log(`Authority:    ${authority.address}`);
   console.log("");
   console.log("SAS Configuration:");
@@ -958,9 +914,7 @@ main().catch((error) => {
   if (error instanceof FrontrunningDetectedError) {
     console.error("\n!!! SECURITY ALERT !!!");
     console.error(error.message);
-    console.error(
-      "ACTION REQUIRED: Investigate whether this was a malicious frontrun.",
-    );
+    console.error("ACTION REQUIRED: Investigate whether this was a malicious frontrun.");
     process.exit(2);
   }
   console.error("Deployment failed:", error);

@@ -11,7 +11,7 @@
  * - Naming is for SAS wire format compatibility (NOT an Associated Token Account)
  */
 
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { type Address, getAddressEncoder } from "@solana/kit";
 
 // Domain separators - must match programs/sati/src/constants.rs

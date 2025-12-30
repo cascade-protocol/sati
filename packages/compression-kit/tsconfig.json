@@ -9,6 +9,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "tests"],
+  "include": ["src", "tests", "*.config.ts"],
   "exclude": ["node_modules", "dist", "lib"]
 }

@@ -444,6 +444,7 @@ The `content_type` field determines how to interpret the variable-length `conten
 | 2 | UTF-8 | Plain text | Simple text feedback |
 | 3 | IPFS | CIDv1 (~36 bytes) | Large content stored off-chain |
 | 4 | Arweave | Transaction ID (32 bytes) | Permanent off-chain storage |
+| 5 | Encrypted | X25519-XChaCha20-Poly1305 payload | End-to-end encrypted content |
 
 **Size limit**: `MAX_CONTENT_SIZE = 512 bytes`. Enforced on-chain. For larger content, use IPFS/Arweave.
 
@@ -461,6 +462,97 @@ The `content_type` field determines how to interpret the variable-length `conten
 ```
 
 **Design rationale**: Simple feedback doesn't need IPFS. Inline JSON/UTF-8 is directly readable by indexers without external fetches.
+
+### Encrypted Content (ContentType = 5)
+
+End-to-end encrypted content using X25519-XChaCha20-Poly1305. Only the intended recipient can decrypt.
+
+**Wire Format:**
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | Version | Protocol version (0x01) |
+| 1 | 32 | Ephemeral Public Key | X25519 public key for ECDH |
+| 33 | 24 | Nonce | XChaCha20 nonce |
+| 57 | variable | Ciphertext | Encrypted content + 16-byte Poly1305 tag |
+
+**Size Constraints:**
+- Minimum overhead: 73 bytes (1 + 32 + 24 + 16)
+- Maximum plaintext: 439 bytes (512 - 73)
+- Total must fit within `MAX_CONTENT_SIZE = 512 bytes`
+
+**Key Derivation:**
+
+1. **Recipient Key**: Convert Ed25519 Solana keypair to X25519 using the standard birational map:
+   ```
+   x25519_private = Ed25519_to_X25519_private(ed25519_seed)  // RFC 8032 compatible
+   x25519_public = Ed25519_to_X25519_public(ed25519_public)   // Montgomery form conversion
+   ```
+   Note: This uses the standard curve conversion, not HKDF. Solana wallets can derive encryption keys deterministically.
+
+2. **Shared Secret**: Ephemeral ECDH key exchange:
+   ```
+   shared_secret = X25519(ephemeral_private, recipient_public)
+   ```
+
+3. **Encryption Key**: Derive from shared secret via HKDF:
+   ```
+   encryption_key = HKDF-SHA256(shared_secret, salt=ephemeral_public, info="sati-v1", len=32)
+   ```
+
+**Encryption Process:**
+1. Generate ephemeral X25519 keypair
+2. Compute shared secret via ECDH
+3. Derive encryption key via HKDF
+4. Generate random 24-byte nonce
+5. Encrypt plaintext with XChaCha20-Poly1305
+6. Serialize: `version || ephemeral_public || nonce || ciphertext`
+7. Zero ephemeral private key
+
+**Decryption Process:**
+1. Deserialize payload components
+2. Derive recipient's X25519 private key from Ed25519
+3. Compute shared secret via ECDH
+4. Derive encryption key via HKDF
+5. Decrypt and verify with XChaCha20-Poly1305
+
+**Semantics:**
+- Only the recipient (agent) can decrypt content
+- Outcome, counterparty, and tags remain unencrypted and queryable
+- Content field contains the serialized encrypted payload
+- Forward secrecy: ephemeral keypair per encryption
+
+**Example:**
+
+```typescript
+import { encryptContent, deriveEncryptionKeypair } from '@cascade-fyi/sati-sdk';
+
+// Derive agent's encryption public key
+const { publicKey } = deriveEncryptionKeypair(agentEd25519Seed);
+
+// Encrypt feedback content
+const encrypted = encryptContent(
+  new TextEncoder().encode('Detailed private feedback'),
+  publicKey
+);
+
+// Use in FeedbackData
+const feedback = {
+  contentType: ContentType.Encrypted, // 5
+  content: serializeEncryptedPayload(encrypted),
+  // ... other fields remain unencrypted
+};
+```
+
+**Privacy Guarantees:**
+- Content confidentiality: Only recipient can read
+- Forward secrecy: Compromise of long-term key doesn't expose past messages
+- Integrity: Poly1305 tag prevents tampering
+
+**Limitations:**
+- Metadata visible: counterparty, outcome, tags, timestamps remain public
+- Ciphertext length reveals approximate plaintext length
+- No key rotation mechanism (uses wallet-derived keys)
 
 ---
 

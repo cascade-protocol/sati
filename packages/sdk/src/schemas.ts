@@ -85,6 +85,8 @@ export enum ContentType {
   IPFS = 3,
   /** Arweave transaction ID (32 bytes) */
   Arweave = 4,
+  /** End-to-end encrypted (X25519-XChaCha20-Poly1305) */
+  Encrypted = 5,
 }
 
 /**
@@ -766,6 +768,8 @@ export function getContentTypeLabel(contentType: ContentType): string {
       return "IPFS";
     case ContentType.Arweave:
       return "Arweave";
+    case ContentType.Encrypted:
+      return "Encrypted";
     default:
       return "Unknown";
   }

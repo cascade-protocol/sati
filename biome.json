@@ -11,6 +11,8 @@
       "src/**/*.ts",
       "src/**/*.tsx",
       "tests/**/*.ts",
+      "scripts/**/*.ts",
+      "**/*.config.ts",
       "**/*.json",
       "!idl.json",
       "!*.d.ts",

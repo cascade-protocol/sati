@@ -27,9 +27,7 @@ const anchorIdl = JSON.parse(readFileSync(idlPath, "utf-8"));
 
 // Fix address if needed - anchor build uses local keypair which differs from canonical address
 if (anchorIdl.address !== SATI_PROGRAM_ADDRESS) {
-  console.log(
-    `⚠ Fixing IDL address: ${anchorIdl.address} → ${SATI_PROGRAM_ADDRESS}`,
-  );
+  console.log(`⚠ Fixing IDL address: ${anchorIdl.address} → ${SATI_PROGRAM_ADDRESS}`);
   anchorIdl.address = SATI_PROGRAM_ADDRESS;
   writeFileSync(idlPath, `${JSON.stringify(anchorIdl, null, 2)}\n`);
   console.log(`✓ Updated ${idlPath}`);

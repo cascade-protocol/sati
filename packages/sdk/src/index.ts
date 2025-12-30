@@ -96,6 +96,30 @@ export * from "./ed25519";
 // Off-chain message signing (SIWS-style format with CAIP-10 identifiers)
 export * from "./offchain-signing";
 
+// Content encryption (X25519-XChaCha20-Poly1305)
+export {
+  // Constants
+  ENCRYPTION_VERSION,
+  NONCE_SIZE,
+  PUBKEY_SIZE,
+  TAG_SIZE,
+  PRIVKEY_SIZE,
+  MIN_ENCRYPTED_SIZE,
+  MAX_PLAINTEXT_SIZE,
+  // Types
+  type EncryptedPayload,
+  type EncryptionKeypair,
+  // Key derivation
+  deriveEncryptionKeypair,
+  deriveEncryptionPublicKey,
+  // Encryption / Decryption
+  encryptContent,
+  decryptContent,
+  // Serialization
+  serializeEncryptedPayload,
+  deserializeEncryptedPayload,
+} from "./encryption";
+
 // Type definitions
 export * from "./types";
 

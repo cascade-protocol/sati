@@ -10,7 +10,7 @@
 
 import type { Address, TransactionSigner } from "@solana/kit";
 import { address } from "@solana/kit";
-import { keccak_256 } from "@noble/hashes/sha3";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import bs58 from "bs58";
 import {
   deriveCredentialPda,

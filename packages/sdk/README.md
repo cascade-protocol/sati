@@ -315,6 +315,101 @@ do {
 
 ---
 
+## Encrypted Content
+
+SATI supports end-to-end encrypted feedback content using X25519-XChaCha20-Poly1305. Only the intended recipient can decrypt the content.
+
+### Encrypting Content
+
+```typescript
+import {
+  encryptContent,
+  deriveEncryptionKeypair,
+  serializeEncryptedPayload,
+  ContentType,
+} from "@cascade-fyi/sati-sdk";
+
+// Derive encryption keypair from agent's Ed25519 key
+// (In practice, get the agent's public key from their Solana address)
+const { publicKey: agentEncPubkey } = deriveEncryptionKeypair(agentEd25519Seed);
+
+// Encrypt feedback content for the agent
+const plaintext = new TextEncoder().encode("Great service, fast response!");
+const encrypted = encryptContent(plaintext, agentEncPubkey);
+
+// Serialize for on-chain storage
+const encryptedBytes = serializeEncryptedPayload(encrypted);
+
+// Create feedback with encrypted content
+const result = await sati.createFeedback({
+  payer,
+  sasSchema,
+  taskRef,
+  tokenAccount: agentMint,
+  counterparty: clientAddress,
+  dataHash: requestHash,
+  outcome: Outcome.Positive,
+  contentType: ContentType.Encrypted, // Mark as encrypted
+  content: encryptedBytes,            // Serialized encrypted payload
+  // ... signatures
+});
+```
+
+### Decrypting Content
+
+```typescript
+import {
+  decryptContent,
+  deserializeEncryptedPayload,
+  deriveEncryptionKeypair,
+  ContentType,
+} from "@cascade-fyi/sati-sdk";
+
+// Agent derives their decryption keypair
+const { privateKey } = deriveEncryptionKeypair(agentEd25519Seed);
+
+// Check if content is encrypted
+if (feedback.contentType === ContentType.Encrypted) {
+  // Deserialize and decrypt
+  const payload = deserializeEncryptedPayload(feedback.content);
+  const plaintext = decryptContent(payload, privateKey);
+  const text = new TextDecoder().decode(plaintext);
+  console.log("Decrypted feedback:", text);
+}
+```
+
+### Key Derivation from Solana Wallets
+
+```typescript
+import { deriveEncryptionKeypair, deriveEncryptionPublicKey } from "@cascade-fyi/sati-sdk";
+
+// From wallet secret key (Keypair.secretKey is 64 bytes)
+const { publicKey, privateKey } = deriveEncryptionKeypair(wallet.secretKey);
+
+// From just a public key (when you only have the recipient's address)
+// Note: Requires the Ed25519 public key bytes, not the base58 string
+const recipientX25519Pubkey = deriveEncryptionPublicKey(ed25519PublicKeyBytes);
+```
+
+### Size Constraints
+
+| Field | Size |
+|-------|------|
+| Minimum overhead | 73 bytes (version + pubkey + nonce + auth tag) |
+| Maximum plaintext | 439 bytes (512 - 73) |
+| Version byte | 1 byte |
+| Ephemeral pubkey | 32 bytes |
+| Nonce | 24 bytes |
+| Auth tag | 16 bytes |
+
+### Security Properties
+
+- **Forward secrecy**: Each encryption uses a fresh ephemeral keypair
+- **Authenticated encryption**: XChaCha20-Poly1305 provides confidentiality and integrity
+- **Wallet compatibility**: Ed25519 → X25519 derivation works with Solana keypairs
+
+---
+
 ## Escrow Integration
 
 SATI attestations can trigger automatic escrow release.
