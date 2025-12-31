@@ -271,6 +271,102 @@ export function computeEvmLinkHash(agentMint: Address, evmAddress: Uint8Array, c
   return keccak_256(data);
 }
 
+// =============================================================================
+// Data Hash Helpers
+// =============================================================================
+// These helpers compute the `data_hash` field for attestations - the agent's
+// cryptographic commitment to the interaction content.
+
+/**
+ * Compute data_hash from raw request and response content.
+ *
+ * This is the agent's blind commitment to the interaction.
+ * Use this when you have the full request/response content available.
+ *
+ * @param request - Raw request content (e.g., JSON body, prompt text)
+ * @param response - Raw response content (e.g., API response, completion)
+ * @returns 32-byte keccak256 hash
+ *
+ * @example
+ * ```typescript
+ * const request = new TextEncoder().encode(JSON.stringify({ prompt: "Hello" }));
+ * const response = new TextEncoder().encode(JSON.stringify({ text: "Hi there!" }));
+ * const dataHash = computeDataHash(request, response);
+ * ```
+ */
+export function computeDataHash(request: Uint8Array, response: Uint8Array): Uint8Array {
+  const data = new Uint8Array(request.length + response.length);
+  data.set(request, 0);
+  data.set(response, request.length);
+  return keccak_256(data);
+}
+
+/**
+ * Compute data_hash from pre-computed request and response hashes.
+ *
+ * Use this for large content or streaming scenarios where you want to
+ * hash incrementally rather than buffering the entire content.
+ *
+ * @param requestHash - 32-byte hash of request content
+ * @param responseHash - 32-byte hash of response content
+ * @returns 32-byte keccak256 hash
+ *
+ * @example
+ * ```typescript
+ * // For large content, hash each part separately
+ * const requestHash = keccak_256(largeRequestBuffer);
+ * const responseHash = keccak_256(largeResponseBuffer);
+ * const dataHash = computeDataHashFromHashes(requestHash, responseHash);
+ * ```
+ */
+export function computeDataHashFromHashes(requestHash: Uint8Array, responseHash: Uint8Array): Uint8Array {
+  if (requestHash.length !== 32) {
+    throw new Error("requestHash must be 32 bytes");
+  }
+  if (responseHash.length !== 32) {
+    throw new Error("responseHash must be 32 bytes");
+  }
+
+  const data = new Uint8Array(64);
+  data.set(requestHash, 0);
+  data.set(responseHash, 32);
+  return keccak_256(data);
+}
+
+/**
+ * Compute data_hash from string request and response.
+ *
+ * Convenience wrapper for the common case of string content.
+ *
+ * @param request - Request string (will be UTF-8 encoded)
+ * @param response - Response string (will be UTF-8 encoded)
+ * @returns 32-byte keccak256 hash
+ *
+ * @example
+ * ```typescript
+ * const dataHash = computeDataHashFromStrings(
+ *   '{"prompt": "What is 2+2?"}',
+ *   '{"answer": "4"}'
+ * );
+ * ```
+ */
+export function computeDataHashFromStrings(request: string, response: string): Uint8Array {
+  const encoder = new TextEncoder();
+  return computeDataHash(encoder.encode(request), encoder.encode(response));
+}
+
+/**
+ * Create a zero-filled data_hash for SingleSigner schemas.
+ *
+ * SingleSigner schemas (like ReputationScore) don't use blind commitments,
+ * so data_hash should be zeros.
+ *
+ * @returns 32-byte zero-filled Uint8Array
+ */
+export function zeroDataHash(): Uint8Array {
+  return new Uint8Array(32);
+}
+
 // Re-export Outcome from schemas (single source of truth)
 export { Outcome } from "./schemas";
 

@@ -13,7 +13,7 @@ SATI is open trust infrastructure for AI agents on Solana solving the economics 
 - **Agent-subsidized feedback** — Agent signs with response (blind to outcome), client feedback is free
 - **x402 native** — Canonical feedback extension; payment tx becomes task reference (CAIP-220)
 - **200x cost reduction** — ZK Compression stores attestations at ~$0.002 each
-- **Schema agnostic** — Program verifies signatures on 96-byte base layout; new schemas without upgrades
+- **Schema agnostic** — Program verifies signatures on 130-byte universal base layout; new schemas without upgrades
 - **No reputation monopoly** — Multiple providers compete with different scoring algorithms
 
 **Built on**: Token-2022 (identity), SAS (schemas), Light Protocol (storage), Photon (indexing), x402 (payments)
@@ -28,8 +28,8 @@ The breakthrough enabling free on-chain feedback. Agent and counterparty sign di
 
 | Party | Signs | When | Proves |
 |-------|-------|------|--------|
-| Agent | `hash(schema, task_ref, token_account, data_hash)` | With response | "I served this task" |
-| Counterparty | `hash(schema, task_ref, token_account, outcome)` | After service | "I gave this feedback" |
+| Agent | `interaction_hash = keccak256(schema, task_ref, data_hash)` | With response | "I served this task" |
+| Counterparty | Human-readable SIWS message (see Off-Chain Signing) | After service | "I gave this feedback" |
 
 **Flow**: Client pays (x402) → Agent responds + signs (blind) → Client signs feedback → Agent/facilitator submits
 
@@ -167,6 +167,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `signature_mode` | SignatureMode | DualSignature / SingleSigner |
 | `storage_type` | StorageType | Compressed / Regular |
 | `closeable` | bool | Whether attestations can be closed |
+| `name` | String | Schema name for signing messages (max 32 chars) |
 | `bump` | u8 | PDA bump seed |
 
 #### CompressedAttestation
@@ -186,17 +187,28 @@ pub struct CompressedAttestation { /* fields below */ }
 | `data` | Vec&lt;u8&gt; | 65+ | Schema-conformant bytes |
 | `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
 
-#### Base Data Layout (first 96 bytes)
+#### Universal Base Data Layout (first 130 bytes)
 
-All schemas MUST start with:
+All schemas MUST use this universal layout:
 
-| Offset | Size | Field |
-|--------|------|-------|
-| 0 | 32 | `task_ref` |
-| 32 | 32 | `token_account` |
-| 64 | 32 | `counterparty` |
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 32 | `task_ref` | CAIP-220 tx hash or task identifier |
+| 32 | 32 | `token_account` | Agent mint address |
+| 64 | 32 | `counterparty` | Attester pubkey (Ed25519) |
+| 96 | 1 | `outcome` | Universal: 0=Negative, 1=Neutral, 2=Positive |
+| 97 | 32 | `data_hash` | Agent's blind commitment (zeros for SingleSigner) |
+| 129 | 1 | `content_type` | Format: 0=None, 1=JSON, 2=UTF-8, 3=IPFS, 4=Arweave, 5=Encrypted |
+| 130 | var | `content` | Variable length, up to 512 bytes |
 
-Program parses this for signature binding; full schema parsed by indexers.
+**On-chain validation:**
+- `outcome` ≤ 7 (0-2 defined, 3-7 reserved for future)
+- `content_type` ≤ 15 (0-5 defined, 6-15 reserved for future)
+- Data length ≥ 130 bytes
+
+**`data_hash` semantics:** Agent's cryptographic commitment to the interaction. Recommended: `data_hash = keccak256(request || response)`. For SingleSigner schemas, this field should be zero-filled.
+
+Program parses offsets 0-129 for signature binding and base validation. Content structure parsed by SDK/indexers.
 
 > **Note on `token_account` naming**: This field stores the **agent's mint address** (the stable identity), not an Associated Token Account (ATA). The name `token_account` is inherited from the SAS specification for storage efficiency. Throughout SATI documentation and code, `token_account` = agent mint address.
 
@@ -205,63 +217,60 @@ Program parses this for signature binding; full schema parsed by indexers.
 #### Signature Verification (On-Chain)
 
 1. **Count**: Match `SignatureMode` (2 for DualSignature)
-2. **Agent authorization** (via ATA):
-   - `agent_ata.mint == token_account` (ATA holds correct NFT)
-   - `agent_ata.amount >= 1` (NFT present)
-   - `signatures[0].pubkey == agent_ata.owner` (signer owns NFT)
+2. **Agent authorization**: ATA ownership check — `agent_ata.owner == signatures[0].pubkey`
 3. **Counterparty binding**: `signatures[1].pubkey == counterparty`
 4. **Self-attestation**: `token_account != counterparty`
-5. **Validity**: Each signature on its domain-separated hash
+5. **Validity**: Each Ed25519 signature verified on its expected message
 
 > **Note**: `token_account` is the agent's MINT ADDRESS (identity). The agent OWNER signs (verified via ATA ownership).
 
 #### Off-Chain Message Signing Format (Wallet UX)
 
-For wallet-based signing (e.g., counterparty feedback), SATI uses a human-readable SIWS-inspired format with CAIP-10 agent identifiers:
+Counterparty signs a human-readable SIWS-inspired message for Phantom/Solflare:
 
 ```
-sati.fyi wants you to attest with your Solana account:
-{owner_address}
+SATI {schema_name}
 
-Attestation: Feedback
-Agent: solana:{chain_ref}:{agent_mint}
-Outcome: Positive
-Hash: 0x{feedback_hash_hex}
+Agent: {base58(token_account)}
+Task: {base58(task_ref)}
+Outcome: {Negative|Neutral|Positive}
+Details: {content as UTF-8, or "[Encrypted]"}
+
+Sign to create this attestation.
 ```
 
 **Fields:**
-| Field | Format | Description |
+| Field | Source | Description |
 |-------|--------|-------------|
-| `owner_address` | Base58 | Signer's Solana wallet address |
-| `chain_ref` | CAIP-2 | Solana genesis hash prefix (32 chars) |
-| `agent_mint` | Base58 | Agent's Token-2022 mint address |
-| `Outcome` | String | Negative, Neutral, or Positive |
-| `Hash` | 0x + hex | 32-byte feedback hash as hex |
+| `schema_name` | SchemaConfig.name | Schema identifier (e.g., "feedback") |
+| `Agent` | data[32..64] | Agent mint address as base58 |
+| `Task` | data[0..32] | Task reference as base58 |
+| `Outcome` | data[96] | Mapped: 0→Negative, 1→Neutral, 2→Positive |
+| `Details` | data[130..] | Content as UTF-8, or "[Encrypted]" if content_type=5 |
 
-**CAIP-2 Chain References:**
-| Network | Chain Reference |
-|---------|----------------|
-| Mainnet | `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` |
-| Devnet | `EtWTRABZaYq6iMfeYKouRu166VU2xqa1` |
-
-**Example (mainnet):**
+**Example (Feedback):**
 ```
-sati.fyi wants you to attest with your Solana account:
-9WzDXwBbmPdCBUH9nUqxHpqftYJVRzj1mHjnJZn2JCFN
+SATI feedback
 
-Attestation: Feedback
-Agent: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:7S3P4HxJpyyigGzodYwHtCxZyUQe9JiBMHyRWXArAaKv
+Agent: 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
+Task: 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
 Outcome: Positive
-Hash: 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+Details: {"score":85,"tags":["helpful","fast"],"m":"Great service!"}
+
+Sign to create this attestation.
 ```
 
-> **Note**: This format is for wallet display only. The cryptographic hash computation (used for on-chain verification) uses domain-separated keccak256 as defined in `hashes.ts`.
+**Signature types:**
+- **Agent**: Signs `interaction_hash = keccak256(DOMAIN_INTERACTION, schema, task_ref, data_hash)` — 32-byte hash
+- **Counterparty**: Signs the full human-readable message above (~300 bytes) — bypasses Phantom's 32-byte restriction
+
+> **Note**: The human-readable format enables wallet display while the full message (~300 bytes) bypasses Phantom's restriction on signing 32-byte messages (which look like transaction hashes).
 
 #### Instructions
 
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
-| `register_schema_config` | schema, signature_mode, storage_type, closeable | Register schema config (authority only) |
+| `register_schema_config` | schema, signature_mode, storage_type, closeable, name | Register schema config (authority only) |
 | `create_attestation` | data, signatures, storage-specific params | Verify sigs → route to storage by `storage_type` |
 | `close_attestation` | storage-specific params | Close if `closeable=true`; ReputationScore: provider only |
 
@@ -284,7 +293,11 @@ Hash: 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
 
 #### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `InvalidDataType` · `InvalidScore` · `InvalidResponse` · `TagTooLong` · `InvalidDataLayout` · `LightCpiInvocationFailed`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed`
+
+**Universal base layout validation:**
+- `InvalidOutcome` — outcome > 7 (0-2 defined, 3-7 reserved)
+- `InvalidContentType` — content_type > 15 (0-5 defined, 6-15 reserved)
 
 ---
 
@@ -322,6 +335,12 @@ Hash: 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
 | `uri` | Registration file URL |
 | `additionalMetadata` | agentWallet, did, a2a, mcp |
 
+**Common additionalMetadata keys:**
+- `agentWallet` — Agent's payment wallet (CAIP-10 format)
+- `did` — Decentralized identifier
+- `a2a` — Agent-to-Agent endpoint URL
+- `mcp` — MCP server endpoint URL
+
 ### Operations
 
 - **Update metadata**: Direct `spl-token-metadata` calls
@@ -347,59 +366,92 @@ Hash: 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
 | DualSignature | 2 | Feedback, Validation (blind feedback model) |
 | SingleSigner | 1 | ReputationScore (provider signs) |
 
-### Feedback Schema (data_type = 0, variable length)
+### Feedback Schema (data_type = 0)
 
-| Offset | Field | Type | Description |
-|--------|-------|------|-------------|
-| 0 | task_ref | [u8;32] | CAIP-220 tx hash or arbitrary ID |
-| 32 | token_account | Pubkey | Agent mint address |
-| 64 | counterparty | Pubkey | Client |
-| 96 | data_hash | [u8;32] | Request hash (agent's blind commitment) |
-| 128 | content_type | u8 | Content format (see Content Types) |
-| 129 | outcome | u8 | 0=Negative, 1=Neutral, 2=Positive |
-| 130 | tag1 | String | Primary category (1-byte len + UTF-8, max 32 chars) |
-| var | tag2 | String | Secondary category (1-byte len + UTF-8, max 32 chars) |
-| var | content | Vec\<u8\> | Variable: 4-byte len + data |
+Uses universal base layout (130 bytes) + JSON content for extensibility.
 
-**Size**: 132 bytes minimum (empty tags, empty content), typical 160-220 bytes with tags and inline feedback
+| Field | Offset | Description |
+|-------|--------|-------------|
+| task_ref | 0-31 | CAIP-220 tx hash or task identifier |
+| token_account | 32-63 | Agent mint address |
+| counterparty | 64-95 | Client pubkey |
+| outcome | 96 | 0=Negative, 1=Neutral, 2=Positive |
+| data_hash | 97-128 | Agent's blind commitment (`keccak256(request \|\| response)`) |
+| content_type | 129 | 1=JSON (recommended), 0=None, 2=UTF-8, 5=Encrypted |
+| content | 130+ | JSON with optional fields (see below) |
 
-**Fixed offset benefit**: `outcome` at offset 129 enables Photon memcmp filtering by feedback sentiment. Tags are variable-length strings for ERC-8004 compatibility (e.g., `"quality"`, `"latency"`, `"accuracy"`).
+**JSON Content Fields** (all optional):
 
-**ERC-8004 score mapping**: ERC-8004 uses `score` (0-100) while SATI uses categorical `outcome`. For interoperability, map as: Negative(0)→0, Neutral(1)→50, Positive(2)→100.
+```json
+{
+  "score": 85,                         // ERC-8004 score (0-100)
+  "tags": ["helpful", "fast"],         // Category tags
+  "m": "Great service!"                // Message/comment
+}
+```
 
-### Validation Schema (data_type = 1, variable length)
+**Size**: 130 bytes minimum (empty content), typical 180-250 bytes with JSON content.
 
-| Offset | Field | Type | Description |
-|--------|-------|------|-------------|
-| 0 | task_ref | [u8;32] | Task reference |
-| 32 | token_account | Pubkey | Agent mint address |
-| 64 | counterparty | Pubkey | Validator |
-| 96 | data_hash | [u8;32] | Work hash (agent's commitment) |
-| 128 | content_type | u8 | Content format (see Content Types) |
-| 129 | validation_type | u8 | tee/zkml/reexecution/consensus |
-| 130 | response | u8 | 0-100 validation confidence score |
-| 131 | content | Vec\<u8\> | Variable: 4-byte len + data |
+**Fixed offset benefit**: `outcome` at offset 96 enables Photon memcmp filtering by feedback sentiment.
 
-**Size**: 135 bytes minimum (empty content), typical 150-200 bytes with inline report
+**ERC-8004 compatibility**: Include `score` in JSON content for ERC-8004 interoperability. The `outcome` field provides categorical filtering (Negative/Neutral/Positive) while `score` provides granular 0-100 values.
 
-**Fixed offset benefit**: `response` at offset 130 enables Photon memcmp filtering by validation score.
+### Validation Schema (data_type = 1)
 
-**ERC-8004 alignment**: Field name `response` matches ERC-8004 Validation schema. Score 0-100 allows validators to express confidence levels (e.g., 95 = high confidence pass, 10 = low confidence fail).
+Uses universal base layout (130 bytes) + JSON content for validation details.
 
-### ReputationScore Schema (data_type = 2, variable length)
+| Field | Offset | Description |
+|-------|--------|-------------|
+| task_ref | 0-31 | Task reference |
+| token_account | 32-63 | Agent mint address |
+| counterparty | 64-95 | Validator pubkey |
+| outcome | 96 | 0=Fail, 1=Inconclusive, 2=Pass |
+| data_hash | 97-128 | Agent's work commitment |
+| content_type | 129 | 1=JSON (recommended), 0=None, 5=Encrypted |
+| content | 130+ | JSON with validation details (see below) |
 
-Provider-computed scores using `StorageType::Regular` for direct on-chain queryability.
+**JSON Content Fields** (all optional):
 
-| Offset | Field | Type | Description |
-|--------|-------|------|-------------|
-| 0 | task_ref | [u8;32] | Deterministic: `keccak256(counterparty, token_account)` |
-| 32 | token_account | Pubkey | Agent mint address being scored |
-| 64 | counterparty | Pubkey | Provider (reputation scorer) |
-| 96 | score | u8 | 0-100 normalized score |
-| 97 | content_type | u8 | Content format (see Content Types) |
-| 98 | content | Vec\<u8\> | Variable: methodology/details |
+```json
+{
+  "type": "tee",                       // Validation type: tee/zkml/reexecution/consensus
+  "confidence": 95,                    // 0-100 confidence score
+  "report": "..."                      // Validation report/details
+}
+```
 
-**Size**: 102 bytes minimum (empty content), typical 150-300 bytes with methodology details
+**Size**: 130 bytes minimum (empty content), typical 150-200 bytes with JSON content.
+
+**Fixed offset benefit**: `outcome` at offset 96 enables Photon memcmp filtering by validation result.
+
+**Validation types**: `tee` (TEE attestation), `zkml` (ZK-ML proof), `reexecution` (deterministic replay), `consensus` (multi-validator agreement).
+
+### ReputationScore Schema (data_type = 2)
+
+Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses SingleSigner mode (provider signature only).
+
+| Field | Offset | Description |
+|-------|--------|-------------|
+| task_ref | 0-31 | Deterministic: `keccak256(counterparty, token_account)` |
+| token_account | 32-63 | Agent mint address being scored |
+| counterparty | 64-95 | Provider (reputation scorer) |
+| outcome | 96 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
+| data_hash | 97-128 | Zero-filled (SingleSigner mode, no blind commitment) |
+| content_type | 129 | 1=JSON (recommended) |
+| content | 130+ | JSON with score details (see below) |
+
+**JSON Content Fields** (all optional):
+
+```json
+{
+  "score": 85,                         // 0-100 normalized score
+  "methodology": "weighted_average",   // Scoring algorithm identifier
+  "feedbackCount": 42,                 // Number of feedbacks analyzed
+  "validationCount": 5                 // Number of validations analyzed
+}
+```
+
+**Size**: 130 bytes minimum (empty content), typical 150-250 bytes with JSON content.
 
 **Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. On-chain creation time is tracked via SAS attestation metadata.
 
@@ -439,12 +491,15 @@ The `content_type` field determines how to interpret the variable-length `conten
 
 | Code | Type | Content | Use Case |
 |------|------|---------|----------|
-| 0 | None | Empty | Just use outcome/tags (no extended content) |
+| 0 | None | Empty | Just use outcome (no extended content) |
 | 1 | JSON | Inline JSON object | Structured feedback with metadata |
 | 2 | UTF-8 | Plain text | Simple text feedback |
 | 3 | IPFS | CIDv1 (~36 bytes) | Large content stored off-chain |
 | 4 | Arweave | Transaction ID (32 bytes) | Permanent off-chain storage |
 | 5 | Encrypted | X25519-XChaCha20-Poly1305 payload | End-to-end encrypted content |
+| 6-15 | Reserved | — | Future content types |
+
+**On-chain validation**: `content_type ≤ 15`. Values 6-15 are reserved for future use without program upgrades.
 
 **Size limit**: `MAX_CONTENT_SIZE = 512 bytes`. Enforced on-chain. For larger content, use IPFS/Arweave.
 
@@ -452,13 +507,13 @@ The `content_type` field determines how to interpret the variable-length `conten
 
 ```json
 // content_type=1 (JSON), ~60 bytes
-{"text":"Fast and accurate","latency_ms":180,"tokens":1200}
+{"score":85,"tags":["helpful"],"m":"Fast and accurate"}
 
 // content_type=2 (UTF-8), ~30 bytes
 "Excellent service, would recommend"
 
 // content_type=0 (None)
-// Empty content, just use outcome + tags
+// Empty content, just use outcome
 ```
 
 **Design rationale**: Simple feedback doesn't need IPFS. Inline JSON/UTF-8 is directly readable by indexers without external fetches.
@@ -518,7 +573,7 @@ End-to-end encrypted content using X25519-XChaCha20-Poly1305. Only the intended 
 
 **Semantics:**
 - Only the recipient (agent) can decrypt content
-- Outcome, counterparty, and tags remain unencrypted and queryable
+- Base fields (outcome, counterparty, task_ref) remain unencrypted and queryable
 - Content field contains the serialized encrypted payload
 - Forward secrecy: ephemeral keypair per encryption
 
@@ -531,14 +586,15 @@ import { encryptContent, deriveEncryptionKeypair } from '@cascade-fyi/sati-sdk';
 const { publicKey } = deriveEncryptionKeypair(agentEd25519Seed);
 
 // Encrypt feedback content
+const plaintext = JSON.stringify({ score: 85, m: "Private feedback" });
 const encrypted = encryptContent(
-  new TextEncoder().encode('Detailed private feedback'),
+  new TextEncoder().encode(plaintext),
   publicKey
 );
 
 // Use in FeedbackData
 const feedback = {
-  contentType: ContentType.Encrypted, // 5
+  contentType: ContentType.Encrypted,  // 5
   content: serializeEncryptedPayload(encrypted),
   // ... other fields remain unencrypted
 };
@@ -550,7 +606,7 @@ const feedback = {
 - Integrity: Poly1305 tag prevents tampering
 
 **Limitations:**
-- Metadata visible: counterparty, outcome, tags, timestamps remain public
+- Metadata visible: counterparty, outcome, timestamps remain public
 - Ciphertext length reveals approximate plaintext length
 - No key rotation mechanism (uses wallet-derived keys)
 
@@ -581,7 +637,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 | `getValidityProof` | Get ZK proof for on-chain verification |
 | `getCompressedAccountProof` | Merkle proof for escrow |
 
-**Filters**: `sas_schema` (offset 8), `token_account` (offset 40), `outcome` (offset 129 for Feedback), `response` (offset 130 for Validation)
+**Filters**: `sas_schema` (offset 8), `token_account` (offset 40), `outcome` (offset 96, universal for all schemas)
 
 ### SAS (Regular Storage)
 
@@ -651,10 +707,15 @@ type Tag = string;
 | **Setup** | `setupSASSchemas(params)` | `SASDeploymentResult` |
 | | `registerSchemaConfig(params)` | `{ signature }` |
 | | `getSchemaConfig(sasSchema)` | `SchemaConfig \| null` |
-| **Hashing** | `computeInteractionHash(...)` | `Uint8Array` |
-| | `computeFeedbackHash(...)` | `Uint8Array` |
-| | `computeValidationHash(...)` | `Uint8Array` |
-| | `computeReputationHash(...)` | `Uint8Array` |
+| **Signing** | `computeDataHash(request, response)` | `Uint8Array` |
+| | `computeDataHashFromStrings(request, response)` | `Uint8Array` |
+| | `computeInteractionHash(schema, taskRef, dataHash)` | `Uint8Array` |
+| | `buildCounterpartyMessage(schemaName, data)` | `string` |
+| | `zeroDataHash()` | `Uint8Array` (32 zeros for SingleSigner) |
+| **Validation** | `validateBaseLayout(data)` | `void` (throws on invalid) |
+| | `validateFeedbackContent(content)` | `void` (throws on invalid) |
+| | `validateReputationScoreContent(content)` | `void` (throws on invalid) |
+| **Identity** | `linkEvmAddress(params)` | `{ signature }` |
 
 ### createFeedback Example
 
@@ -676,14 +737,14 @@ await sati.createFeedback({
 
 | Property | Enforcement |
 |----------|-------------|
-| Signature validity | Ed25519 verification |
+| Signature validity | Ed25519 verification (precompile) |
 | Blind feedback | Agent signs before outcome known |
 | Agent authorization | ATA ownership (signer owns agent NFT) |
 | Counterparty binding | `signatures[1].pubkey == counterparty` |
 | Self-attestation prevention | `token_account ≠ counterparty` |
 | Duplicate prevention | Deterministic address from task_ref |
-| Outcome range | Verified ∈ {0,1,2} before storage |
-| Content type range | Verified ∈ {0,1,2,3,4} before storage |
+| Outcome range | Verified ≤ 7 before storage (0-2 defined, 3-7 reserved) |
+| Content type range | Verified ≤ 15 before storage (0-5 defined, 6-15 reserved) |
 | Closeable enforcement | Schema config controls whether close is allowed |
 
 ### Off-Chain Validation (SDK/Indexer)
@@ -691,7 +752,13 @@ await sati.createFeedback({
 | Property | Enforcement |
 |----------|-------------|
 | task_ref format | SDK validates CAIP-220 |
+| JSON content structure | SDK validates schema-specific fields |
+| Score range (0-100) | SDK validates for Feedback/ReputationScore |
+| Confidence range (0-100) | SDK validates for Validation |
+| Tag length (max 32 chars) | SDK validates in JSON content |
 | Timestamp filtering | Client-side filtering via Photon `slotCreated` |
+
+**Rationale**: Schema-specific validation is performed by SDK, not on-chain. This allows new schemas to be registered without program upgrades. The program validates only universal base layout fields.
 
 ### Trust Model
 
@@ -904,7 +971,8 @@ The `registrations` array lists all on-chain registrations for the same logical 
 1. Create registration file with `registrations: []`
 2. Register agent on-chain (returns mint address)
 3. Update registration file with actual registration entry
-4. (Optional) Register on additional chains and update file
+4. (Optional) Call `link_evm_address` to prove EVM address ownership
+5. (Optional) Register on additional chains and update file
 
 This is necessary because the mint address isn't known until after registration completes.
 
@@ -963,8 +1031,9 @@ Hash: keccak256(domain || agent_mint || evm_address || chain_id)
 
 ### Storage
 
-**On-chain**: Event only (no account storage)
-**Off-chain**: Agent updates `registrations[]` in registration file per ERC-8004 convention
+**On-chain (Event):** `EvmAddressLinked` event emitted for indexing.
+
+**Off-chain:** Agent updates `registrations[]` in registration file per ERC-8004 convention.
 
 ### Use Cases
 
@@ -976,7 +1045,7 @@ Hash: keccak256(domain || agent_mint || evm_address || chain_id)
 
 - Agent owner must sign the transaction (holds agent NFT)
 - One EVM address can link to multiple SATI agents (consistent with ERC-8004)
-- No on-chain deduplication — multiple link events for same address are allowed
+- Multiple chain IDs can be linked per agent (e.g., both Ethereum and Base)
 
 ---
 
@@ -1017,11 +1086,22 @@ If agent signs AFTER seeing outcome, they can refuse negative feedback. By signi
 
 | Feature | Status | Notes |
 |---------|--------|-------|
+| EVM attestation signing | Deferred | secp256k1 signatures for agents and counterparties |
 | Certification schema | Deferred | Third-party certs when demand exists |
 | Third-party credentials | Deferred | Platform model when demand exists |
 | Agent→Agent delegation | Future | New data type for agent hierarchies |
 | Escrow integration | Future | ZK proofs for automatic release |
 | Batch reputation updates | Future | Provider updates multiple agents atomically |
+
+### EVM Attestation Signing (Deferred)
+
+Enable ERC-8004 agents and clients to sign attestations with their existing EVM wallets (secp256k1), eliminating the need for separate Solana wallets. Vision:
+
+- **Agents**: Sign `interaction_hash` with linked EVM address (via EIP-712 typed data)
+- **Counterparties**: Sign feedback with same wallet used for payment on Base/Ethereum
+- **Program changes**: Add `SignatureData` enum supporting Ed25519 and Secp256k1 variants, store linked addresses in TokenMetadata, verify secp256k1 via `secp256k1_recover` syscall
+
+Will be implemented when ERC-8004 agents express demand for cross-chain signing.
 
 ### Certification System (Deferred)
 
