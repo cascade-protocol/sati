@@ -173,7 +173,8 @@ async fn test_create_attestation_feedback_success() {
     // Agent signs interaction_hash (no token_account in hash)
     // Counterparty signs SIWS message
     let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
-    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
 
     let agent_sig = sign_message(&agent_keypair, &agent_message);
     let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
@@ -359,7 +360,8 @@ async fn test_create_attestation_missing_signature() {
 
     // Build signatures
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
-    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
     let agent_sig = sign_message(&agent_keypair, &interaction_hash);
     let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
 
@@ -692,7 +694,8 @@ async fn test_create_attestation_wrong_signer() {
 
     // Sign with correct hashes but WRONG keypair for agent
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
-    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
 
     // Sign with wrong_keypair instead of agent_keypair
     let agent_sig = sign_message(&wrong_keypair, &interaction_hash);
@@ -862,7 +865,8 @@ async fn test_create_attestation_self_attestation() {
 
     // Build signatures (both from same keypair, but for different message types)
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
-    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &self_mint, &task_ref, outcome, None);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &self_mint, &task_ref, outcome, None);
     let agent_sig = sign_message(&self_keypair, &interaction_hash);
     let counterparty_sig = sign_message(&self_keypair, &counterparty_msg);
 
@@ -1189,7 +1193,8 @@ async fn test_create_attestation_wrong_storage_type() {
 
     // Build valid signatures
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
-    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
     let agent_sig = sign_message(&agent_keypair, &interaction_hash);
     let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
 
@@ -1381,8 +1386,12 @@ async fn test_create_attestation_wrong_mint_ata() {
 
     let address_tree_info = rpc.get_address_tree_v1();
     let address_tree_pubkey = address_tree_info.tree;
-    let nonce =
-        compute_attestation_nonce(&task_ref, &sas_schema, &actual_agent_mint, &counterparty_pubkey);
+    let nonce = compute_attestation_nonce(
+        &task_ref,
+        &sas_schema,
+        &actual_agent_mint,
+        &counterparty_pubkey,
+    );
     let seeds: &[&[u8]] = &[
         b"attestation",
         sas_schema.as_ref(),
@@ -2202,8 +2211,7 @@ async fn test_dual_signature_duplicate_pubkeys() {
 
     let address_tree_info = rpc.get_address_tree_v1();
     let address_tree_pubkey = address_tree_info.tree;
-    let nonce =
-        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &single_pubkey);
+    let nonce = compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &single_pubkey);
     let seeds: &[&[u8]] = &[
         b"attestation",
         sas_schema.as_ref(),
@@ -2963,8 +2971,16 @@ mod tests {
 
         // Verify layout matches specification offsets
         assert_eq!(&data[0..32], &task_ref, "task_ref at offset 0-31");
-        assert_eq!(&data[32..64], token_account.as_ref(), "token_account at offset 32-63");
-        assert_eq!(&data[64..96], counterparty.as_ref(), "counterparty at offset 64-95");
+        assert_eq!(
+            &data[32..64],
+            token_account.as_ref(),
+            "token_account at offset 32-63"
+        );
+        assert_eq!(
+            &data[64..96],
+            counterparty.as_ref(),
+            "counterparty at offset 64-95"
+        );
         assert_eq!(data[96], outcome, "outcome at offset 96");
         assert_eq!(&data[97..129], &data_hash, "data_hash at offset 97-128");
         assert_eq!(data[129], content_type, "content_type at offset 129");

@@ -5,7 +5,9 @@ use solana_program::sysvar::instructions as instructions_sysvar;
 use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
-use crate::signature::{compute_interaction_hash, compute_reputation_nonce, verify_ed25519_signatures};
+use crate::signature::{
+    compute_interaction_hash, compute_reputation_nonce, verify_ed25519_signatures,
+};
 use crate::state::{CreateRegularParams, SchemaConfig, StorageType};
 
 /// Accounts for create_regular_attestation instruction (SAS storage)
@@ -130,7 +132,8 @@ pub fn handler<'info>(
     let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let expected_message = compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
+    let expected_message =
+        compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
 
     // 8. Verify Ed25519 signature (SingleSigner mode: verify the provider signed interaction_hash)
     verify_ed25519_signatures(

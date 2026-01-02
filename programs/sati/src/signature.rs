@@ -145,10 +145,7 @@ pub fn verify_ed25519_signatures(
                                 SatiError::InvalidEd25519Instruction
                             );
                             let msg = &data[msg_offset..msg_offset + msg_size];
-                            require!(
-                                msg == expected_msg.as_slice(),
-                                SatiError::MessageMismatch
-                            );
+                            require!(msg == expected_msg.as_slice(), SatiError::MessageMismatch);
                         }
                         // If expected_message is None, we only verify signature exists
                         // (Ed25519 precompile already verified sig against whatever message was signed)

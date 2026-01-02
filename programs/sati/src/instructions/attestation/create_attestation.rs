@@ -13,7 +13,9 @@ use solana_program::sysvar::instructions as instructions_sysvar;
 use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
-use crate::signature::{compute_attestation_nonce, compute_interaction_hash, verify_ed25519_signatures};
+use crate::signature::{
+    compute_attestation_nonce, compute_interaction_hash, verify_ed25519_signatures,
+};
 use crate::state::{CompressedAttestation, CreateParams, SchemaConfig, SignatureMode, StorageType};
 use crate::ID;
 use crate::LIGHT_CPI_SIGNER;
@@ -260,7 +262,8 @@ fn build_expected_messages(
         .map_err(|_| SatiError::InvalidSignature)?;
 
     // Compute interaction hash (agent's signature)
-    let interaction_hash = compute_interaction_hash(&schema_config.sas_schema, task_ref, &data_hash).to_vec();
+    let interaction_hash =
+        compute_interaction_hash(&schema_config.sas_schema, task_ref, &data_hash).to_vec();
 
     // For SingleSigner mode, only the interaction hash is verified
     if schema_config.signature_mode == SignatureMode::SingleSigner {
@@ -335,7 +338,8 @@ fn decode_content_for_display(content: &[u8], content_type: u8) -> String {
         0 => "(none)".to_string(), // ContentType::None
         1 | 2 => {
             // ContentType::JSON or UTF8
-            String::from_utf8(content.to_vec()).unwrap_or_else(|_| format!("({} bytes)", content.len()))
+            String::from_utf8(content.to_vec())
+                .unwrap_or_else(|_| format!("({} bytes)", content.len()))
         }
         3 => format!("ipfs://{}", bs58::encode(content).into_string()), // ContentType::IPFS
         4 => format!("ar://{}", bs58::encode(content).into_string()),   // ContentType::Arweave
@@ -449,7 +453,8 @@ mod tests {
             .unwrap();
 
         // Compute expected interaction hash (now 3 params, no token_account)
-        let expected_hash = compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
+        let expected_hash =
+            compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
 
         let result = build_expected_messages(&params, &schema_config, &task_ref);
         let messages = result.unwrap();
@@ -505,7 +510,10 @@ mod tests {
             println!("TEST HELPER BYTES: {:?}", test_msg_str.as_bytes());
         }
 
-        assert_eq!(onchain_str, test_msg_str, "SIWS messages should match exactly");
+        assert_eq!(
+            onchain_str, test_msg_str,
+            "SIWS messages should match exactly"
+        );
     }
 
     #[test]
