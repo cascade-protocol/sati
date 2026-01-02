@@ -570,6 +570,7 @@ async function registerSchemaConfigs(
       signatureMode: config.signatureMode,
       storageType: config.storageType,
       closeable: config.closeable,
+      name: configKey, // Schema name for SIWS messages (e.g., "Feedback", "Validation")
     });
 
     const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
@@ -1030,6 +1031,12 @@ async function main() {
     seeds: [new TextEncoder().encode("__event_authority")],
   });
 
+  // Derive schema config PDAs - these are what transactions actually reference!
+  // NOTE: Schema ADDRESSES are NOT needed in ALT - only schema CONFIG PDAs are used
+  const [feedbackConfigPda] = await findSchemaConfigPda(sasConfig.schemas.feedback);
+  const [validationConfigPda] = await findSchemaConfigPda(sasConfig.schemas.validation);
+  const [reputationScoreConfigPda] = await findSchemaConfigPda(sasConfig.schemas.reputationScore);
+
   const altAddresses: Address[] = [
     // Light Protocol core programs
     LIGHT_SYSTEM_PROGRAM,
@@ -1049,11 +1056,10 @@ async function main() {
     registryPda,
     groupMintAddress,
 
-    // SAS schemas
-    sasConfig.credential,
-    sasConfig.schemas.feedback,
-    sasConfig.schemas.validation,
-    sasConfig.schemas.reputationScore,
+    // Schema config PDAs (CRITICAL: transactions reference these, not schema addresses!)
+    feedbackConfigPda,
+    validationConfigPda,
+    reputationScoreConfigPda,
 
     // Solana system programs
     SYSTEM_PROGRAM,
@@ -1063,7 +1069,8 @@ async function main() {
     TOKEN_2022_PROGRAM_ADDRESS,
   ];
   if (sasConfig.schemas.feedbackPublic) {
-    altAddresses.push(sasConfig.schemas.feedbackPublic);
+    const [feedbackPublicConfigPda] = await findSchemaConfigPda(sasConfig.schemas.feedbackPublic);
+    altAddresses.push(feedbackPublicConfigPda);
   }
   console.log(`\nRequired addresses for lookup table: ${altAddresses.length}`);
 

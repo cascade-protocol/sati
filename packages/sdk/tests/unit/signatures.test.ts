@@ -5,8 +5,12 @@
  * via @solana/kit's Web Crypto implementation, verifying that:
  * 1. Signatures are correctly generated and verifiable
  * 2. createFeedbackSignatures produces valid dual signatures
- * 3. Signature binding matches spec (agent->interaction, counterparty->feedback)
+ * 3. Signature binding: agent->interactionHash, counterparty->SIWS message
  * 4. Wrong keypairs fail verification
+ *
+ * Universal Layout (130 bytes):
+ * - Agent signs: keccak256(domain, schema, task_ref, data_hash)
+ * - Counterparty signs: SIWS human-readable message
  */
 
 import { describe, test, expect } from "vitest";
@@ -20,13 +24,7 @@ import {
   createReputationSignature,
   randomBytes32,
 } from "../helpers";
-import {
-  computeInteractionHash,
-  computeFeedbackHash,
-  computeValidationHash,
-  computeReputationHash,
-  Outcome,
-} from "../../src/hashes";
+import { computeInteractionHash, Outcome } from "../../src/hashes";
 
 // =============================================================================
 // Test Utilities
@@ -130,23 +128,18 @@ describe("Ed25519 Core Operations", () => {
 // =============================================================================
 
 describe("createFeedbackSignatures", () => {
-  test("produces two signatures", async () => {
+  test("produces two signatures and counterparty message", async () => {
     const sasSchema = await randomAddress();
     const taskRef = randomBytes32();
     const dataHash = randomBytes32();
     const agent = await createTestKeypair(1);
     const counterparty = await createTestKeypair(2);
 
-    const signatures = await createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
-    expect(signatures).toHaveLength(2);
+    expect(result.signatures).toHaveLength(2);
+    expect(result.counterpartyMessage).toBeInstanceOf(Uint8Array);
+    expect(result.counterpartyMessage.length).toBeGreaterThan(0);
   });
 
   test("first signature is from agent", async () => {
@@ -156,16 +149,9 @@ describe("createFeedbackSignatures", () => {
     const agent = await createTestKeypair(1);
     const counterparty = await createTestKeypair(2);
 
-    const signatures = await createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
-    expect(signatures[0].pubkey).toBe(agent.address);
+    expect(result.signatures[0].pubkey).toBe(agent.address);
   });
 
   test("second signature is from counterparty", async () => {
@@ -175,16 +161,9 @@ describe("createFeedbackSignatures", () => {
     const agent = await createTestKeypair(1);
     const counterparty = await createTestKeypair(2);
 
-    const signatures = await createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
+    const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
-    expect(signatures[1].pubkey).toBe(counterparty.address);
+    expect(result.signatures[1].pubkey).toBe(counterparty.address);
   });
 
   test("agent signature verifies against interaction hash", async () => {
@@ -194,7 +173,39 @@ describe("createFeedbackSignatures", () => {
     const agent = await createTestKeypair(1);
     const counterparty = await createTestKeypair(2);
 
-    const signatures = await createFeedbackSignatures(
+    const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
+
+    // Agent signs interaction hash (blind to outcome, no tokenAccount in hash)
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
+
+    const isValid = await verifySignature(interactionHash, result.signatures[0].sig, agent.publicKey);
+
+    expect(isValid).toBe(true);
+  });
+
+  test("counterparty signature verifies against SIWS message", async () => {
+    const sasSchema = await randomAddress();
+    const taskRef = randomBytes32();
+    const dataHash = randomBytes32();
+    const agent = await createTestKeypair(1);
+    const counterparty = await createTestKeypair(2);
+
+    const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
+
+    // Counterparty signs SIWS message (human-readable format)
+    const isValid = await verifySignature(result.counterpartyMessage, result.signatures[1].sig, counterparty.publicKey);
+
+    expect(isValid).toBe(true);
+  });
+
+  test("different outcomes produce different counterparty messages", async () => {
+    const sasSchema = await randomAddress();
+    const taskRef = randomBytes32();
+    const dataHash = randomBytes32();
+    const agent = await createTestKeypair(1);
+    const counterparty = await createTestKeypair(2);
+
+    const resultPositive = await createFeedbackSignatures(
       sasSchema,
       taskRef,
       agent,
@@ -203,49 +214,7 @@ describe("createFeedbackSignatures", () => {
       Outcome.Positive,
     );
 
-    // Agent signs interaction hash (blind to outcome)
-    const interactionHash = computeInteractionHash(sasSchema, taskRef, agent.address, dataHash);
-
-    const isValid = await verifySignature(interactionHash, signatures[0].sig, agent.publicKey);
-
-    expect(isValid).toBe(true);
-  });
-
-  test("counterparty signature verifies against feedback hash", async () => {
-    const sasSchema = await randomAddress();
-    const taskRef = randomBytes32();
-    const dataHash = randomBytes32();
-    const agent = await createTestKeypair(1);
-    const counterparty = await createTestKeypair(2);
-    const outcome = Outcome.Positive;
-
-    const signatures = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
-
-    // Counterparty signs feedback hash (includes outcome)
-    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agent.address, outcome);
-
-    const isValid = await verifySignature(feedbackHash, signatures[1].sig, counterparty.publicKey);
-
-    expect(isValid).toBe(true);
-  });
-
-  test("different outcomes produce different counterparty signatures", async () => {
-    const sasSchema = await randomAddress();
-    const taskRef = randomBytes32();
-    const dataHash = randomBytes32();
-    const agent = await createTestKeypair(1);
-    const counterparty = await createTestKeypair(2);
-
-    const sigPositive = await createFeedbackSignatures(
-      sasSchema,
-      taskRef,
-      agent,
-      counterparty,
-      dataHash,
-      Outcome.Positive,
-    );
-
-    const sigNegative = await createFeedbackSignatures(
+    const resultNegative = await createFeedbackSignatures(
       sasSchema,
       taskRef,
       agent,
@@ -255,10 +224,29 @@ describe("createFeedbackSignatures", () => {
     );
 
     // Agent signatures should be the same (blind to outcome)
-    expect(sigPositive[0].sig).toEqual(sigNegative[0].sig);
+    expect(resultPositive.signatures[0].sig).toEqual(resultNegative.signatures[0].sig);
 
-    // Counterparty signatures should be different (includes outcome)
-    expect(sigPositive[1].sig).not.toEqual(sigNegative[1].sig);
+    // Counterparty signatures should be different (SIWS message includes outcome)
+    expect(resultPositive.signatures[1].sig).not.toEqual(resultNegative.signatures[1].sig);
+
+    // SIWS messages should be different
+    expect(resultPositive.counterpartyMessage).not.toEqual(resultNegative.counterpartyMessage);
+  });
+
+  test("SIWS message contains human-readable content", async () => {
+    const sasSchema = await randomAddress();
+    const taskRef = randomBytes32();
+    const dataHash = randomBytes32();
+    const agent = await createTestKeypair(1);
+    const counterparty = await createTestKeypair(2);
+
+    const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
+
+    const messageText = new TextDecoder().decode(result.counterpartyMessage);
+
+    // Should contain SATI header and outcome
+    expect(messageText).toContain("SATI");
+    expect(messageText).toContain("Positive");
   });
 });
 
@@ -272,9 +260,17 @@ describe("verifyFeedbackSignatures", () => {
     const agent = await createTestKeypair(1);
     const counterparty = await createTestKeypair(2);
 
-    const signatures = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
+    const signResult = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
 
-    const result = await verifyFeedbackSignatures(sasSchema, taskRef, agent.address, dataHash, outcome, signatures);
+    const result = await verifyFeedbackSignatures(
+      sasSchema,
+      taskRef,
+      agent.address,
+      dataHash,
+      outcome,
+      signResult.signatures,
+      signResult.counterpartyMessage,
+    );
 
     expect(result.valid).toBe(true);
     expect(result.agentValid).toBe(true);
@@ -295,6 +291,7 @@ describe("verifyFeedbackSignatures", () => {
       dataHash,
       Outcome.Positive,
       [], // No signatures
+      new Uint8Array(0),
     );
 
     expect(result.valid).toBe(false);
@@ -309,27 +306,36 @@ describe("verifyFeedbackSignatures", () => {
     const agent = await createTestKeypair(1);
     const counterparty = await createTestKeypair(2);
 
-    const signatures = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
+    const signResult = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, outcome);
 
     // Swap the signatures
-    const swappedSigs = [signatures[1], signatures[0]];
+    const swappedSigs = [signResult.signatures[1], signResult.signatures[0]];
 
-    const result = await verifyFeedbackSignatures(sasSchema, taskRef, agent.address, dataHash, outcome, swappedSigs);
+    const result = await verifyFeedbackSignatures(
+      sasSchema,
+      taskRef,
+      agent.address,
+      dataHash,
+      outcome,
+      swappedSigs,
+      signResult.counterpartyMessage,
+    );
 
-    // Both should fail because signatures are bound to wrong hashes
+    // Both should fail because signatures are bound to wrong messages
     expect(result.valid).toBe(false);
   });
 
-  test("wrong outcome fails counterparty verification", async () => {
+  test("wrong counterparty message fails verification", async () => {
     const sasSchema = await randomAddress();
     const taskRef = randomBytes32();
     const dataHash = randomBytes32();
 
     const agent = await createTestKeypair(1);
+    const wrongAgent = await createTestKeypair(99); // Different agent
     const counterparty = await createTestKeypair(2);
 
-    // Create signatures for Positive outcome
-    const signatures = await createFeedbackSignatures(
+    // Create signatures for the original agent
+    const signResult = await createFeedbackSignatures(
       sasSchema,
       taskRef,
       agent,
@@ -338,18 +344,20 @@ describe("verifyFeedbackSignatures", () => {
       Outcome.Positive,
     );
 
-    // Verify with wrong outcome (Negative)
+    // Try to verify with wrong tokenAccount
+    // The counterparty signed for agent.address, not wrongAgent.address
     const result = await verifyFeedbackSignatures(
       sasSchema,
       taskRef,
-      agent.address,
+      wrongAgent.address, // Wrong tokenAccount!
       dataHash,
-      Outcome.Negative, // Wrong outcome
-      signatures,
+      Outcome.Positive,
+      signResult.signatures,
+      signResult.counterpartyMessage,
     );
 
-    expect(result.agentValid).toBe(true); // Agent didn't sign outcome
-    expect(result.counterpartyValid).toBe(false); // Counterparty signed different outcome
+    expect(result.agentValid).toBe(true); // Agent signature is still valid
+    expect(result.counterpartyValid).toBe(false); // Counterparty signed for different tokenAccount
     expect(result.valid).toBe(false);
   });
 });
@@ -359,51 +367,63 @@ describe("verifyFeedbackSignatures", () => {
 // =============================================================================
 
 describe("createValidationSignatures", () => {
-  test("produces two signatures", async () => {
+  test("produces two signatures and counterparty message", async () => {
     const sasSchema = await randomAddress();
     const taskRef = randomBytes32();
     const dataHash = randomBytes32();
     const agent = await createTestKeypair(1);
     const validator = await createTestKeypair(2);
 
-    const signatures = await createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, 85);
+    const result = await createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, Outcome.Positive);
 
-    expect(signatures).toHaveLength(2);
+    expect(result.signatures).toHaveLength(2);
+    expect(result.counterpartyMessage).toBeInstanceOf(Uint8Array);
   });
 
-  test("validator signature verifies against validation hash", async () => {
+  test("validator signature verifies against SIWS message", async () => {
     const sasSchema = await randomAddress();
     const taskRef = randomBytes32();
     const dataHash = randomBytes32();
     const agent = await createTestKeypair(1);
     const validator = await createTestKeypair(2);
-    const response = 95;
 
-    const signatures = await createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, response);
+    const result = await createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, Outcome.Positive);
 
-    const validationHash = computeValidationHash(sasSchema, taskRef, agent.address, response);
-
-    const isValid = await verifySignature(validationHash, signatures[1].sig, validator.publicKey);
+    const isValid = await verifySignature(result.counterpartyMessage, result.signatures[1].sig, validator.publicKey);
 
     expect(isValid).toBe(true);
   });
 
-  test("different response scores produce different validator signatures", async () => {
+  test("different outcomes produce different validator signatures", async () => {
     const sasSchema = await randomAddress();
     const taskRef = randomBytes32();
     const dataHash = randomBytes32();
     const agent = await createTestKeypair(1);
     const validator = await createTestKeypair(2);
 
-    const sig0 = await createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, 0);
+    const resultPositive = await createValidationSignatures(
+      sasSchema,
+      taskRef,
+      agent,
+      validator,
+      dataHash,
+      Outcome.Positive,
+    );
 
-    const sig100 = await createValidationSignatures(sasSchema, taskRef, agent, validator, dataHash, 100);
+    const resultNegative = await createValidationSignatures(
+      sasSchema,
+      taskRef,
+      agent,
+      validator,
+      dataHash,
+      Outcome.Negative,
+    );
 
     // Agent signatures should be the same (blind)
-    expect(sig0[0].sig).toEqual(sig100[0].sig);
+    expect(resultPositive.signatures[0].sig).toEqual(resultNegative.signatures[0].sig);
 
-    // Validator signatures should differ (includes response)
-    expect(sig0[1].sig).not.toEqual(sig100[1].sig);
+    // Validator signatures should differ (outcome in SIWS message)
+    expect(resultPositive.signatures[1].sig).not.toEqual(resultNegative.signatures[1].sig);
   });
 });
 
@@ -414,39 +434,42 @@ describe("createValidationSignatures", () => {
 describe("createReputationSignature", () => {
   test("produces single signature (SingleSigner mode)", async () => {
     const sasSchema = await randomAddress();
-    const agent = await createTestKeypair(1);
-    const provider = await createTestKeypair(2);
+    const taskRef = randomBytes32();
+    const dataHash = randomBytes32();
+    const provider = await createTestKeypair(1);
 
-    const signatures = await createReputationSignature(sasSchema, agent.address, provider, 75);
+    const signatures = await createReputationSignature(sasSchema, taskRef, dataHash, provider);
 
     expect(signatures).toHaveLength(1);
     expect(signatures[0].pubkey).toBe(provider.address);
   });
 
-  test("provider signature verifies against reputation hash", async () => {
+  test("provider signature verifies against interaction hash", async () => {
     const sasSchema = await randomAddress();
-    const agent = await createTestKeypair(1);
-    const provider = await createTestKeypair(2);
-    const score = 90;
+    const taskRef = randomBytes32();
+    const dataHash = randomBytes32();
+    const provider = await createTestKeypair(1);
 
-    const signatures = await createReputationSignature(sasSchema, agent.address, provider, score);
+    const signatures = await createReputationSignature(sasSchema, taskRef, dataHash, provider);
 
-    const reputationHash = computeReputationHash(sasSchema, agent.address, provider.address, score);
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
-    const isValid = await verifySignature(reputationHash, signatures[0].sig, provider.publicKey);
+    const isValid = await verifySignature(interactionHash, signatures[0].sig, provider.publicKey);
 
     expect(isValid).toBe(true);
   });
 
-  test("different scores produce different signatures", async () => {
+  test("different data hashes produce different signatures", async () => {
     const sasSchema = await randomAddress();
-    const agent = await createTestKeypair(1);
-    const provider = await createTestKeypair(2);
+    const taskRef = randomBytes32();
+    const dataHash1 = randomBytes32();
+    const dataHash2 = randomBytes32();
+    const provider = await createTestKeypair(1);
 
-    const sig50 = await createReputationSignature(sasSchema, agent.address, provider, 50);
-    const sig75 = await createReputationSignature(sasSchema, agent.address, provider, 75);
+    const sig1 = await createReputationSignature(sasSchema, taskRef, dataHash1, provider);
+    const sig2 = await createReputationSignature(sasSchema, taskRef, dataHash2, provider);
 
-    expect(sig50[0].sig).not.toEqual(sig75[0].sig);
+    expect(sig1[0].sig).not.toEqual(sig2[0].sig);
   });
 });
 

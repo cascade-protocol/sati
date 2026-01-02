@@ -4,10 +4,18 @@
  * These functions must produce identical hashes to the Rust implementations
  * in programs/sati/src/signature.rs. Uses keccak256 from @noble/hashes.
  *
+ * ## Universal Base Layout (130 bytes)
+ * All schemas share identical first 130 bytes. Hash computation uses:
+ * - task_ref (32 bytes)
+ * - data_hash (32 bytes) at offset 97
+ *
+ * ## Signature Model
+ * - Agent signs: interaction_hash = keccak256(domain, schema, task_ref, data_hash)
+ * - Counterparty signs: SIWS human-readable message (built in offchain-signing.ts)
+ *
  * ## Identity Model
  * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
  * - The agent NFT **OWNER** signs (verified via ATA ownership on-chain)
- * - Hashes include the mint address; signatures come from the owner
  * - Naming is for SAS wire format compatibility (NOT an Associated Token Account)
  */
 
@@ -16,9 +24,6 @@ import { type Address, getAddressEncoder } from "@solana/kit";
 
 // Domain separators - must match programs/sati/src/constants.rs
 const DOMAIN_INTERACTION = new TextEncoder().encode("SATI:interaction:v1");
-const DOMAIN_FEEDBACK = new TextEncoder().encode("SATI:feedback:v1");
-const DOMAIN_VALIDATION = new TextEncoder().encode("SATI:validation:v1");
-const DOMAIN_REPUTATION = new TextEncoder().encode("SATI:reputation:v1");
 const DOMAIN_EVM_LINK = new TextEncoder().encode("SATI:evm_link:v1");
 
 /**
@@ -34,18 +39,15 @@ function addressToBytes(address: Address): Uint8Array {
  * Compute the interaction hash that the agent signs (blind to outcome).
  * Domain: SATI:interaction:v1
  *
+ * The agent signs this hash as a blind commitment to the interaction.
+ * Note: token_account is NOT included in the hash (removed in v2 layout).
+ *
  * @param sasSchema - SAS schema address
  * @param taskRef - 32-byte task reference (e.g., CAIP-220 tx hash)
- * @param tokenAccount - Agent's mint address (named for SAS compatibility)
  * @param dataHash - 32-byte hash of the request/interaction data
  * @returns 32-byte keccak256 hash
  */
-export function computeInteractionHash(
-  sasSchema: Address,
-  taskRef: Uint8Array,
-  tokenAccount: Address,
-  dataHash: Uint8Array,
-): Uint8Array {
+export function computeInteractionHash(sasSchema: Address, taskRef: Uint8Array, dataHash: Uint8Array): Uint8Array {
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
   }
@@ -54,7 +56,7 @@ export function computeInteractionHash(
   }
 
   const data = new Uint8Array(
-    DOMAIN_INTERACTION.length + 32 + 32 + 32 + 32, // domain + schema + taskRef + tokenAccount + dataHash
+    DOMAIN_INTERACTION.length + 32 + 32 + 32, // domain + schema + taskRef + dataHash
   );
 
   let offset = 0;
@@ -64,129 +66,7 @@ export function computeInteractionHash(
   offset += 32;
   data.set(taskRef, offset);
   offset += 32;
-  data.set(addressToBytes(tokenAccount), offset);
-  offset += 32;
   data.set(dataHash, offset);
-
-  return keccak_256(data);
-}
-
-/**
- * Compute the feedback hash that the counterparty signs (with outcome).
- * Domain: SATI:feedback:v1
- *
- * @param sasSchema - SAS schema address
- * @param taskRef - 32-byte task reference
- * @param tokenAccount - Agent's mint address (named for SAS compatibility)
- * @param outcome - Feedback outcome: 0=Negative, 1=Neutral, 2=Positive
- * @returns 32-byte keccak256 hash
- */
-export function computeFeedbackHash(
-  sasSchema: Address,
-  taskRef: Uint8Array,
-  tokenAccount: Address,
-  outcome: number,
-): Uint8Array {
-  if (taskRef.length !== 32) {
-    throw new Error("taskRef must be 32 bytes");
-  }
-  if (!Number.isInteger(outcome) || outcome < 0 || outcome > 2) {
-    throw new Error("outcome must be 0, 1, or 2");
-  }
-
-  const data = new Uint8Array(
-    DOMAIN_FEEDBACK.length + 32 + 32 + 32 + 1, // domain + schema + taskRef + tokenAccount + outcome
-  );
-
-  let offset = 0;
-  data.set(DOMAIN_FEEDBACK, offset);
-  offset += DOMAIN_FEEDBACK.length;
-  data.set(addressToBytes(sasSchema), offset);
-  offset += 32;
-  data.set(taskRef, offset);
-  offset += 32;
-  data.set(addressToBytes(tokenAccount), offset);
-  offset += 32;
-  data[offset] = outcome;
-
-  return keccak_256(data);
-}
-
-/**
- * Compute the validation hash that the counterparty signs (with response score).
- * Domain: SATI:validation:v1
- *
- * @param sasSchema - SAS schema address
- * @param taskRef - 32-byte task reference
- * @param tokenAccount - Agent's mint address (named for SAS compatibility)
- * @param response - Validation response score: 0-100
- * @returns 32-byte keccak256 hash
- */
-export function computeValidationHash(
-  sasSchema: Address,
-  taskRef: Uint8Array,
-  tokenAccount: Address,
-  response: number,
-): Uint8Array {
-  if (taskRef.length !== 32) {
-    throw new Error("taskRef must be 32 bytes");
-  }
-  if (!Number.isInteger(response) || response < 0 || response > 100) {
-    throw new Error("response must be an integer 0-100");
-  }
-
-  const data = new Uint8Array(
-    DOMAIN_VALIDATION.length + 32 + 32 + 32 + 1, // domain + schema + taskRef + tokenAccount + response
-  );
-
-  let offset = 0;
-  data.set(DOMAIN_VALIDATION, offset);
-  offset += DOMAIN_VALIDATION.length;
-  data.set(addressToBytes(sasSchema), offset);
-  offset += 32;
-  data.set(taskRef, offset);
-  offset += 32;
-  data.set(addressToBytes(tokenAccount), offset);
-  offset += 32;
-  data[offset] = response;
-
-  return keccak_256(data);
-}
-
-/**
- * Compute the reputation hash that the provider signs.
- * Domain: SATI:reputation:v1
- *
- * @param sasSchema - SAS schema address
- * @param tokenAccount - Agent's mint address being scored (named for SAS compatibility)
- * @param provider - Reputation provider's address
- * @param score - Reputation score: 0-100
- * @returns 32-byte keccak256 hash
- */
-export function computeReputationHash(
-  sasSchema: Address,
-  tokenAccount: Address,
-  provider: Address,
-  score: number,
-): Uint8Array {
-  if (!Number.isInteger(score) || score < 0 || score > 100) {
-    throw new Error("score must be an integer 0-100");
-  }
-
-  const data = new Uint8Array(
-    DOMAIN_REPUTATION.length + 32 + 32 + 32 + 1, // domain + schema + tokenAccount + provider + score
-  );
-
-  let offset = 0;
-  data.set(DOMAIN_REPUTATION, offset);
-  offset += DOMAIN_REPUTATION.length;
-  data.set(addressToBytes(sasSchema), offset);
-  offset += 32;
-  data.set(addressToBytes(tokenAccount), offset);
-  offset += 32;
-  data.set(addressToBytes(provider), offset);
-  offset += 32;
-  data[offset] = score;
 
   return keccak_256(data);
 }
@@ -375,8 +255,5 @@ export { Outcome } from "./schemas";
  */
 export const DOMAINS = {
   INTERACTION: DOMAIN_INTERACTION,
-  FEEDBACK: DOMAIN_FEEDBACK,
-  VALIDATION: DOMAIN_VALIDATION,
-  REPUTATION: DOMAIN_REPUTATION,
   EVM_LINK: DOMAIN_EVM_LINK,
 } as const;

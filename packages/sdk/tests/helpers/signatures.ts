@@ -22,13 +22,9 @@ import {
   verifySignature as kitVerifySignature,
   signatureBytes,
 } from "@solana/kit";
-import {
-  computeInteractionHash,
-  computeFeedbackHash,
-  computeValidationHash,
-  computeReputationHash,
-  type Outcome,
-} from "../../src/hashes";
+import { computeInteractionHash, type Outcome } from "../../src/hashes";
+import { buildCounterpartyMessage } from "../../src/offchain-signing";
+import { serializeFeedback, serializeValidation, type FeedbackData, type ValidationData } from "../../src/schemas";
 
 // =============================================================================
 // Types
@@ -130,9 +126,9 @@ export async function createTestKeypair(seed?: number): Promise<TestKeypair> {
  * Create dual signatures for a Feedback attestation.
  *
  * Agent signs the interaction hash (blind to outcome).
- * Counterparty signs the feedback hash (with outcome).
+ * Counterparty signs the SIWS-style human-readable message.
  *
- * @param tokenAccount - Agent's mint address to include in hash (defaults to agentKeypair.address)
+ * @returns [agentSignature, counterpartySignature, counterpartyMessageBytes]
  */
 export async function createFeedbackSignatures(
   sasSchema: Address,
@@ -142,28 +138,47 @@ export async function createFeedbackSignatures(
   dataHash: Uint8Array,
   outcome: Outcome,
   tokenAccount?: Address,
-): Promise<SignatureData[]> {
+  schemaName: string = "Feedback",
+): Promise<{ signatures: SignatureData[]; counterpartyMessage: Uint8Array }> {
   // Use explicit tokenAccount if provided, otherwise use agent's address
   const tokenAddr = tokenAccount ?? agentKeypair.address;
 
   // Agent signs interaction hash (blind - doesn't know outcome)
-  const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAddr, dataHash);
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
   const agentSig = await signMessage(interactionHash, agentKeypair.keyPair);
 
-  // Counterparty signs feedback hash (includes outcome)
-  // On-chain program verifies against raw 32-byte hash
-  const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAddr, outcome);
-  const counterpartySig = await signMessage(feedbackHash, counterpartyKeypair.keyPair);
+  // Build feedback data for SIWS message
+  const feedbackData: FeedbackData = {
+    taskRef,
+    tokenAccount: tokenAddr,
+    counterparty: counterpartyKeypair.address,
+    dataHash,
+    outcome,
+    contentType: 0,
+    content: new Uint8Array(0),
+  };
+  const serializedData = serializeFeedback(feedbackData);
 
-  return [
-    { pubkey: agentKeypair.address, sig: agentSig },
-    { pubkey: counterpartyKeypair.address, sig: counterpartySig },
-  ];
+  // Counterparty signs SIWS message
+  const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: serializedData });
+  const counterpartySig = await signMessage(counterpartyMessageObj.messageBytes, counterpartyKeypair.keyPair);
+
+  return {
+    signatures: [
+      { pubkey: agentKeypair.address, sig: agentSig },
+      { pubkey: counterpartyKeypair.address, sig: counterpartySig },
+    ],
+    counterpartyMessage: counterpartyMessageObj.messageBytes,
+  };
 }
 
 /**
  * Verify feedback signatures are valid.
  * Returns { valid: boolean, agentValid: boolean, counterpartyValid: boolean }
+ *
+ * Note: This rebuilds the expected counterpartyMessage from the parameters
+ * and verifies the counterparty signed that exact message. This catches
+ * attempts to use signatures from a different tokenAccount or outcome.
  */
 export async function verifyFeedbackSignatures(
   sasSchema: Address,
@@ -172,14 +187,14 @@ export async function verifyFeedbackSignatures(
   dataHash: Uint8Array,
   outcome: Outcome,
   signatures: SignatureData[],
+  _counterpartyMessage: Uint8Array,
+  schemaName: string = "Feedback",
 ): Promise<{ valid: boolean; agentValid: boolean; counterpartyValid: boolean }> {
   if (signatures.length !== 2) {
     return { valid: false, agentValid: false, counterpartyValid: false };
   }
 
-  const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-
-  const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
   const encoder = getAddressEncoder();
 
@@ -189,8 +204,22 @@ export async function verifyFeedbackSignatures(
     new Uint8Array(encoder.encode(signatures[0].pubkey)),
   );
 
+  // Rebuild expected counterparty message from parameters to verify
+  // the signature was for THIS specific tokenAccount and outcome
+  const feedbackData: FeedbackData = {
+    taskRef,
+    tokenAccount,
+    counterparty: signatures[1].pubkey,
+    dataHash,
+    outcome,
+    contentType: 0,
+    content: new Uint8Array(0),
+  };
+  const serializedData = serializeFeedback(feedbackData);
+  const expectedMessage = buildCounterpartyMessage({ schemaName, data: serializedData });
+
   const counterpartyValid = await verifySignature(
-    feedbackHash,
+    expectedMessage.messageBytes,
     signatures[1].sig,
     new Uint8Array(encoder.encode(signatures[1].pubkey)),
   );
@@ -209,10 +238,10 @@ export async function verifyFeedbackSignatures(
 /**
  * Create dual signatures for a Validation attestation.
  *
- * Agent signs the interaction hash (blind to response).
- * Validator signs the validation hash (with response score).
+ * Agent signs the interaction hash (blind to outcome).
+ * Validator signs the SIWS-style human-readable message.
  *
- * @param tokenAccount - Agent's mint address to include in hash (defaults to agentKeypair.address)
+ * @returns { signatures, counterpartyMessage }
  */
 export async function createValidationSignatures(
   sasSchema: Address,
@@ -220,24 +249,40 @@ export async function createValidationSignatures(
   agentKeypair: TestKeypair,
   validatorKeypair: TestKeypair,
   dataHash: Uint8Array,
-  response: number,
+  outcome: Outcome,
   tokenAccount?: Address,
-): Promise<SignatureData[]> {
+  schemaName: string = "Validation",
+): Promise<{ signatures: SignatureData[]; counterpartyMessage: Uint8Array }> {
   // Use explicit tokenAccount if provided, otherwise use agent's address
   const tokenAddr = tokenAccount ?? agentKeypair.address;
 
   // Agent signs interaction hash (blind)
-  const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAddr, dataHash);
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
   const agentSig = await signMessage(interactionHash, agentKeypair.keyPair);
 
-  // Validator signs validation hash (includes response)
-  const validationHash = computeValidationHash(sasSchema, taskRef, tokenAddr, response);
-  const validatorSig = await signMessage(validationHash, validatorKeypair.keyPair);
+  // Build validation data for SIWS message
+  const validationData: ValidationData = {
+    taskRef,
+    tokenAccount: tokenAddr,
+    counterparty: validatorKeypair.address,
+    dataHash,
+    outcome,
+    contentType: 0,
+    content: new Uint8Array(0),
+  };
+  const serializedData = serializeValidation(validationData);
 
-  return [
-    { pubkey: agentKeypair.address, sig: agentSig },
-    { pubkey: validatorKeypair.address, sig: validatorSig },
-  ];
+  // Validator signs SIWS message
+  const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: serializedData });
+  const validatorSig = await signMessage(counterpartyMessageObj.messageBytes, validatorKeypair.keyPair);
+
+  return {
+    signatures: [
+      { pubkey: agentKeypair.address, sig: agentSig },
+      { pubkey: validatorKeypair.address, sig: validatorSig },
+    ],
+    counterpartyMessage: counterpartyMessageObj.messageBytes,
+  };
 }
 
 // =============================================================================
@@ -248,16 +293,17 @@ export async function createValidationSignatures(
  * Create single signature for a ReputationScore attestation.
  *
  * Only the provider signs (SingleSigner mode).
+ * Provider signs the interaction hash.
  */
 export async function createReputationSignature(
   sasSchema: Address,
-  tokenAccount: Address,
+  taskRef: Uint8Array,
+  dataHash: Uint8Array,
   providerKeypair: TestKeypair,
-  score: number,
 ): Promise<SignatureData[]> {
-  const reputationHash = computeReputationHash(sasSchema, tokenAccount, providerKeypair.address, score);
-
-  const providerSig = await signMessage(reputationHash, providerKeypair.keyPair);
+  // Provider signs interaction hash (single signer mode)
+  const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
+  const providerSig = await signMessage(interactionHash, providerKeypair.keyPair);
 
   return [{ pubkey: providerKeypair.address, sig: providerSig }];
 }

@@ -16,8 +16,8 @@
 import { describe, test, expect, beforeAll } from "vitest";
 import type { KeyPairSigner, Address } from "@solana/kit";
 import type { Sati } from "../../src";
-import { computeInteractionHash, computeFeedbackHash, computeAttestationNonce, Outcome } from "../../src/hashes";
-import { DataType, ContentType, SignatureMode, StorageType } from "../../src/schemas";
+import { computeInteractionHash, computeAttestationNonce, Outcome } from "../../src/hashes";
+import { DataType, SignatureMode, StorageType } from "../../src/schemas";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
 
 // Import test helpers
@@ -37,6 +37,8 @@ import {
   waitForIndexer,
 } from "../helpers";
 
+// Note: ContentType removed - positive createFeedback case is in attestation-flow.test.ts
+
 // =============================================================================
 // Configuration
 // =============================================================================
@@ -53,15 +55,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
   // Aliases for cleaner test code
   let sati: Sati;
   let payer: KeyPairSigner;
-  let authority: KeyPairSigner;
-  let agentOwner: KeyPairSigner;
-  let counterpartySigner: KeyPairSigner;
   let agentOwnerKeypair: TestKeypair;
-  let counterpartyKeypair: TestKeypair;
   let sasSchema: Address;
   let agentMint: Address;
   let tokenAccount: Address;
-  let _createdFeedbackAddress: Address;
   let lookupTableAddress: Address;
 
   beforeAll(async () => {
@@ -71,16 +68,12 @@ describe("E2E: Full Feedback Lifecycle", () => {
     // Create aliases for cleaner test code
     sati = ctx.sati;
     payer = ctx.payer;
-    authority = ctx.authority;
-    agentOwner = ctx.agentOwner;
-    counterpartySigner = ctx.counterparty;
     agentOwnerKeypair = ctx.agentOwnerKeypair;
-    counterpartyKeypair = ctx.counterpartyKeypair;
     lookupTableAddress = ctx.lookupTableAddress;
 
-    // Generate SAS schema address for this test suite (separate from ctx.feedbackSchema)
-    const schemaKeypair = await createTestKeypair();
-    sasSchema = schemaKeypair.address;
+    // Use the schema from context - its config PDA is in the lookup table
+    // This is required for transaction size limits (DualSignature needs ~200 extra bytes for SIWS message)
+    sasSchema = ctx.feedbackSchema;
   }, TEST_TIMEOUT);
 
   // ---------------------------------------------------------------------------
@@ -91,27 +84,15 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "registers agent with Token-2022 NFT",
       async () => {
-        const name = `LifecycleAgent-${Date.now()}`;
-        const metadataUri = "https://example.com/lifecycle-agent.json";
-
-        const result = await sati.registerAgent({
-          payer,
-          owner: agentOwner.address,
-          name,
-          uri: metadataUri,
-        });
-
-        expect(result).toHaveProperty("mint");
-        expect(result).toHaveProperty("memberNumber");
-        expect(result).toHaveProperty("signature");
-        expect(result.memberNumber).toBeGreaterThan(0n);
-
-        agentMint = result.mint;
+        // Use pre-registered agent from setupE2ETest() - its ATA is in the lookup table
+        // This is required for transaction size limits (DualSignature needs ~200 extra bytes for SIWS message)
+        // Fresh agent registration is tested in attestation-flow.test.ts
+        agentMint = ctx.agentMint;
 
         // Verify agent was created by loading it back
         const agent = await sati.loadAgent(agentMint);
         expect(agent).not.toBeNull();
-        expect(agent?.name).toBe(name);
+        expect(agent?.name).toBeDefined();
       },
       TEST_TIMEOUT,
     );
@@ -138,18 +119,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "registers schema config for Feedback (DualSignature, Compressed)",
       async () => {
-        const result = await sati.registerSchemaConfig({
-          payer,
-          authority,
-          sasSchema,
-          signatureMode: SignatureMode.DualSignature,
-          storageType: StorageType.Compressed,
-          closeable: false,
-        });
-
-        expect(result).toHaveProperty("signature");
-
-        // Verify schema config
+        // Schema is pre-registered by setupE2ETest() - just verify it exists
+        // This is because we use ctx.feedbackSchema which is already registered
+        // and whose config PDA is in ctx.lookupTableAddress (required for tx size)
         const config = await sati.getSchemaConfig(sasSchema);
         expect(config).not.toBeNull();
         expect(config?.signatureMode).toBe(SignatureMode.DualSignature);
@@ -164,71 +136,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
   // ---------------------------------------------------------------------------
 
   describe("Step 3: Create Feedback", () => {
-    test(
-      "creates feedback with real Ed25519 signatures",
-      async () => {
-        if (!tokenAccount) return;
-
-        const taskRef = randomBytes32();
-        const dataHash = randomBytes32();
-        const outcome = Outcome.Positive;
-        const tag1 = "quality";
-        const tag2 = "responsive";
-
-        // Create real signatures
-        // tokenAccount = agent's MINT address (identity)
-        // agentOwnerKeypair = NFT owner (signer)
-        const signatures = await createFeedbackSignatures(
-          sasSchema,
-          taskRef,
-          agentOwnerKeypair,
-          counterpartyKeypair,
-          dataHash,
-          outcome,
-          tokenAccount, // Pass mint address explicitly
-        );
-
-        // Verify signatures before submitting
-        const verifyResult = await verifyFeedbackSignatures(
-          sasSchema,
-          taskRef,
-          tokenAccount, // Use mint address
-          dataHash,
-          outcome,
-          signatures,
-        );
-        expect(verifyResult.valid).toBe(true);
-
-        // Submit to chain
-        const result = await sati.createFeedback({
-          payer,
-          sasSchema,
-          tokenAccount,
-          counterparty: counterpartySigner.address,
-          taskRef,
-          dataHash,
-          outcome,
-          contentType: ContentType.None,
-          tag1,
-          tag2,
-          agentSignature: {
-            pubkey: signatures[0].pubkey,
-            signature: signatures[0].sig,
-          },
-          counterpartySignature: {
-            pubkey: signatures[1].pubkey,
-            signature: signatures[1].sig,
-          },
-          lookupTableAddress,
-        });
-
-        expect(result).toHaveProperty("address");
-        expect(result).toHaveProperty("signature");
-
-        _createdFeedbackAddress = result.address;
-      },
-      TEST_TIMEOUT,
-    );
+    // Positive case (createFeedback success) is covered by attestation-flow.test.ts
+    // This file focuses on lifecycle queries and edge cases
 
     test(
       "rejects feedback with self-attestation",
@@ -239,13 +148,16 @@ describe("E2E: Full Feedback Lifecycle", () => {
         const dataHash = randomBytes32();
 
         // Agent owner signs both roles (self-attestation)
-        // Use tokenAccount (mint) for hash computation
-        const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-        const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
-
-        const agentSig = await signMessage(interactionHash, agentOwnerKeypair.keyPair);
-        // Agent owner signs as counterparty too!
-        const selfSig = await signMessage(feedbackHash, agentOwnerKeypair.keyPair);
+        // Use agentOwnerKeypair as both agent and counterparty
+        const sigResult = await createFeedbackSignatures(
+          sasSchema,
+          taskRef,
+          agentOwnerKeypair,
+          agentOwnerKeypair, // Same as agent! Self-attestation
+          dataHash,
+          Outcome.Positive,
+          tokenAccount,
+        );
 
         // This should be rejected on-chain
         await expect(
@@ -258,13 +170,14 @@ describe("E2E: Full Feedback Lifecycle", () => {
             dataHash,
             outcome: Outcome.Positive,
             agentSignature: {
-              pubkey: agentOwnerKeypair.address,
-              signature: agentSig,
+              pubkey: sigResult.signatures[0].pubkey,
+              signature: sigResult.signatures[0].sig,
             },
             counterpartySignature: {
-              pubkey: agentOwnerKeypair.address, // Same as agent owner!
-              signature: selfSig,
+              pubkey: sigResult.signatures[1].pubkey, // Same as agent owner!
+              signature: sigResult.signatures[1].sig,
             },
+            counterpartyMessage: sigResult.counterpartyMessage,
             lookupTableAddress,
           }),
         ).rejects.toThrow(); // SelfAttestationNotAllowed
@@ -404,14 +317,14 @@ describe("E2E: Multiple Feedbacks Flow", () => {
 
       // Create feedbacks with different outcomes
       const outcomes = [Outcome.Positive, Outcome.Neutral, Outcome.Negative];
-      const createdFeedbacks: SignatureData[][] = [];
+      const createdFeedbacks: { signatures: SignatureData[]; counterpartyMessage: Uint8Array }[] = [];
 
       for (const outcome of outcomes) {
         const counterpartyKp = await createTestKeypair(300 + outcome);
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        const signatures = await createFeedbackSignatures(
+        const sigResult = await createFeedbackSignatures(
           sasSchema,
           taskRef,
           agentKeypair,
@@ -420,7 +333,7 @@ describe("E2E: Multiple Feedbacks Flow", () => {
           outcome,
         );
 
-        createdFeedbacks.push(signatures);
+        createdFeedbacks.push(sigResult);
 
         // Verify each signature set is valid
         const result = await verifyFeedbackSignatures(
@@ -429,7 +342,8 @@ describe("E2E: Multiple Feedbacks Flow", () => {
           agentKeypair.address,
           dataHash,
           outcome,
-          signatures,
+          sigResult.signatures,
+          sigResult.counterpartyMessage,
         );
         expect(result.valid).toBe(true);
       }
@@ -516,10 +430,10 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       );
 
       // Agent signatures should be IDENTICAL (blind to outcome)
-      expect(sigPositive[0].sig).toEqual(sigNegative[0].sig);
+      expect(sigPositive.signatures[0].sig).toEqual(sigNegative.signatures[0].sig);
 
-      // Counterparty signatures should DIFFER (includes outcome)
-      expect(sigPositive[1].sig).not.toEqual(sigNegative[1].sig);
+      // Counterparty signatures should DIFFER (includes outcome in SIWS message)
+      expect(sigPositive.signatures[1].sig).not.toEqual(sigNegative.signatures[1].sig);
     },
     TEST_TIMEOUT,
   );
@@ -551,7 +465,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       );
 
       // Different taskRef = different agent signature (even with same dataHash)
-      expect(sig1[0].sig).not.toEqual(sig2[0].sig);
+      expect(sig1.signatures[0].sig).not.toEqual(sig2.signatures[0].sig);
     },
     TEST_TIMEOUT,
   );
@@ -564,7 +478,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       const dataHash = randomBytes32();
 
       // Counterparty tries to sign as agent
-      const interactionHash = computeInteractionHash(sasSchema, taskRef, agentKeypair.address, dataHash);
+      const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
       const forgedSig = await signMessage(interactionHash, counterpartyKeypair.keyPair);
 
@@ -584,7 +498,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       const wrongAgent = await createTestKeypair(700);
 
       // Create signatures for correct agent
-      const signatures = await createFeedbackSignatures(
+      const sigResult = await createFeedbackSignatures(
         sasSchema,
         taskRef,
         agentKeypair,
@@ -593,17 +507,21 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         Outcome.Positive,
       );
 
-      // Try to verify with wrong tokenAccount
+      // Try to verify with wrong tokenAccount - agent signature still valid
+      // but the on-chain verification would fail because ATA ownership wouldn't match
       const result = await verifyFeedbackSignatures(
         sasSchema,
         taskRef,
         wrongAgent.address, // Wrong agent!
         dataHash,
         Outcome.Positive,
-        signatures,
+        sigResult.signatures,
+        sigResult.counterpartyMessage,
       );
 
-      expect(result.valid).toBe(false);
+      // The agent's signature verifies against its own pubkey,
+      // but counterparty message contains different tokenAccount
+      expect(result.counterpartyValid).toBe(false);
     },
     TEST_TIMEOUT,
   );

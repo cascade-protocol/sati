@@ -43,6 +43,7 @@ fn test_register_schema_config_success() {
         SignatureMode::DualSignature,
         StorageType::Compressed,
         true, // closeable
+        "TestFeedback".to_string(),
     );
 
     let tx = Transaction::new_signed_with_payer(
@@ -64,7 +65,8 @@ fn test_register_schema_config_success() {
     assert!(schema_account.is_some(), "Schema config should exist");
 
     let account = schema_account.unwrap();
-    assert_eq!(account.data.len(), 44, "Schema config should be 44 bytes");
+    // Size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 4 (name_len) + 32 (name_max) + 1 (bump) = 80 bytes
+    assert_eq!(account.data.len(), 80, "Schema config should be 80 bytes");
 
     // Verify fields (after 8-byte discriminator)
     let stored_sas_schema = &account.data[8..40];
@@ -119,6 +121,7 @@ fn test_register_schema_config_single_signer_regular() {
         SignatureMode::SingleSigner,
         StorageType::Regular,
         false, // not closeable
+        "TestReputation".to_string(),
     );
 
     let tx = Transaction::new_signed_with_payer(
@@ -178,6 +181,7 @@ fn test_register_schema_config_wrong_authority() {
         SignatureMode::DualSignature,
         StorageType::Compressed,
         true,
+        "TestFeedback".to_string(),
     );
 
     let tx = Transaction::new_signed_with_payer(
@@ -228,6 +232,7 @@ fn test_register_schema_config_immutable_registry() {
         SignatureMode::DualSignature,
         StorageType::Compressed,
         true,
+        "TestFeedback".to_string(),
     );
 
     let tx = Transaction::new_signed_with_payer(

@@ -43,6 +43,8 @@ pub struct SchemaConfigRegistered {
     pub storage_type: StorageType,
     /// Whether attestations can be closed
     pub closeable: bool,
+    /// Human-readable schema name (max 32 chars)
+    pub name: String,
 }
 
 /// Emitted when an attestation is created (compressed or regular)

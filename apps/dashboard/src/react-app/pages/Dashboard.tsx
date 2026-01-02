@@ -6,13 +6,15 @@
 
 import { useState } from "react";
 import { useWalletConnection } from "@solana/react-hooks";
-import { Bot, Plus, Wallet, MessageSquare, Loader2, ExternalLink } from "lucide-react";
+import { Bot, Plus, Wallet, MessageSquare, Loader2, ExternalLink, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentTable } from "@/components/AgentTable";
 import { RegisterAgentDialog } from "@/components/RegisterAgentDialog";
+import { FeedbackDetailModal } from "@/components/FeedbackDetailModal";
 import { useSati, useMyFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
-import { formatSlotTime, truncateAddress } from "@/lib/sati";
+import { formatSlotTime, truncateAddress, parseFeedback } from "@/lib/sati";
 import { getSolscanUrl } from "@/lib/network";
 
 // Helper to format outcome
@@ -143,38 +145,79 @@ export function Dashboard() {
                     <tr className="border-b text-left text-sm text-muted-foreground">
                       <th className="pb-3 pr-4 font-medium">Agent</th>
                       <th className="pb-3 pr-4 font-medium">Outcome</th>
-                      <th className="pb-3 font-medium text-right">Time</th>
+                      <th className="pb-3 pr-4 font-medium">Tags</th>
+                      <th className="pb-3 pr-4 font-medium text-right">Time</th>
+                      <th className="pb-3 font-medium text-right">Details</th>
                     </tr>
                   </thead>
                   <tbody>
                     {myFeedbacks.map((feedback) => {
                       // tokenAccount is the agent's mint address (named for SAS wire format compatibility)
-                      const data = feedback.data as { outcome: number; tokenAccount: string };
+                      const data = feedback.data as {
+                        outcome: number;
+                        tokenAccount: string;
+                        content: Uint8Array;
+                        contentType: number;
+                      };
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
                       const slotCreated = feedback.raw.slotCreated;
-                      // Use attestation address bytes as unique key
+                      // Parse JSON content for tags/score/message
+                      const content = parseFeedback(data);
+                      // Use full attestation address as key to avoid collisions
                       const key = Array.from(feedback.address)
                         .map((b) => b.toString(16).padStart(2, "0"))
-                        .join("")
-                        .slice(0, 16);
+                        .join("");
                       return (
                         <tr key={key} className="border-b">
                           <td className="py-4 pr-4">
-                            <a
-                              href={getSolscanUrl(data.tokenAccount, "account")}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
-                            >
-                              {truncateAddress(data.tokenAccount)}
-                              <ExternalLink className="h-3 w-3 opacity-50" />
-                            </a>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <a
+                                  href={getSolscanUrl(data.tokenAccount, "account")}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
+                                >
+                                  {truncateAddress(data.tokenAccount)}
+                                  <ExternalLink className="h-3 w-3 opacity-50" />
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <span className="font-mono text-xs">{data.tokenAccount}</span>
+                              </TooltipContent>
+                            </Tooltip>
                           </td>
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>
                           </td>
-                          <td className="py-4 text-right text-sm text-muted-foreground">
+                          <td className="py-4 pr-4">
+                            {content?.tags && content.tags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {content.tags.slice(0, 3).map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="px-2 py-0.5 text-xs bg-muted rounded-full text-muted-foreground"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                                {content.tags.length > 3 && (
+                                  <span className="text-xs text-muted-foreground">+{content.tags.length - 3}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="py-4 pr-4 text-right text-sm text-muted-foreground">
                             {formatSlotTime(slotCreated, currentSlot)}
+                          </td>
+                          <td className="py-4 text-right">
+                            <FeedbackDetailModal feedback={feedback} currentSlot={currentSlot}>
+                              <Button variant="ghost" size="sm">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </FeedbackDetailModal>
                           </td>
                         </tr>
                       );

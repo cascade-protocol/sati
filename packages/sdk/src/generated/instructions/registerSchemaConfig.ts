@@ -7,6 +7,8 @@
  */
 
 import {
+  addDecoderSizePrefix,
+  addEncoderSizePrefix,
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
@@ -19,13 +21,17 @@ import {
   getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
+  getU32Decoder,
+  getU32Encoder,
+  getUtf8Decoder,
+  getUtf8Encoder,
   transformEncoder,
   type AccountMeta,
   type AccountSignerMeta,
   type Address,
-  type FixedSizeCodec,
-  type FixedSizeDecoder,
-  type FixedSizeEncoder,
+  type Codec,
+  type Decoder,
+  type Encoder,
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
@@ -103,6 +109,7 @@ export type RegisterSchemaConfigInstructionData = {
   signatureMode: SignatureMode;
   storageType: StorageType;
   closeable: boolean;
+  name: string;
 };
 
 export type RegisterSchemaConfigInstructionDataArgs = {
@@ -110,9 +117,10 @@ export type RegisterSchemaConfigInstructionDataArgs = {
   signatureMode: SignatureModeArgs;
   storageType: StorageTypeArgs;
   closeable: boolean;
+  name: string;
 };
 
-export function getRegisterSchemaConfigInstructionDataEncoder(): FixedSizeEncoder<RegisterSchemaConfigInstructionDataArgs> {
+export function getRegisterSchemaConfigInstructionDataEncoder(): Encoder<RegisterSchemaConfigInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
@@ -120,6 +128,7 @@ export function getRegisterSchemaConfigInstructionDataEncoder(): FixedSizeEncode
       ["signatureMode", getSignatureModeEncoder()],
       ["storageType", getStorageTypeEncoder()],
       ["closeable", getBooleanEncoder()],
+      ["name", addEncoderSizePrefix(getUtf8Encoder(), getU32Encoder())],
     ]),
     (value) => ({
       ...value,
@@ -128,17 +137,18 @@ export function getRegisterSchemaConfigInstructionDataEncoder(): FixedSizeEncode
   );
 }
 
-export function getRegisterSchemaConfigInstructionDataDecoder(): FixedSizeDecoder<RegisterSchemaConfigInstructionData> {
+export function getRegisterSchemaConfigInstructionDataDecoder(): Decoder<RegisterSchemaConfigInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["sasSchema", getAddressDecoder()],
     ["signatureMode", getSignatureModeDecoder()],
     ["storageType", getStorageTypeDecoder()],
     ["closeable", getBooleanDecoder()],
+    ["name", addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
   ]);
 }
 
-export function getRegisterSchemaConfigInstructionDataCodec(): FixedSizeCodec<
+export function getRegisterSchemaConfigInstructionDataCodec(): Codec<
   RegisterSchemaConfigInstructionDataArgs,
   RegisterSchemaConfigInstructionData
 > {
@@ -168,6 +178,7 @@ export type RegisterSchemaConfigAsyncInput<
   signatureMode: RegisterSchemaConfigInstructionDataArgs["signatureMode"];
   storageType: RegisterSchemaConfigInstructionDataArgs["storageType"];
   closeable: RegisterSchemaConfigInstructionDataArgs["closeable"];
+  name: RegisterSchemaConfigInstructionDataArgs["name"];
 };
 
 export async function getRegisterSchemaConfigInstructionAsync<
@@ -287,6 +298,7 @@ export type RegisterSchemaConfigInput<
   signatureMode: RegisterSchemaConfigInstructionDataArgs["signatureMode"];
   storageType: RegisterSchemaConfigInstructionDataArgs["storageType"];
   closeable: RegisterSchemaConfigInstructionDataArgs["closeable"];
+  name: RegisterSchemaConfigInstructionDataArgs["name"];
 };
 
 export function getRegisterSchemaConfigInstruction<

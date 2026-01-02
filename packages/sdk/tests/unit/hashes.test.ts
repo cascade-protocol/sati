@@ -3,17 +3,23 @@
  *
  * These tests verify that the TypeScript hash implementations produce
  * deterministic results and match the expected structure.
+ *
+ * Universal Base Layout (130 bytes):
+ * - Agent signs: interaction_hash = keccak256(domain, schema, task_ref, data_hash)
+ * - Counterparty signs: SIWS human-readable message
  */
 
 import { describe, test, expect } from "vitest";
 import { type Address, getAddressDecoder } from "@solana/kit";
 import {
   computeInteractionHash,
-  computeFeedbackHash,
-  computeValidationHash,
-  computeReputationHash,
   computeAttestationNonce,
   computeReputationNonce,
+  computeEvmLinkHash,
+  computeDataHash,
+  computeDataHashFromHashes,
+  computeDataHashFromStrings,
+  zeroDataHash,
   Outcome,
   DOMAINS,
 } from "../../src/hashes";
@@ -43,13 +49,11 @@ function randomBytes(length: number): Uint8Array {
 describe("Domain Separators", () => {
   test("domain separators have correct prefixes", () => {
     expect(new TextDecoder().decode(DOMAINS.INTERACTION)).toBe("SATI:interaction:v1");
-    expect(new TextDecoder().decode(DOMAINS.FEEDBACK)).toBe("SATI:feedback:v1");
-    expect(new TextDecoder().decode(DOMAINS.VALIDATION)).toBe("SATI:validation:v1");
-    expect(new TextDecoder().decode(DOMAINS.REPUTATION)).toBe("SATI:reputation:v1");
+    expect(new TextDecoder().decode(DOMAINS.EVM_LINK)).toBe("SATI:evm_link:v1");
   });
 
   test("domain separators are unique", () => {
-    const domains = [DOMAINS.INTERACTION, DOMAINS.FEEDBACK, DOMAINS.VALIDATION, DOMAINS.REPUTATION];
+    const domains = [DOMAINS.INTERACTION, DOMAINS.EVM_LINK];
 
     const asStrings = domains.map((d) => new TextDecoder().decode(d));
     const unique = new Set(asStrings);
@@ -58,17 +62,16 @@ describe("Domain Separators", () => {
 });
 
 // =============================================================================
-// Tests: Interaction Hash
+// Tests: Interaction Hash (Universal Layout - 3 args)
 // =============================================================================
 
 describe("computeInteractionHash", () => {
   test("produces 32-byte hash", () => {
     const sasSchema = randomAddress();
     const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
     const dataHash = randomBytes(32);
 
-    const hash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    const hash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
     expect(hash).toBeInstanceOf(Uint8Array);
     expect(hash.length).toBe(32);
@@ -77,11 +80,10 @@ describe("computeInteractionHash", () => {
   test("is deterministic with same inputs", () => {
     const sasSchema = randomAddress();
     const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
     const dataHash = randomBytes(32);
 
-    const hash1 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-    const hash2 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    const hash1 = computeInteractionHash(sasSchema, taskRef, dataHash);
+    const hash2 = computeInteractionHash(sasSchema, taskRef, dataHash);
 
     expect(hash1).toEqual(hash2);
   });
@@ -89,189 +91,39 @@ describe("computeInteractionHash", () => {
   test("produces different hashes for different inputs", () => {
     const sasSchema = randomAddress();
     const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
     const dataHash1 = randomBytes(32);
     const dataHash2 = randomBytes(32);
 
-    const hash1 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash1);
-    const hash2 = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash2);
+    const hash1 = computeInteractionHash(sasSchema, taskRef, dataHash1);
+    const hash2 = computeInteractionHash(sasSchema, taskRef, dataHash2);
+
+    expect(hash1).not.toEqual(hash2);
+  });
+
+  test("different schemas produce different hashes", () => {
+    const schema1 = randomAddress();
+    const schema2 = randomAddress();
+    const taskRef = randomBytes(32);
+    const dataHash = randomBytes(32);
+
+    const hash1 = computeInteractionHash(schema1, taskRef, dataHash);
+    const hash2 = computeInteractionHash(schema2, taskRef, dataHash);
 
     expect(hash1).not.toEqual(hash2);
   });
 
   test("throws on invalid taskRef length", () => {
     const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
     const dataHash = randomBytes(32);
 
-    expect(() => computeInteractionHash(sasSchema, randomBytes(16), tokenAccount, dataHash)).toThrow(
-      "taskRef must be 32 bytes",
-    );
+    expect(() => computeInteractionHash(sasSchema, randomBytes(16), dataHash)).toThrow("taskRef must be 32 bytes");
   });
 
   test("throws on invalid dataHash length", () => {
     const sasSchema = randomAddress();
     const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
 
-    expect(() => computeInteractionHash(sasSchema, taskRef, tokenAccount, randomBytes(16))).toThrow(
-      "dataHash must be 32 bytes",
-    );
-  });
-});
-
-// =============================================================================
-// Tests: Feedback Hash
-// =============================================================================
-
-describe("computeFeedbackHash", () => {
-  test("produces 32-byte hash", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-    const outcome = Outcome.Positive;
-
-    const hash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
-
-    expect(hash).toBeInstanceOf(Uint8Array);
-    expect(hash.length).toBe(32);
-  });
-
-  test("is deterministic with same inputs", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-    const outcome = Outcome.Neutral;
-
-    const hash1 = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
-    const hash2 = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
-
-    expect(hash1).toEqual(hash2);
-  });
-
-  test("produces different hashes for different outcomes", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-
-    const hashPositive = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
-    const hashNeutral = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Neutral);
-    const hashNegative = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Negative);
-
-    expect(hashPositive).not.toEqual(hashNeutral);
-    expect(hashNeutral).not.toEqual(hashNegative);
-    expect(hashPositive).not.toEqual(hashNegative);
-  });
-
-  test("throws on invalid taskRef length", () => {
-    const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
-
-    expect(() => computeFeedbackHash(sasSchema, randomBytes(16), tokenAccount, Outcome.Positive)).toThrow(
-      "taskRef must be 32 bytes",
-    );
-  });
-
-  test("throws on invalid outcome", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-
-    expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, 3)).toThrow("outcome must be 0, 1, or 2");
-  });
-});
-
-// =============================================================================
-// Tests: Validation Hash
-// =============================================================================
-
-describe("computeValidationHash", () => {
-  test("produces 32-byte hash", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-    const response = 85;
-
-    const hash = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
-
-    expect(hash).toBeInstanceOf(Uint8Array);
-    expect(hash.length).toBe(32);
-  });
-
-  test("is deterministic with same inputs", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-    const response = 50;
-
-    const hash1 = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
-    const hash2 = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
-
-    expect(hash1).toEqual(hash2);
-  });
-
-  test("produces different hashes for different response scores", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-
-    const hash0 = computeValidationHash(sasSchema, taskRef, tokenAccount, 0);
-    const hash50 = computeValidationHash(sasSchema, taskRef, tokenAccount, 50);
-    const hash100 = computeValidationHash(sasSchema, taskRef, tokenAccount, 100);
-
-    expect(hash0).not.toEqual(hash50);
-    expect(hash50).not.toEqual(hash100);
-    expect(hash0).not.toEqual(hash100);
-  });
-
-  test("throws on invalid response value", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-
-    expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, 101)).toThrow(
-      "response must be an integer 0-100",
-    );
-  });
-});
-
-// =============================================================================
-// Tests: Reputation Hash
-// =============================================================================
-
-describe("computeReputationHash", () => {
-  test("produces 32-byte hash", () => {
-    const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
-    const provider = randomAddress();
-    const score = 75;
-
-    const hash = computeReputationHash(sasSchema, tokenAccount, provider, score);
-
-    expect(hash).toBeInstanceOf(Uint8Array);
-    expect(hash.length).toBe(32);
-  });
-
-  test("is deterministic with same inputs", () => {
-    const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
-    const provider = randomAddress();
-    const score = 90;
-
-    const hash1 = computeReputationHash(sasSchema, tokenAccount, provider, score);
-    const hash2 = computeReputationHash(sasSchema, tokenAccount, provider, score);
-
-    expect(hash1).toEqual(hash2);
-  });
-
-  test("throws on invalid score value", () => {
-    const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
-    const provider = randomAddress();
-
-    expect(() => computeReputationHash(sasSchema, tokenAccount, provider, 101)).toThrow(
-      "score must be an integer 0-100",
-    );
+    expect(() => computeInteractionHash(sasSchema, taskRef, randomBytes(16))).toThrow("dataHash must be 32 bytes");
   });
 });
 
@@ -366,6 +218,162 @@ describe("computeReputationNonce", () => {
 });
 
 // =============================================================================
+// Tests: EVM Link Hash
+// =============================================================================
+
+describe("computeEvmLinkHash", () => {
+  test("produces 32-byte hash", () => {
+    const agentMint = randomAddress();
+    const evmAddress = randomBytes(20);
+    const chainId = "eip155:1";
+
+    const hash = computeEvmLinkHash(agentMint, evmAddress, chainId);
+
+    expect(hash).toBeInstanceOf(Uint8Array);
+    expect(hash.length).toBe(32);
+  });
+
+  test("is deterministic with same inputs", () => {
+    const agentMint = randomAddress();
+    const evmAddress = randomBytes(20);
+    const chainId = "eip155:1";
+
+    const hash1 = computeEvmLinkHash(agentMint, evmAddress, chainId);
+    const hash2 = computeEvmLinkHash(agentMint, evmAddress, chainId);
+
+    expect(hash1).toEqual(hash2);
+  });
+
+  test("different chain IDs produce different hashes", () => {
+    const agentMint = randomAddress();
+    const evmAddress = randomBytes(20);
+
+    const hash1 = computeEvmLinkHash(agentMint, evmAddress, "eip155:1");
+    const hash2 = computeEvmLinkHash(agentMint, evmAddress, "eip155:137");
+
+    expect(hash1).not.toEqual(hash2);
+  });
+
+  test("throws on invalid evmAddress length", () => {
+    const agentMint = randomAddress();
+    const chainId = "eip155:1";
+
+    expect(() => computeEvmLinkHash(agentMint, randomBytes(32), chainId)).toThrow("evmAddress must be 20 bytes");
+  });
+});
+
+// =============================================================================
+// Tests: Data Hash Helpers
+// =============================================================================
+
+describe("computeDataHash", () => {
+  test("produces 32-byte hash", () => {
+    const request = randomBytes(64);
+    const response = randomBytes(128);
+
+    const hash = computeDataHash(request, response);
+
+    expect(hash).toBeInstanceOf(Uint8Array);
+    expect(hash.length).toBe(32);
+  });
+
+  test("is deterministic", () => {
+    const request = randomBytes(64);
+    const response = randomBytes(128);
+
+    const hash1 = computeDataHash(request, response);
+    const hash2 = computeDataHash(request, response);
+
+    expect(hash1).toEqual(hash2);
+  });
+
+  test("different content produces different hashes", () => {
+    const request = randomBytes(64);
+    const response1 = randomBytes(128);
+    const response2 = randomBytes(128);
+
+    const hash1 = computeDataHash(request, response1);
+    const hash2 = computeDataHash(request, response2);
+
+    expect(hash1).not.toEqual(hash2);
+  });
+});
+
+describe("computeDataHashFromHashes", () => {
+  test("produces 32-byte hash", () => {
+    const requestHash = randomBytes(32);
+    const responseHash = randomBytes(32);
+
+    const hash = computeDataHashFromHashes(requestHash, responseHash);
+
+    expect(hash).toBeInstanceOf(Uint8Array);
+    expect(hash.length).toBe(32);
+  });
+
+  test("throws on invalid requestHash length", () => {
+    const responseHash = randomBytes(32);
+
+    expect(() => computeDataHashFromHashes(randomBytes(16), responseHash)).toThrow("requestHash must be 32 bytes");
+  });
+
+  test("throws on invalid responseHash length", () => {
+    const requestHash = randomBytes(32);
+
+    expect(() => computeDataHashFromHashes(requestHash, randomBytes(16))).toThrow("responseHash must be 32 bytes");
+  });
+});
+
+describe("computeDataHashFromStrings", () => {
+  test("produces 32-byte hash from strings", () => {
+    const request = '{"prompt": "Hello"}';
+    const response = '{"text": "Hi there!"}';
+
+    const hash = computeDataHashFromStrings(request, response);
+
+    expect(hash).toBeInstanceOf(Uint8Array);
+    expect(hash.length).toBe(32);
+  });
+
+  test("is deterministic", () => {
+    const request = '{"prompt": "Hello"}';
+    const response = '{"text": "Hi there!"}';
+
+    const hash1 = computeDataHashFromStrings(request, response);
+    const hash2 = computeDataHashFromStrings(request, response);
+
+    expect(hash1).toEqual(hash2);
+  });
+
+  test("matches byte-based computation", () => {
+    const request = "test request";
+    const response = "test response";
+
+    const fromStrings = computeDataHashFromStrings(request, response);
+    const fromBytes = computeDataHash(new TextEncoder().encode(request), new TextEncoder().encode(response));
+
+    expect(fromStrings).toEqual(fromBytes);
+  });
+});
+
+describe("zeroDataHash", () => {
+  test("returns 32 zero bytes", () => {
+    const hash = zeroDataHash();
+
+    expect(hash).toBeInstanceOf(Uint8Array);
+    expect(hash.length).toBe(32);
+    expect(hash.every((b) => b === 0)).toBe(true);
+  });
+
+  test("returns a new array each call", () => {
+    const hash1 = zeroDataHash();
+    const hash2 = zeroDataHash();
+
+    expect(hash1).toEqual(hash2);
+    expect(hash1).not.toBe(hash2); // Different references
+  });
+});
+
+// =============================================================================
 // Tests: Outcome Enum
 // =============================================================================
 
@@ -374,197 +382,5 @@ describe("Outcome Enum", () => {
     expect(Outcome.Negative).toBe(0);
     expect(Outcome.Neutral).toBe(1);
     expect(Outcome.Positive).toBe(2);
-  });
-});
-
-// =============================================================================
-// Tests: Boundary Values (Edge Cases)
-// =============================================================================
-
-describe("Boundary Values", () => {
-  describe("Outcome boundaries", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-
-    test("accepts Outcome.Negative (0)", () => {
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Negative)).not.toThrow();
-    });
-
-    test("accepts Outcome.Neutral (1)", () => {
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Neutral)).not.toThrow();
-    });
-
-    test("accepts Outcome.Positive (2)", () => {
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive)).not.toThrow();
-    });
-
-    test("rejects outcome 3 (just above valid range)", () => {
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, 3)).toThrow("outcome must be 0, 1, or 2");
-    });
-
-    test("rejects outcome 255 (max u8)", () => {
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, 255)).toThrow("outcome must be 0, 1, or 2");
-    });
-  });
-
-  describe("Response/Score boundaries", () => {
-    const sasSchema = randomAddress();
-    const taskRef = randomBytes(32);
-    const tokenAccount = randomAddress();
-    const provider = randomAddress();
-
-    test("accepts score 0 (minimum)", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, 0)).not.toThrow();
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, 0)).not.toThrow();
-    });
-
-    test("accepts score 50 (midpoint)", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, 50)).not.toThrow();
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, 50)).not.toThrow();
-    });
-
-    test("accepts score 100 (maximum)", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, 100)).not.toThrow();
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, 100)).not.toThrow();
-    });
-
-    test("rejects score 101 (just above valid range)", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, 101)).toThrow(
-        "response must be an integer 0-100",
-      );
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, 101)).toThrow(
-        "score must be an integer 0-100",
-      );
-    });
-
-    test("rejects score 255 (max u8)", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, 255)).toThrow(
-        "response must be an integer 0-100",
-      );
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, 255)).toThrow(
-        "score must be an integer 0-100",
-      );
-    });
-  });
-});
-
-// =============================================================================
-// Tests: TypeScript Enum Bypass (Security Edge Cases)
-// =============================================================================
-
-describe("TypeScript Enum Bypass Protection", () => {
-  const sasSchema = randomAddress();
-  const taskRef = randomBytes(32);
-  const tokenAccount = randomAddress();
-  const provider = randomAddress();
-
-  describe("Negative value injection", () => {
-    test("rejects -1 cast as Outcome", () => {
-      // TypeScript allows this bypass at compile time
-      const maliciousOutcome = -1 as Outcome;
-
-      // Runtime validation should catch it
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, maliciousOutcome)).toThrow(
-        "outcome must be 0, 1, or 2",
-      );
-    });
-
-    test("rejects -100 as Outcome", () => {
-      const veryNegative = -100 as Outcome;
-
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, veryNegative)).toThrow(
-        "outcome must be 0, 1, or 2",
-      );
-    });
-
-    test("rejects -1 as response score", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, -1)).toThrow(
-        "response must be an integer 0-100",
-      );
-    });
-
-    test("rejects -50 as reputation score", () => {
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, -50)).toThrow(
-        "score must be an integer 0-100",
-      );
-    });
-  });
-
-  describe("Non-integer value injection", () => {
-    test("rejects fractional outcome (1.5)", () => {
-      // Outcome must be an integer
-      const fractionalOutcome = 1.5 as unknown as Outcome;
-
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, fractionalOutcome)).toThrow(
-        "outcome must be 0, 1, or 2",
-      );
-    });
-
-    test("rejects fractional score (50.5) - score must be integer", () => {
-      // Score/response must be an integer per specification
-      const fractionalScore = 50.5;
-
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, fractionalScore)).toThrow(
-        "response must be an integer 0-100",
-      );
-    });
-  });
-
-  describe("Type coercion edge cases", () => {
-    test("rejects NaN as outcome", () => {
-      expect(() => computeFeedbackHash(sasSchema, taskRef, tokenAccount, NaN as unknown as Outcome)).toThrow();
-    });
-
-    test("rejects Infinity as score", () => {
-      expect(() => computeValidationHash(sasSchema, taskRef, tokenAccount, Infinity)).toThrow();
-    });
-
-    test("rejects -Infinity as score", () => {
-      expect(() => computeReputationHash(sasSchema, tokenAccount, provider, -Infinity)).toThrow();
-    });
-  });
-});
-
-// =============================================================================
-// Tests: Cross-Domain Hash Isolation
-// =============================================================================
-
-describe("Cross-Domain Hash Isolation", () => {
-  const sasSchema = randomAddress();
-  const taskRef = randomBytes(32);
-  const tokenAccount = randomAddress();
-  const dataHash = randomBytes(32);
-
-  test("interaction hash differs from feedback hash for same agent/task", () => {
-    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
-
-    expect(interactionHash).not.toEqual(feedbackHash);
-  });
-
-  test("feedback hash differs from validation hash for same agent/task", () => {
-    const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, Outcome.Positive);
-    const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, 100);
-
-    expect(feedbackHash).not.toEqual(validationHash);
-  });
-
-  test("validation hash differs from reputation hash for same agent", () => {
-    const provider = randomAddress();
-    const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, 100);
-    const reputationHash = computeReputationHash(sasSchema, tokenAccount, provider, 100);
-
-    expect(validationHash).not.toEqual(reputationHash);
-  });
-
-  test("different schemas produce different hashes", () => {
-    const schema1 = randomAddress();
-    const schema2 = randomAddress();
-
-    const hash1 = computeInteractionHash(schema1, taskRef, tokenAccount, dataHash);
-    const hash2 = computeInteractionHash(schema2, taskRef, tokenAccount, dataHash);
-
-    expect(hash1).not.toEqual(hash2);
   });
 });

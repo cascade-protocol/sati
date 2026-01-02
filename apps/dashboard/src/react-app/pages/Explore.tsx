@@ -4,14 +4,18 @@
  * Paginated view of all agents and feedbacks registered in the SATI registry.
  */
 
+import { useState } from "react";
 import { Link } from "react-router";
-import { Bot, ChevronLeft, ChevronRight, MessageSquare, Loader2, ExternalLink, Plus } from "lucide-react";
+import { Bot, ChevronLeft, ChevronRight, MessageSquare, Loader2, ExternalLink, Plus, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentTable } from "@/components/AgentTable";
-import { useExploreAgents, useAllFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
-import { formatSlotTime, truncateAddress } from "@/lib/sati";
+import { FeedbackDetailModal } from "@/components/FeedbackDetailModal";
+import { useExploreAgents, useAllFeedbacks, useCurrentSlot, type OutcomeFilter } from "@/hooks/use-sati";
+import { formatSlotTime, truncateAddress, parseFeedback } from "@/lib/sati";
 import { getSolscanUrl } from "@/lib/network";
+import type { FeedbackData } from "@cascade-fyi/sati-sdk";
 
 // Helper to format outcome
 function formatOutcome(outcome: number): { text: string; color: string } {
@@ -27,14 +31,37 @@ function formatOutcome(outcome: number): { text: string; color: string } {
   }
 }
 
+// Feedbacks per page
+const FEEDBACKS_PER_PAGE = 20;
+
 export function Explore() {
   const { exploreAgents, exploreLoading, exploreHasMore, explorePage, setExplorePage, totalAgents } =
     useExploreAgents();
 
-  const { feedbacks, feedbacksCount, isLoading: feedbacksLoading } = useAllFeedbacks();
+  // Feedback filtering state - passed to hook for TanStack Query select
+  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>("all");
+  const [feedbackPage, setFeedbackPage] = useState(0);
+
+  // Hook handles filtering via TanStack Query select (automatic memoization)
+  const { feedbacks, feedbacksCount, isLoading: feedbacksLoading } = useAllFeedbacks({ outcomeFilter });
   const { currentSlot } = useCurrentSlot();
 
+  // Paginate feedbacks (already filtered by hook)
+  const paginatedFeedbacks = feedbacks.slice(
+    feedbackPage * FEEDBACKS_PER_PAGE,
+    (feedbackPage + 1) * FEEDBACKS_PER_PAGE,
+  );
+  const feedbackHasMore = (feedbackPage + 1) * FEEDBACKS_PER_PAGE < feedbacks.length;
+  const totalFeedbackPages = Math.ceil(feedbacks.length / FEEDBACKS_PER_PAGE);
+
+  // Reset page when filter changes
+  const handleFilterChange = (filter: OutcomeFilter) => {
+    setOutcomeFilter(filter);
+    setFeedbackPage(0);
+  };
+
   // Compute feedback counts per agent (tokenAccount = agent mint)
+  // Note: Uses unfiltered feedbacks for accurate counts
   const feedbackCounts: Record<string, number> = {};
   for (const f of feedbacks) {
     const mint = f.attestation.tokenAccount;
@@ -131,16 +158,36 @@ export function Explore() {
 
         {/* Feedbacks Table */}
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Feedbacks</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>All Feedbacks</CardTitle>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Filter:</span>
+              <select
+                value={outcomeFilter}
+                onChange={(e) => handleFilterChange(e.target.value as OutcomeFilter)}
+                className={`text-sm border rounded-md px-2 py-1 bg-background ${
+                  outcomeFilter !== "all" ? "border-primary ring-1 ring-primary/20" : ""
+                }`}
+              >
+                <option value="all">All Outcomes</option>
+                <option value="positive">Positive</option>
+                <option value="neutral">Neutral</option>
+                <option value="negative">Negative</option>
+              </select>
+              {outcomeFilter !== "all" && (
+                <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">Filtered</span>
+              )}
+            </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             {feedbacksLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : feedbacks.length === 0 ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">No feedbacks yet.</div>
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                {outcomeFilter === "all" ? "No feedbacks yet." : "No feedbacks match the selected filter."}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -149,55 +196,125 @@ export function Explore() {
                       <th className="pb-3 pr-4 font-medium">Agent</th>
                       <th className="pb-3 pr-4 font-medium">Counterparty</th>
                       <th className="pb-3 pr-4 font-medium">Outcome</th>
-                      <th className="pb-3 font-medium text-right">Time</th>
+                      <th className="pb-3 pr-4 font-medium">Tags</th>
+                      <th className="pb-3 pr-4 font-medium text-right">Time</th>
+                      <th className="pb-3 font-medium text-right">Details</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {feedbacks.slice(0, 20).map((feedback) => {
-                      // tokenAccount is the agent's mint address (named for SAS wire format compatibility)
-                      const data = feedback.data as { outcome: number; tokenAccount: string; counterparty: string };
+                    {paginatedFeedbacks.map((feedback) => {
+                      // Use proper type from SDK
+                      const data = feedback.data as FeedbackData;
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
                       const slotCreated = feedback.raw.slotCreated;
-                      // Use attestation address bytes as unique key
+                      // Parse JSON content for tags/score/message
+                      const content = parseFeedback(data);
+                      // Use full attestation address as key to avoid collisions
                       const key = Array.from(feedback.address)
                         .map((b) => b.toString(16).padStart(2, "0"))
-                        .join("")
-                        .slice(0, 16);
+                        .join("");
                       return (
                         <tr key={key} className="border-b">
                           <td className="py-4 pr-4">
-                            <a
-                              href={getSolscanUrl(data.tokenAccount, "account")}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
-                            >
-                              {truncateAddress(data.tokenAccount)}
-                              <ExternalLink className="h-3 w-3 opacity-50" />
-                            </a>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <a
+                                  href={getSolscanUrl(data.tokenAccount, "account")}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
+                                >
+                                  {truncateAddress(data.tokenAccount)}
+                                  <ExternalLink className="h-3 w-3 opacity-50" />
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <span className="font-mono text-xs">{data.tokenAccount}</span>
+                              </TooltipContent>
+                            </Tooltip>
                           </td>
                           <td className="py-4 pr-4">
-                            <a
-                              href={getSolscanUrl(data.counterparty, "account")}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
-                            >
-                              {truncateAddress(data.counterparty)}
-                              <ExternalLink className="h-3 w-3 opacity-50" />
-                            </a>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <a
+                                  href={getSolscanUrl(data.counterparty, "account")}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
+                                >
+                                  {truncateAddress(data.counterparty)}
+                                  <ExternalLink className="h-3 w-3 opacity-50" />
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <span className="font-mono text-xs">{data.counterparty}</span>
+                              </TooltipContent>
+                            </Tooltip>
                           </td>
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>
                           </td>
-                          <td className="py-4 text-right text-sm text-muted-foreground">
+                          <td className="py-4 pr-4">
+                            {content?.tags && content.tags.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {content.tags.slice(0, 3).map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="px-2 py-0.5 text-xs bg-muted rounded-full text-muted-foreground"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                                {content.tags.length > 3 && (
+                                  <span className="text-xs text-muted-foreground">+{content.tags.length - 3}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="py-4 pr-4 text-right text-sm text-muted-foreground">
                             {formatSlotTime(slotCreated, currentSlot)}
+                          </td>
+                          <td className="py-4 text-right">
+                            <FeedbackDetailModal feedback={feedback} currentSlot={currentSlot}>
+                              <Button variant="ghost" size="sm">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </FeedbackDetailModal>
                           </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {/* Feedbacks Pagination */}
+            {feedbacks.length > FEEDBACKS_PER_PAGE && (
+              <div className="flex items-center justify-between pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFeedbackPage(Math.max(0, feedbackPage - 1))}
+                  disabled={feedbackPage === 0}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {feedbackPage + 1} of {totalFeedbackPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFeedbackPage(feedbackPage + 1)}
+                  disabled={!feedbackHasMore}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
               </div>
             )}
           </CardContent>

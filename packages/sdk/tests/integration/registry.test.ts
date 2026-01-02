@@ -130,6 +130,7 @@ function setupSchemaConfig(
   signatureMode: GeneratedSignatureMode = GeneratedSignatureMode.DualSignature,
   storageType: GeneratedStorageType = GeneratedStorageType.Compressed,
   closeable: boolean = false,
+  name: string = "TestSchema",
 ): PublicKey {
   const [schemaConfigPda, bump] = deriveSchemaConfigPda(sasSchema);
 
@@ -139,6 +140,7 @@ function setupSchemaConfig(
     signatureMode,
     storageType,
     closeable,
+    name,
     bump,
   });
 
@@ -512,6 +514,7 @@ describe("Account Data Roundtrip", () => {
       signatureMode: GeneratedSignatureMode.SingleSigner,
       storageType: GeneratedStorageType.Regular,
       closeable: true,
+      name: "TestSchema",
       bump: 77,
     };
 
@@ -522,6 +525,7 @@ describe("Account Data Roundtrip", () => {
     expect(decoded.signatureMode).toBe(original.signatureMode);
     expect(decoded.storageType).toBe(original.storageType);
     expect(decoded.closeable).toBe(original.closeable);
+    expect(decoded.name).toBe(original.name);
     expect(decoded.bump).toBe(original.bump);
   });
 });

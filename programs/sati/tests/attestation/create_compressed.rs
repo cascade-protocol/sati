@@ -25,7 +25,7 @@ use solana_sdk::{account::Account, pubkey::Pubkey, signer::Signer};
 
 use crate::common::{
     ed25519::{
-        compute_attestation_nonce, compute_data_hash, compute_feedback_hash,
+        build_counterparty_message, compute_attestation_nonce, compute_data_hash,
         compute_interaction_hash, create_multi_ed25519_ix, generate_ed25519_keypair,
         keypair_to_pubkey, sign_message,
     },
@@ -43,8 +43,12 @@ fn compute_anchor_discriminator(account_name: &str) -> [u8; 8] {
     result[..8].try_into().unwrap()
 }
 
-/// SchemaConfig account size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 1 = 44 bytes
-const SCHEMA_CONFIG_SIZE: usize = 44;
+/// SchemaConfig account size with "Feedback" name (8 bytes):
+/// 8 (discriminator) + 32 (sas_schema) + 1 (signature_mode) + 1 (storage_type) + 1 (closeable) + 4 (name len) + 8 (name "Feedback") + 1 (bump) = 56 bytes
+const SCHEMA_CONFIG_SIZE: usize = 56;
+
+/// Schema name used in SIWS messages - must match build_counterparty_message calls
+const SCHEMA_NAME: &str = "Feedback";
 
 /// Token-2022 program ID
 const TOKEN_2022_PROGRAM_ID: Pubkey =
@@ -114,6 +118,7 @@ async fn test_create_attestation_feedback_success() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     // Mock SchemaConfig account (avoids Token-2022 registry setup)
+    // Layout: discriminator(8) + sas_schema(32) + signature_mode(1) + storage_type(1) + closeable(1) + name_len(4) + name(N) + bump(1)
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
     let discriminator = compute_anchor_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
@@ -121,7 +126,9 @@ async fn test_create_attestation_feedback_success() {
     schema_data[40] = SignatureMode::DualSignature as u8; // signature_mode
     schema_data[41] = StorageType::Compressed as u8; // storage_type
     schema_data[42] = 1; // closeable = true
-    schema_data[43] = bump; // bump
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -173,29 +180,28 @@ async fn test_create_attestation_feedback_success() {
         },
     );
 
-    // 4. Build attestation data (Feedback schema)
-    // token_account = agent_mint (NFT identity), NOT agent_pubkey
+    // 4. Build attestation data (Universal 130-byte layout)
+    // Layout: task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content(N)
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test task data");
     let outcome: u8 = 2; // Positive feedback
 
-    let mut data = vec![0u8; 132];
+    let mut data = vec![0u8; 130]; // Minimum universal layout
     data[0..32].copy_from_slice(&task_ref); // task_ref
     data[32..64].copy_from_slice(agent_mint.as_ref()); // token_account = MINT address
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref()); // counterparty
-    data[96..128].copy_from_slice(&data_hash); // data_hash
-    data[128] = 0; // content_type = 0 (None)
-    data[129] = outcome; // outcome
-    data[130] = 0; // tag1_len
-    data[131] = 0; // tag2_len
+    data[96] = outcome; // outcome
+    data[97..129].copy_from_slice(&data_hash); // data_hash
+    data[129] = 0; // content_type = 0 (None) - no content
 
     // 5. Compute message hashes and sign
-    // Hashes use agent_mint (identity), signatures come from agent_pubkey (owner)
-    let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
-    let counterparty_message = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
+    // Agent signs interaction_hash (no token_account in hash)
+    // Counterparty signs SIWS message
+    let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
 
     let agent_sig = sign_message(&agent_keypair, &agent_message);
-    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_message);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
 
     // 6. Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -266,11 +272,7 @@ async fn test_create_attestation_feedback_success() {
     // Build instructions
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &agent_message, &agent_sig),
-        (
-            &counterparty_pubkey,
-            &counterparty_message,
-            &counterparty_sig,
-        ),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
     let attestation_ix = build_create_attestation_ix(
         &payer.pubkey(),
@@ -321,7 +323,9 @@ async fn test_create_attestation_missing_signature() {
     schema_data[40] = SignatureMode::DualSignature as u8;
     schema_data[41] = StorageType::Compressed as u8;
     schema_data[42] = 1;
-    schema_data[43] = bump;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -365,27 +369,24 @@ async fn test_create_attestation_missing_signature() {
         },
     );
 
-    // Build attestation data
+    // Build attestation data (Universal 130-byte layout)
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 132];
+    let mut data = vec![0u8; 140];
     data[0..32].copy_from_slice(&task_ref);
     data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96..128].copy_from_slice(&data_hash);
-    data[128] = 0;
-    data[129] = outcome;
-    data[130] = 0;
-    data[131] = 0;
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0; // content_type = None (no content)
 
     // Build signatures
-    let interaction_hash =
-        compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
-    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
     let agent_sig = sign_message(&agent_keypair, &interaction_hash);
-    let counterparty_sig = sign_message(&counterparty_keypair, &feedback_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -462,9 +463,10 @@ async fn test_create_attestation_missing_signature() {
         "Transaction should fail without Ed25519 instruction"
     );
     let err_str = format!("{:?}", result.unwrap_err());
+    // MissingSignatures = error code 6029
     assert!(
-        err_str.contains("MissingSignatures") || err_str.contains("6034"),
-        "Expected MissingSignatures error, got: {}",
+        err_str.contains("MissingSignatures") || err_str.contains("6029"),
+        "Expected MissingSignatures error (6029), got: {}",
         err_str
     );
 }
@@ -485,7 +487,9 @@ async fn test_create_attestation_invalid_signature() {
     schema_data[40] = SignatureMode::DualSignature as u8;
     schema_data[41] = StorageType::Compressed as u8;
     schema_data[42] = 1;
-    schema_data[43] = bump;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -534,15 +538,16 @@ async fn test_create_attestation_invalid_signature() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 132];
+    let mut data = vec![0u8; 140];
     data[0..32].copy_from_slice(&task_ref);
     data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96..128].copy_from_slice(&data_hash);
-    data[128] = 0;
-    data[129] = outcome;
-    data[130] = 0;
-    data[131] = 0;
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0; // content_type = None (no content)
+
+    // Define correct counterparty message (needed for CreateParams)
+    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
 
     // Sign WRONG message hashes (valid signatures, but for wrong messages)
     let wrong_hash = compute_data_hash(b"wrong message");
@@ -629,9 +634,10 @@ async fn test_create_attestation_invalid_signature() {
         "Transaction should fail with wrong message hash"
     );
     let err_str = format!("{:?}", result.unwrap_err());
+    // MessageMismatch = error code 6030
     assert!(
-        err_str.contains("MessageMismatch") || err_str.contains("6035"),
-        "Expected MessageMismatch error, got: {}",
+        err_str.contains("MessageMismatch") || err_str.contains("6030"),
+        "Expected MessageMismatch error (6030), got: {}",
         err_str
     );
 }
@@ -651,7 +657,9 @@ async fn test_create_attestation_wrong_signer() {
     schema_data[40] = SignatureMode::DualSignature as u8;
     schema_data[41] = StorageType::Compressed as u8;
     schema_data[42] = 1;
-    schema_data[43] = bump;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -702,24 +710,21 @@ async fn test_create_attestation_wrong_signer() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 132];
+    let mut data = vec![0u8; 140];
     data[0..32].copy_from_slice(&task_ref);
     data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96..128].copy_from_slice(&data_hash);
-    data[128] = 0;
-    data[129] = outcome;
-    data[130] = 0;
-    data[131] = 0;
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0; // content_type = None (no content)
 
     // Sign with correct hashes but WRONG keypair for agent
-    let interaction_hash =
-        compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
-    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
 
     // Sign with wrong_keypair instead of agent_keypair
     let agent_sig = sign_message(&wrong_keypair, &interaction_hash);
-    let counterparty_sig = sign_message(&counterparty_keypair, &feedback_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -789,7 +794,7 @@ async fn test_create_attestation_wrong_signer() {
     // The Ed25519 precompile will fail because signature was created by wrong_keypair
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &interaction_hash, &agent_sig), // Mismatch: pubkey vs signer
-        (&counterparty_pubkey, &feedback_hash, &counterparty_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
 
     // Send transaction - Ed25519 precompile should reject due to signature mismatch
@@ -825,7 +830,9 @@ async fn test_create_attestation_self_attestation() {
     schema_data[40] = SignatureMode::DualSignature as u8;
     schema_data[41] = StorageType::Compressed as u8;
     schema_data[42] = 1;
-    schema_data[43] = bump;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -873,21 +880,19 @@ async fn test_create_attestation_self_attestation() {
     let outcome: u8 = 2;
 
     // token_account = self_mint AND counterparty = self_mint (SAME!)
-    let mut data = vec![0u8; 132];
+    let mut data = vec![0u8; 140];
     data[0..32].copy_from_slice(&task_ref);
     data[32..64].copy_from_slice(self_mint.as_ref()); // token_account = self_mint
     data[64..96].copy_from_slice(self_mint.as_ref()); // counterparty = self_mint (SAME!)
-    data[96..128].copy_from_slice(&data_hash);
-    data[128] = 0;
-    data[129] = outcome;
-    data[130] = 0;
-    data[131] = 0;
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0; // content_type = None (no content)
 
     // Build signatures (both from same keypair, but for different message types)
-    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &self_mint, &data_hash);
-    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &self_mint, outcome);
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &self_mint, &task_ref, outcome, None);
     let agent_sig = sign_message(&self_keypair, &interaction_hash);
-    let counterparty_sig = sign_message(&self_keypair, &feedback_hash);
+    let counterparty_sig = sign_message(&self_keypair, &counterparty_msg);
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -955,7 +960,7 @@ async fn test_create_attestation_self_attestation() {
     // Ed25519 instruction with same signer for both
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&self_pubkey, &interaction_hash, &agent_sig),
-        (&self_pubkey, &feedback_hash, &counterparty_sig),
+        (&self_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
 
     // Send transaction - should fail with SelfAttestationNotAllowed
@@ -993,7 +998,9 @@ async fn test_create_attestation_data_too_small() {
     schema_data[40] = SignatureMode::DualSignature as u8;
     schema_data[41] = StorageType::Compressed as u8;
     schema_data[42] = 1;
-    schema_data[43] = bump;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -1037,13 +1044,14 @@ async fn test_create_attestation_data_too_small() {
         },
     );
 
-    // Data too small (only 64 bytes, need at least 130 for Feedback)
+    // Data too small (only 64 bytes, need at least 130 for universal layout)
     let data = vec![0u8; 64];
 
     // Create arbitrary signatures for Ed25519 instruction (to avoid MissingSignatures error)
     let dummy_message = compute_data_hash(b"dummy");
     let agent_sig = sign_message(&agent_keypair, &dummy_message);
     let counterparty_sig = sign_message(&counterparty_keypair, &dummy_message);
+    let counterparty_msg = b"dummy message".to_vec(); // Won't be validated since data is too small
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -1149,7 +1157,9 @@ async fn test_create_attestation_wrong_storage_type() {
     schema_data[40] = SignatureMode::DualSignature as u8;
     schema_data[41] = StorageType::Regular as u8; // WRONG for create_attestation (compressed)
     schema_data[42] = 1;
-    schema_data[43] = bump;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
 
     rpc.set_account(
         schema_config_pda,
@@ -1198,22 +1208,19 @@ async fn test_create_attestation_wrong_storage_type() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 132];
+    let mut data = vec![0u8; 140];
     data[0..32].copy_from_slice(&task_ref);
     data[32..64].copy_from_slice(agent_mint.as_ref());
     data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96..128].copy_from_slice(&data_hash);
-    data[128] = 0;
-    data[129] = outcome;
-    data[130] = 0;
-    data[131] = 0;
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0; // content_type = None (no content)
 
     // Build valid signatures
-    let interaction_hash =
-        compute_interaction_hash(&sas_schema, &task_ref, &agent_mint, &data_hash);
-    let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent_mint, outcome);
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
     let agent_sig = sign_message(&agent_keypair, &interaction_hash);
-    let counterparty_sig = sign_message(&counterparty_keypair, &feedback_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -1282,7 +1289,7 @@ async fn test_create_attestation_wrong_storage_type() {
     // Ed25519 instruction with valid signatures
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &interaction_hash, &agent_sig),
-        (&counterparty_pubkey, &feedback_hash, &counterparty_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
 
     // Send transaction - should fail with StorageTypeMismatch
@@ -1312,30 +1319,38 @@ mod tests {
 
     #[test]
     fn test_feedback_data_layout() {
-        // Verify our test data layout matches expected schema
+        // Verify our test data layout matches universal base layout specification:
+        // Offset 0-31:   task_ref (32 bytes)
+        // Offset 32-63:  token_account (32 bytes)
+        // Offset 64-95:  counterparty (32 bytes)
+        // Offset 96:     outcome (1 byte: 0=Negative, 1=Neutral, 2=Positive)
+        // Offset 97-128: data_hash (32 bytes)
+        // Offset 129:    content_type (1 byte: 0=None, 1=JSON, etc.)
+        // Offset 130+:   content (variable, up to 512 bytes)
         let task_ref = [1u8; 32];
-        let agent = Pubkey::new_unique();
+        let token_account = Pubkey::new_unique();
         let counterparty = Pubkey::new_unique();
         let data_hash = [2u8; 32];
+        let outcome: u8 = 2; // Positive
+        let content_type: u8 = 1; // JSON
 
-        let mut data = [0u8; 132];
+        // Build 130-byte minimum universal base layout
+        let mut data = [0u8; 130];
         data[0..32].copy_from_slice(&task_ref);
-        data[32..64].copy_from_slice(agent.as_ref());
+        data[32..64].copy_from_slice(token_account.as_ref());
         data[64..96].copy_from_slice(counterparty.as_ref());
-        data[96..128].copy_from_slice(&data_hash);
-        data[128] = 0; // content_type
-        data[129] = 2; // outcome = positive
-        data[130] = 0; // tag1_len
-        data[131] = 0; // tag2_len
+        data[96] = outcome;
+        data[97..129].copy_from_slice(&data_hash);
+        data[129] = content_type;
 
-        // Verify layout
-        assert_eq!(&data[0..32], &task_ref);
-        assert_eq!(&data[32..64], agent.as_ref());
-        assert_eq!(&data[64..96], counterparty.as_ref());
-        assert_eq!(&data[96..128], &data_hash);
-        assert_eq!(data[128], 0); // content_type
-        assert_eq!(data[129], 2); // outcome
-        assert_eq!(data.len(), 132);
+        // Verify layout matches specification offsets
+        assert_eq!(&data[0..32], &task_ref, "task_ref at offset 0-31");
+        assert_eq!(&data[32..64], token_account.as_ref(), "token_account at offset 32-63");
+        assert_eq!(&data[64..96], counterparty.as_ref(), "counterparty at offset 64-95");
+        assert_eq!(data[96], outcome, "outcome at offset 96");
+        assert_eq!(&data[97..129], &data_hash, "data_hash at offset 97-128");
+        assert_eq!(data[129], content_type, "content_type at offset 129");
+        assert_eq!(data.len(), 130, "minimum base layout size");
     }
 
     #[test]
@@ -1357,14 +1372,18 @@ mod tests {
     fn test_dual_signature_messages_differ() {
         let sas_schema = Pubkey::new_unique();
         let task_ref = [1u8; 32];
-        let agent = Pubkey::new_unique();
+        let token_account = Pubkey::new_unique();
         let data_hash = [2u8; 32];
         let outcome = 2u8;
 
-        let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &agent, &data_hash);
-        let feedback_hash = compute_feedback_hash(&sas_schema, &task_ref, &agent, outcome);
+        // Agent signs interaction_hash (blind commitment)
+        let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
 
-        // The two messages should be different
-        assert_ne!(interaction_hash, feedback_hash);
+        // Counterparty signs SIWS message (human-readable)
+        let counterparty_message =
+            build_counterparty_message(SCHEMA_NAME, &token_account, &task_ref, outcome, None);
+
+        // The two messages should be different (one is hash, one is SIWS text)
+        assert_ne!(interaction_hash.to_vec(), counterparty_message);
     }
 }

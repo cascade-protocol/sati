@@ -111,7 +111,7 @@ export type CreateAttestationInstructionData = {
   discriminator: ReadonlyUint8Array;
   /** Data type: 0=Feedback, 1=Validation */
   dataType: number;
-  /** Schema-conformant data bytes (96+ bytes) */
+  /** Schema-conformant data bytes (130+ bytes, universal layout) */
   data: ReadonlyUint8Array;
   /** Ed25519 signatures with public keys */
   signatures: Array<SignatureData>;
@@ -126,7 +126,7 @@ export type CreateAttestationInstructionData = {
 export type CreateAttestationInstructionDataArgs = {
   /** Data type: 0=Feedback, 1=Validation */
   dataType: number;
-  /** Schema-conformant data bytes (96+ bytes) */
+  /** Schema-conformant data bytes (130+ bytes, universal layout) */
   data: ReadonlyUint8Array;
   /** Ed25519 signatures with public keys */
   signatures: Array<SignatureDataArgs>;

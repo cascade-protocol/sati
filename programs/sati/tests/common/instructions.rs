@@ -54,12 +54,14 @@ pub fn build_register_schema_config_ix(
     signature_mode: SignatureMode,
     storage_type: StorageType,
     closeable: bool,
+    name: String,
 ) -> Instruction {
     let instruction_data = instruction::RegisterSchemaConfig {
         sas_schema: *sas_schema,
         signature_mode,
         storage_type,
         closeable,
+        name,
     };
     let accounts = accounts::RegisterSchemaConfig {
         payer: *payer,

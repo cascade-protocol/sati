@@ -5,9 +5,7 @@ use solana_program::sysvar::instructions as instructions_sysvar;
 use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
-use crate::signature::{
-    compute_reputation_hash, compute_reputation_nonce, verify_ed25519_signatures,
-};
+use crate::signature::{compute_interaction_hash, compute_reputation_nonce, verify_ed25519_signatures};
 use crate::state::{CreateRegularParams, SchemaConfig, StorageType};
 
 /// Accounts for create_regular_attestation instruction (SAS storage)
@@ -72,10 +70,9 @@ pub fn handler<'info>(
         SatiError::InvalidSignatureCount
     );
 
-    // 2. Verify data length
-    // ReputationScore requires at least 97 bytes (base 96 + score at index 96)
+    // 2. Verify data length (universal layout requires 130 bytes minimum)
     require!(
-        params.data.len() > MIN_BASE_LAYOUT_SIZE,
+        params.data.len() >= MIN_BASE_LAYOUT_SIZE,
         SatiError::AttestationDataTooSmall
     );
     require!(
@@ -83,13 +80,16 @@ pub fn handler<'info>(
         SatiError::AttestationDataTooLarge
     );
 
-    // 3. Parse base layout
-    let token_account_bytes: [u8; 32] = params.data[32..64]
+    // 3. Parse base layout (universal offsets)
+    let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
-    let counterparty_bytes: [u8; 32] = params.data[64..96]
+        .map_err(|_| SatiError::InvalidSignature)?;
+    let token_account_bytes: [u8; 32] = params.data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
+    let counterparty_bytes: [u8; 32] = params.data[offsets::COUNTERPARTY..offsets::OUTCOME]
+        .try_into()
+        .map_err(|_| SatiError::InvalidSignature)?;
 
     let token_account_pubkey = Pubkey::new_from_array(token_account_bytes);
     let counterparty_pubkey = Pubkey::new_from_array(counterparty_bytes);
@@ -106,42 +106,37 @@ pub fn handler<'info>(
         SatiError::SignatureMismatch
     );
 
-    // 6. Validate ReputationScore-specific fields
-    // data_type must be 2
-    require!(params.data_type == 2, SatiError::InvalidDataType);
+    // 6. Validate universal base layout fields
+    // data_type must be 2 for ReputationScore
+    require!(params.data_type == 2, SatiError::StorageTypeMismatch);
 
-    if params.data.len() >= 98 {
-        let score = params.data[96];
-        require!(score <= 100, SatiError::InvalidScore);
+    // Validate outcome (0-2 for ReputationScore: 0=Poor, 1=Average, 2=Good)
+    let outcome = params.data[offsets::OUTCOME];
+    require!(outcome <= MAX_OUTCOME_VALUE, SatiError::InvalidOutcome);
 
-        let content_type = params.data[97];
-        require!(content_type <= 4, SatiError::InvalidContentType);
-
-        // Validate content size if present
-        if params.data.len() >= 102 {
-            let content_len = u32::from_le_bytes(
-                params.data[98..102]
-                    .try_into()
-                    .map_err(|_| SatiError::InvalidDataLayout)?,
-            ) as usize;
-            require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
-        }
-    }
-
-    // 7. Build expected message hash
-    let score = params.data[96];
-    let expected_message = compute_reputation_hash(
-        &schema_config.sas_schema,
-        &token_account_pubkey,
-        &counterparty_pubkey,
-        score,
+    // Validate content_type
+    let content_type = params.data[offsets::CONTENT_TYPE];
+    require!(
+        content_type <= MAX_CONTENT_TYPE_VALUE,
+        SatiError::InvalidContentType
     );
 
-    // 8. Verify Ed25519 signature
+    // Validate content size
+    let content_len = params.data.len().saturating_sub(offsets::CONTENT);
+    require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
+
+    // 7. Build expected message hash (provider signs interaction_hash)
+    // data_hash should be zero-filled for SingleSigner schemas
+    let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
+        .try_into()
+        .map_err(|_| SatiError::InvalidSignature)?;
+    let expected_message = compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
+
+    // 8. Verify Ed25519 signature (SingleSigner mode: verify the provider signed interaction_hash)
     verify_ed25519_signatures(
         &ctx.accounts.instructions_sysvar,
         &params.signatures,
-        &[expected_message.to_vec()],
+        &[Some(expected_message.to_vec())],
     )?;
 
     // 9. Compute deterministic nonce

@@ -56,7 +56,7 @@ pub enum SatiError {
     #[msg("Storage type mismatch")]
     StorageTypeMismatch,
 
-    #[msg("Attestation data too small (minimum 96 bytes for base layout)")]
+    #[msg("Attestation data too small (minimum 130 bytes for universal base layout)")]
     AttestationDataTooSmall,
 
     #[msg("Attestation data exceeds maximum size")]
@@ -83,26 +83,11 @@ pub enum SatiError {
     #[msg("Attestation cannot be closed for this schema")]
     AttestationNotCloseable,
 
-    #[msg("Invalid outcome value (must be 0-2)")]
+    #[msg("Invalid outcome value (must be 0, 1, or 2)")]
     InvalidOutcome,
 
-    #[msg("Invalid content type (must be 0-4)")]
+    #[msg("Invalid content type (must be 0-15)")]
     InvalidContentType,
-
-    #[msg("Invalid data type")]
-    InvalidDataType,
-
-    #[msg("Invalid score value (must be 0-100)")]
-    InvalidScore,
-
-    #[msg("Invalid validation response (must be 0-100)")]
-    InvalidResponse,
-
-    #[msg("Tag string exceeds maximum length (32 chars)")]
-    TagTooLong,
-
-    #[msg("Invalid data layout")]
-    InvalidDataLayout,
 
     #[msg("Light Protocol CPI invocation failed")]
     LightCpiInvocationFailed,

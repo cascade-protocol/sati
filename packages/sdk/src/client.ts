@@ -77,26 +77,25 @@ import {
 
 import {
   computeInteractionHash,
-  computeFeedbackHash,
-  computeValidationHash,
-  computeReputationHash,
   computeAttestationNonce,
   computeReputationNonce,
   computeEvmLinkHash,
   type Outcome,
 } from "./hashes";
 
+import { buildCounterpartyMessage } from "./offchain-signing";
+
 import {
   DataType,
   ContentType,
-  ValidationType,
-  type SignatureMode,
+  SignatureMode,
   type StorageType,
   serializeFeedback,
   serializeValidation,
   serializeReputationScore,
   deserializeReputationScore,
   SAS_HEADER_SIZE,
+  validateContentSize,
   type FeedbackData,
   type ValidationData,
   type ReputationScoreData,
@@ -210,6 +209,10 @@ export interface SignatureInput {
 
 /**
  * Parameters for creating a Feedback attestation
+ *
+ * Uses universal base layout (130 bytes):
+ * - task_ref(32) + token_account(32) + counterparty(32) +
+ * - outcome(1) + data_hash(32) + content_type(1) + content(variable)
  */
 export interface CreateFeedbackParams {
   /** Payer for transaction fees */
@@ -218,32 +221,53 @@ export interface CreateFeedbackParams {
   sasSchema: Address;
   /** Task reference (CAIP-220 tx hash or arbitrary ID) */
   taskRef: Uint8Array;
-  /** Agent's token account */
+  /** Agent's token account (mint address) */
   tokenAccount: Address;
   /** Client (feedback giver) */
   counterparty: Address;
-  /** Hash of request/interaction data */
+  /** Hash of request/interaction data for agent's blind signature */
   dataHash: Uint8Array;
-  /** Content format */
-  contentType?: ContentType;
   /** Feedback outcome */
   outcome: Outcome;
-  /** Primary tag (max 32 chars) */
-  tag1?: string;
-  /** Secondary tag (max 32 chars) */
-  tag2?: string;
-  /** Variable-length content */
+  /** Content format */
+  contentType?: ContentType;
+  /**
+   * Variable-length content (optional).
+   *
+   * **Size Limits (enforced at runtime):**
+   * - DualSignature mode (with counterpartySignature): max ~70 bytes
+   * - SingleSignature mode (FeedbackPublic): max ~240 bytes
+   *
+   * For larger content, use ContentType.IPFS or ContentType.Arweave
+   * and store only the reference hash (32-36 bytes).
+   *
+   * @example
+   * ```typescript
+   * // Small content (fits in DualSignature)
+   * content: new TextEncoder().encode('{"score":85,"tags":["fast"]}')
+   *
+   * // Large content (use IPFS reference)
+   * contentType: ContentType.IPFS,
+   * content: ipfsCidBytes  // 36-byte CIDv1
+   * ```
+   */
   content?: Uint8Array;
-  /** Agent's signature (blind) */
+  /** Agent's signature (signs interaction_hash) */
   agentSignature: SignatureInput;
-  /** Counterparty's signature (with outcome) - optional for SingleSigner schemas */
+  /** Counterparty's signature (signs SIWS message) - optional for SingleSigner schemas */
   counterpartySignature?: SignatureInput;
+  /** SIWS message bytes that counterparty signed - required for DualSignature schemas */
+  counterpartyMessage?: Uint8Array;
   /** Optional address lookup table for transaction compression */
   lookupTableAddress?: Address;
 }
 
 /**
  * Parameters for building a Feedback transaction (without signing/sending)
+ *
+ * Uses universal base layout (130 bytes):
+ * - task_ref(32) + token_account(32) + counterparty(32) +
+ * - outcome(1) + data_hash(32) + content_type(1) + content(variable)
  */
 export interface BuildFeedbackParams {
   /** Fee payer address (will sign in browser) */
@@ -252,26 +276,33 @@ export interface BuildFeedbackParams {
   sasSchema: Address;
   /** Task reference (CAIP-220 tx hash or arbitrary ID) */
   taskRef: Uint8Array;
-  /** Agent's token account */
+  /** Agent's token account (mint address) */
   tokenAccount: Address;
   /** Client (feedback giver) */
   counterparty: Address;
-  /** Hash of request/interaction data */
+  /** Hash of request/interaction data for agent's blind signature */
   dataHash: Uint8Array;
-  /** Content format */
-  contentType?: ContentType;
   /** Feedback outcome */
   outcome: Outcome;
-  /** Primary tag (max 32 chars) */
-  tag1?: string;
-  /** Secondary tag (max 32 chars) */
-  tag2?: string;
-  /** Variable-length content */
+  /** Content format */
+  contentType?: ContentType;
+  /**
+   * Variable-length content (optional).
+   *
+   * **Size Limits (enforced at runtime):**
+   * - DualSignature mode (with counterpartySignature): max ~70 bytes
+   * - SingleSignature mode (FeedbackPublic): max ~240 bytes
+   *
+   * For larger content, use ContentType.IPFS or ContentType.Arweave
+   * and store only the reference hash (32-36 bytes).
+   */
   content?: Uint8Array;
-  /** Agent's signature (blind) */
+  /** Agent's signature (signs interaction_hash) */
   agentSignature: SignatureInput;
-  /** Counterparty's signature (with outcome) - optional for SingleSigner schemas */
+  /** Counterparty's signature (signs SIWS message) - optional for SingleSigner schemas */
   counterpartySignature?: SignatureInput;
+  /** SIWS message bytes that counterparty signed - required for DualSignature schemas */
+  counterpartyMessage?: Uint8Array;
   /** Optional address lookup table for transaction compression */
   lookupTableAddress?: Address;
 }
@@ -286,24 +317,34 @@ export interface CreateValidationParams {
   sasSchema: Address;
   /** Task reference */
   taskRef: Uint8Array;
-  /** Agent's token account */
+  /** Agent's token account (mint address) */
   tokenAccount: Address;
   /** Validator address */
   counterparty: Address;
   /** Hash of work being validated */
   dataHash: Uint8Array;
+  /** Outcome: Positive (2) for pass, Negative (0) for fail, Neutral (1) for inconclusive */
+  outcome: Outcome;
   /** Content format */
   contentType?: ContentType;
-  /** Validation method type */
-  validationType?: ValidationType;
-  /** Validation response score (0-100) */
-  response: number;
-  /** Variable-length content (validation report) */
+  /**
+   * Variable-length content (JSON with validation details).
+   *
+   * **Size Limit (enforced at runtime):** max ~70 bytes
+   *
+   * Validation attestations always use DualSignature mode (agent + validator),
+   * so content is limited due to SIWS message duplication.
+   *
+   * For larger content, use ContentType.IPFS or ContentType.Arweave
+   * and store only the reference hash (32-36 bytes).
+   */
   content?: Uint8Array;
   /** Agent's signature (blind) */
   agentSignature: SignatureInput;
-  /** Validator's signature (with response) */
+  /** Validator's signature (SIWS message) */
   validatorSignature: SignatureInput;
+  /** SIWS message bytes signed by validator */
+  counterpartyMessage?: Uint8Array;
   /** Optional address lookup table for transaction compression */
   lookupTableAddress?: Address;
 }
@@ -316,19 +357,30 @@ export interface CreateReputationScoreParams {
   payer: KeyPairSigner;
   /** Provider (reputation scorer) address */
   provider: Address;
-  /** Provider's signature over the reputation hash (see computeReputationHash) */
+  /** Provider's signature over the interaction hash */
   providerSignature: Uint8Array;
   /** SAS schema address */
   sasSchema: Address;
   /** SATI credential address in SAS */
   satiCredential: Address;
-  /** Agent's token account being scored */
+  /** Agent's token account (mint address) being scored */
   tokenAccount: Address;
-  /** Reputation score (0-100) */
-  score: number;
+  /** Task reference (e.g., hash of provider identity or scoring context) */
+  taskRef: Uint8Array;
+  /** Hash of methodology/data used for scoring */
+  dataHash: Uint8Array;
+  /** Outcome: typically Positive for good score */
+  outcome: Outcome;
   /** Content format */
   contentType?: ContentType;
-  /** Methodology/details content */
+  /**
+   * Methodology/details content (JSON with score, components, etc.).
+   *
+   * **Size Limit:** max ~240 bytes
+   *
+   * ReputationScore uses SingleSignature mode, so has more headroom than
+   * DualSignature schemas (Feedback, Validation).
+   */
   content?: Uint8Array;
   /** Expiry timestamp (0 = never expires) */
   expiry?: number;
@@ -992,8 +1044,10 @@ export class Sati {
     signatureMode: SignatureMode;
     storageType: StorageType;
     closeable: boolean;
+    /** Schema name for SIWS messages (e.g., "Feedback", "Validation") */
+    name: string;
   }): Promise<{ signature: string }> {
-    const { payer, authority, sasSchema, signatureMode, storageType, closeable } = params;
+    const { payer, authority, sasSchema, signatureMode, storageType, closeable, name } = params;
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
@@ -1005,6 +1059,7 @@ export class Sati {
       signatureMode,
       storageType,
       closeable,
+      name,
     });
 
     const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
@@ -1067,6 +1122,8 @@ export class Sati {
    * On-chain verification ensures the owner holds the NFT via ATA.
    *
    * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if content exceeds size limit for the signature mode
+   * @throws Error if counterpartySignature is provided without counterpartyMessage
    */
   async createFeedback(params: CreateFeedbackParams): Promise<AttestationResult> {
     const {
@@ -1078,13 +1135,25 @@ export class Sati {
       dataHash,
       contentType = ContentType.None,
       outcome,
-      tag1 = "",
-      tag2 = "",
       content = new Uint8Array(0),
       agentSignature,
       counterpartySignature,
+      counterpartyMessage,
       lookupTableAddress,
     } = params;
+
+    // Validate counterpartyMessage is provided when counterpartySignature is provided
+    if (counterpartySignature && !counterpartyMessage) {
+      throw new Error(
+        "counterpartyMessage is required when counterpartySignature is provided. " +
+          "Use buildCounterpartyMessage() to generate the SIWS message bytes.",
+      );
+    }
+
+    // Validate content size based on signature mode
+    // If counterpartySignature is provided, it's DualSignature mode
+    const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.SingleSigner;
+    validateContentSize(content, signatureMode);
 
     // Validate tokenAccount is a registered agent mint
     await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
@@ -1096,8 +1165,6 @@ export class Sati {
       dataHash,
       contentType,
       outcome,
-      tag1,
-      tag2,
       content,
     };
     const data = serializeFeedback(feedbackData);
@@ -1182,7 +1249,8 @@ export class Sati {
       ],
     };
 
-    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    // Agent signs interaction hash (blind commitment to task + data)
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
     const ed25519Entries = [
       {
@@ -1192,11 +1260,11 @@ export class Sati {
       },
     ];
 
-    if (counterpartySignature) {
-      const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+    // Counterparty signs human-readable SIWS message (passed as counterpartyMessage)
+    if (counterpartySignature && counterpartyMessage) {
       ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(counterpartySignature.pubkey)),
-        message: feedbackHash,
+        message: counterpartyMessage,
         signature: counterpartySignature.signature,
       });
     }
@@ -1219,6 +1287,8 @@ export class Sati {
    * On-chain verification ensures the owner holds the NFT via ATA.
    *
    * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if content exceeds size limit for the signature mode
+   * @throws Error if counterpartySignature is provided without counterpartyMessage
    */
   async buildFeedbackTransaction(params: BuildFeedbackParams): Promise<BuiltTransaction> {
     const {
@@ -1230,13 +1300,25 @@ export class Sati {
       dataHash,
       contentType = ContentType.None,
       outcome,
-      tag1 = "",
-      tag2 = "",
       content = new Uint8Array(0),
       agentSignature,
       counterpartySignature,
+      counterpartyMessage,
       lookupTableAddress,
     } = params;
+
+    // Validate counterpartyMessage is provided when counterpartySignature is provided
+    if (counterpartySignature && !counterpartyMessage) {
+      throw new Error(
+        "counterpartyMessage is required when counterpartySignature is provided. " +
+          "Use buildCounterpartyMessage() to generate the SIWS message bytes.",
+      );
+    }
+
+    // Validate content size based on signature mode
+    // If counterpartySignature is provided, it's DualSignature mode
+    const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.SingleSigner;
+    validateContentSize(content, signatureMode);
 
     // Validate tokenAccount is a registered agent mint
     await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
@@ -1248,8 +1330,6 @@ export class Sati {
       dataHash,
       contentType,
       outcome,
-      tag1,
-      tag2,
       content,
     };
     const data = serializeFeedback(feedbackData);
@@ -1334,7 +1414,8 @@ export class Sati {
       ],
     };
 
-    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+    // Agent signs interaction hash (blind commitment to task + data)
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
     const ed25519Entries = [
       {
         publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
@@ -1343,11 +1424,11 @@ export class Sati {
       },
     ];
 
-    if (counterpartySignature) {
-      const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+    // Counterparty signs human-readable SIWS message (passed as counterpartyMessage)
+    if (counterpartySignature && counterpartyMessage) {
       ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(counterpartySignature.pubkey)),
-        message: feedbackHash,
+        message: counterpartyMessage,
         signature: counterpartySignature.signature,
       });
     }
@@ -1404,6 +1485,8 @@ export class Sati {
    * On-chain verification ensures the owner holds the NFT via ATA.
    *
    * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if content exceeds size limit for DualSignature mode (~70 bytes)
+   * @throws Error if counterpartyMessage is not provided
    */
   async createValidation(params: CreateValidationParams): Promise<AttestationResult> {
     const {
@@ -1413,18 +1496,25 @@ export class Sati {
       tokenAccount,
       counterparty,
       dataHash,
+      outcome,
       contentType = ContentType.None,
-      validationType = ValidationType.TEE,
-      response,
       content = new Uint8Array(0),
       agentSignature,
       validatorSignature,
+      counterpartyMessage,
       lookupTableAddress,
     } = params;
 
-    if (!Number.isInteger(response) || response < 0 || response > 100) {
-      throw new Error("Response must be an integer 0-100");
+    // Validation attestations are always DualSignature, so counterpartyMessage is required
+    if (!counterpartyMessage) {
+      throw new Error(
+        "counterpartyMessage is required for Validation attestations. " +
+          "Use buildCounterpartyMessage() to generate the SIWS message bytes.",
+      );
     }
+
+    // Validation attestations are always DualSignature (agent + validator)
+    validateContentSize(content, SignatureMode.DualSignature);
 
     // Validate tokenAccount is a registered agent mint
     await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
@@ -1434,9 +1524,8 @@ export class Sati {
       tokenAccount,
       counterparty,
       dataHash,
+      outcome,
       contentType,
-      validationType,
-      response,
       content,
     };
     const data = serializeValidation(validationData);
@@ -1521,21 +1610,27 @@ export class Sati {
       ],
     };
 
-    const interactionHash = computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
-    const validationHash = computeValidationHash(sasSchema, taskRef, tokenAccount, response);
+    // Agent signs interaction hash (blind commitment to task + data)
+    const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
-    const ed25519Ix = createBatchEd25519Instruction([
+    const ed25519Entries = [
       {
         publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
         message: interactionHash,
         signature: agentSignature.signature,
       },
-      {
+    ];
+
+    // Validator signs human-readable SIWS message
+    if (counterpartyMessage) {
+      ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(validatorSignature.pubkey)),
-        message: validationHash,
+        message: counterpartyMessage,
         signature: validatorSignature.signature,
-      },
-    ]);
+      });
+    }
+
+    const ed25519Ix = createBatchEd25519Instruction(ed25519Entries);
 
     const signature = await this.buildAndSendTransaction([ed25519Ix, createIx], payer, lookupTableAddress);
 
@@ -1643,15 +1738,13 @@ export class Sati {
       sasSchema,
       satiCredential,
       tokenAccount,
-      score,
+      taskRef,
+      dataHash,
+      outcome,
       contentType = ContentType.None,
       content = new Uint8Array(0),
       expiry = 0,
     } = params;
-
-    if (!Number.isInteger(score) || score < 0 || score > 100) {
-      throw new Error("Score must be an integer 0-100");
-    }
 
     if (providerSignature.length !== 64) {
       throw new Error("Provider signature must be 64 bytes");
@@ -1663,16 +1756,18 @@ export class Sati {
     const nonce = computeReputationNonce(provider, tokenAccount);
 
     const reputationData: ReputationScoreData = {
-      taskRef: nonce,
+      taskRef,
       tokenAccount,
       counterparty: provider,
-      score,
+      dataHash,
+      outcome,
       contentType,
       content,
     };
     const data = serializeReputationScore(reputationData);
 
-    const messageHash = computeReputationHash(sasSchema, tokenAccount, provider, score);
+    // Provider signs interaction hash (same as agent signature in dual-sig)
+    const messageHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
     const [attestationPda] = await deriveReputationAttestationPda(nonce);
 
@@ -1832,35 +1927,22 @@ export class Sati {
 
   /**
    * Build the interaction hash that the agent should sign (blind to outcome)
+   *
+   * The agent signs this hash before knowing the outcome, binding them to the
+   * task and data without committing to a specific result.
    */
-  buildInteractionHash(
-    sasSchema: Address,
-    taskRef: Uint8Array,
-    tokenAccount: Address,
-    dataHash: Uint8Array,
-  ): Uint8Array {
-    return computeInteractionHash(sasSchema, taskRef, tokenAccount, dataHash);
+  buildInteractionHash(sasSchema: Address, taskRef: Uint8Array, dataHash: Uint8Array): Uint8Array {
+    return computeInteractionHash(sasSchema, taskRef, dataHash);
   }
 
   /**
-   * Build the feedback hash that the counterparty should sign (with outcome)
+   * Build the counterparty message for signing (SIWS-style human-readable message)
+   *
+   * @param schemaName - The schema name (e.g., "Feedback", "Validation")
+   * @param data - Serialized attestation data (universal layout)
    */
-  buildFeedbackHash(sasSchema: Address, taskRef: Uint8Array, tokenAccount: Address, outcome: Outcome): Uint8Array {
-    return computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
-  }
-
-  /**
-   * Build the validation hash that the validator should sign (with response)
-   */
-  buildValidationHash(sasSchema: Address, taskRef: Uint8Array, tokenAccount: Address, response: number): Uint8Array {
-    return computeValidationHash(sasSchema, taskRef, tokenAccount, response);
-  }
-
-  /**
-   * Build the reputation hash that the provider should sign
-   */
-  buildReputationHash(sasSchema: Address, tokenAccount: Address, provider: Address, score: number): Uint8Array {
-    return computeReputationHash(sasSchema, tokenAccount, provider, score);
+  buildCounterpartySigningMessage(schemaName: string, data: Uint8Array): Uint8Array {
+    return buildCounterpartyMessage({ schemaName, data }).messageBytes;
   }
 
   // ============================================================
@@ -1869,39 +1951,60 @@ export class Sati {
 
   /**
    * Verify signatures on a parsed attestation
+   *
+   * For dual-signature attestations (Feedback, Validation), the counterparty signature
+   * is verified against the SIWS-style human-readable message. This requires the schema
+   * name to reconstruct the message.
+   *
+   * @param attestation - The parsed attestation to verify
+   * @param schemaName - Schema name for counterparty message reconstruction (e.g., "Feedback")
    */
-  async verifySignatures(attestation: ParsedAttestation): Promise<SignatureVerificationResult> {
+  async verifySignatures(attestation: ParsedAttestation, schemaName?: string): Promise<SignatureVerificationResult> {
     const { attestation: compressed, data } = attestation;
     const addressEncoder = getAddressEncoder();
 
     // sasSchema and tokenAccount are now Address strings
     const sasSchema = compressed.sasSchema;
-    const tokenAccount = compressed.tokenAccount;
 
     const signature1 = compressed.signature1;
     const signature2 = compressed.signature2;
 
-    // Convert tokenAccount Address to bytes for Web Crypto verification
-    const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(tokenAccount));
-    const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
-
     if (compressed.dataType === DataType.Feedback) {
       const feedbackData = data as FeedbackData;
 
-      const interactionHash = computeInteractionHash(
-        sasSchema,
-        feedbackData.taskRef,
-        tokenAccount,
-        feedbackData.dataHash,
-      );
+      // Agent signs interaction hash (blind commitment to task + data)
+      const interactionHash = computeInteractionHash(sasSchema, feedbackData.taskRef, feedbackData.dataHash);
 
-      const feedbackHash = computeFeedbackHash(sasSchema, feedbackData.taskRef, tokenAccount, feedbackData.outcome);
+      // For counterparty verification, we need the schema name to build the SIWS message
+      if (!schemaName) {
+        // Without schema name, we can only verify agent signature
+        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.tokenAccount));
+        const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
+        const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
+
+        return {
+          valid: agentValid,
+          agentValid,
+          counterpartyValid: undefined,
+        };
+      }
+
+      // Serialize the data to build counterparty message
+      const serializedData = serializeFeedback(feedbackData);
+      const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: serializedData });
+
+      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.tokenAccount));
+      const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
 
       const counterpartyPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.counterparty));
       const counterpartyKey = await importEd25519PublicKey(counterpartyPubkeyBytes);
 
       const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
-      const counterpartyValid = await verifySignature(counterpartyKey, signatureBytes(signature2), feedbackHash);
+      const counterpartyValid = await verifySignature(
+        counterpartyKey,
+        signatureBytes(signature2),
+        counterpartyMessageObj.messageBytes,
+      );
 
       return {
         valid: agentValid && counterpartyValid,
@@ -1911,25 +2014,38 @@ export class Sati {
     } else if (compressed.dataType === DataType.Validation) {
       const validationData = data as ValidationData;
 
-      const interactionHash = computeInteractionHash(
-        sasSchema,
-        validationData.taskRef,
-        tokenAccount,
-        validationData.dataHash,
-      );
+      // Agent signs interaction hash
+      const interactionHash = computeInteractionHash(sasSchema, validationData.taskRef, validationData.dataHash);
 
-      const validationHash = computeValidationHash(
-        sasSchema,
-        validationData.taskRef,
-        tokenAccount,
-        validationData.response,
-      );
+      // For counterparty verification, we need the schema name
+      if (!schemaName) {
+        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.tokenAccount));
+        const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
+        const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
+
+        return {
+          valid: agentValid,
+          agentValid,
+          counterpartyValid: undefined,
+        };
+      }
+
+      // Serialize the data to build counterparty message
+      const serializedData = serializeValidation(validationData);
+      const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: serializedData });
+
+      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.tokenAccount));
+      const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
 
       const validatorPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.counterparty));
       const validatorKey = await importEd25519PublicKey(validatorPubkeyBytes);
 
       const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
-      const counterpartyValid = await verifySignature(validatorKey, signatureBytes(signature2), validationHash);
+      const counterpartyValid = await verifySignature(
+        validatorKey,
+        signatureBytes(signature2),
+        counterpartyMessageObj.messageBytes,
+      );
 
       return {
         valid: agentValid && counterpartyValid,

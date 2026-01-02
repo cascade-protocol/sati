@@ -43,18 +43,16 @@ pub const LARGE_METADATA_THRESHOLD: usize = 5;
 pub const MAX_CONTENT_SIZE: usize = 512;
 
 /// Maximum total size for attestation data (bytes).
-/// Includes base layout (96) + schema-specific fields + content.
+/// Includes universal base layout (130) + variable content.
 pub const MAX_ATTESTATION_DATA_SIZE: usize = 768;
 
-/// Minimum size for base layout (bytes).
-/// All schemas start with: task_ref(32) + token_account(32) + counterparty(32) = 96 bytes.
+/// Minimum size for universal base layout (bytes).
+/// All schemas use: task_ref(32) + token_account(32) + counterparty(32) +
+/// outcome(1) + data_hash(32) + content_type(1) = 130 bytes.
 ///
 /// NAMING CONVENTION: `token_account` = agent's **MINT ADDRESS** (stable identity).
 /// Authorization for agent signatures is verified via ATA ownership, not pubkey == mint.
-pub const MIN_BASE_LAYOUT_SIZE: usize = 96;
-
-/// Maximum length for tag strings in Feedback schema (chars).
-pub const MAX_TAG_LENGTH: usize = 32;
+pub const MIN_BASE_LAYOUT_SIZE: usize = 130;
 
 /// Domain separator for interaction hash (agent signs blind).
 pub const DOMAIN_INTERACTION: &[u8] = b"SATI:interaction:v1";
@@ -92,49 +90,27 @@ pub const SAS_DATA_OFFSET: usize = SAS_HEADER_SIZE;
 // Data Layout Offsets (must match SDK schemas.ts)
 // ============================================================================
 
-/// Base layout offsets (all schemas).
-/// All schemas start with: task_ref(32) + token_account(32) + counterparty(32).
+/// Universal base layout offsets (all schemas).
+/// All schemas share identical first 130 bytes.
 pub mod offsets {
-    /// task_ref offset (32 bytes)
+    /// task_ref offset (32 bytes) - CAIP-220 tx hash or task identifier
     pub const TASK_REF: usize = 0;
     /// token_account (agent mint address) offset (32 bytes)
     pub const TOKEN_ACCOUNT: usize = 32;
     /// counterparty offset (32 bytes)
     pub const COUNTERPARTY: usize = 64;
-
-    /// Feedback schema offsets (data_type = 0)
-    pub mod feedback {
-        /// data_hash offset (32 bytes)
-        pub const DATA_HASH: usize = 96;
-        /// content_type offset (1 byte)
-        pub const CONTENT_TYPE: usize = 128;
-        /// outcome offset (1 byte) - fixed for memcmp filtering
-        pub const OUTCOME: usize = 129;
-        /// tag1_len offset (1 byte, variable-length string follows)
-        pub const TAG1_LEN: usize = 130;
-    }
-
-    /// Validation schema offsets (data_type = 1)
-    pub mod validation {
-        /// data_hash offset (32 bytes)
-        pub const DATA_HASH: usize = 96;
-        /// content_type offset (1 byte)
-        pub const CONTENT_TYPE: usize = 128;
-        /// validation_type offset (1 byte)
-        pub const VALIDATION_TYPE: usize = 129;
-        /// response offset (1 byte) - fixed for memcmp filtering
-        pub const RESPONSE: usize = 130;
-        /// content_len offset (4 bytes u32)
-        pub const CONTENT_LEN: usize = 131;
-    }
-
-    /// ReputationScore schema offsets (data_type = 2)
-    pub mod reputation_score {
-        /// score offset (1 byte, 0-100)
-        pub const SCORE: usize = 96;
-        /// content_type offset (1 byte)
-        pub const CONTENT_TYPE: usize = 97;
-        /// content_len offset (4 bytes u32)
-        pub const CONTENT_LEN: usize = 98;
-    }
+    /// outcome offset (1 byte) - 0=Negative, 1=Neutral, 2=Positive (only 0-2 valid)
+    pub const OUTCOME: usize = 96;
+    /// data_hash offset (32 bytes) - agent's blind commitment (zeros for SingleSigner)
+    pub const DATA_HASH: usize = 97;
+    /// content_type offset (1 byte) - format: 0=None, 1=JSON, 2=UTF-8, etc. (6-15 reserved)
+    pub const CONTENT_TYPE: usize = 129;
+    /// content offset (variable length, up to 512 bytes)
+    pub const CONTENT: usize = 130;
 }
+
+/// Maximum valid outcome value (0=Negative, 1=Neutral, 2=Positive)
+pub const MAX_OUTCOME_VALUE: u8 = 2;
+
+/// Maximum valid content_type value (0-5 defined, 6-15 reserved for future)
+pub const MAX_CONTENT_TYPE_VALUE: u8 = 15;

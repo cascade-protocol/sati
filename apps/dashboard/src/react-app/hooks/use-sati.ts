@@ -50,6 +50,9 @@ const AGENTS_KEY = [...QUERY_KEY, "agents"];
 const FEEDBACKS_KEY = [...QUERY_KEY, "feedbacks"];
 const PAGE_SIZE = 20;
 
+// Outcome filter type for feedback filtering
+export type OutcomeFilter = "all" | "positive" | "neutral" | "negative";
+
 export interface RegisterAgentParams {
   name: string;
   uri: string;
@@ -350,11 +353,25 @@ export function useUpdateAgentMetadata() {
  *
  * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters.
  */
-export function useAllFeedbacks() {
+export function useAllFeedbacks(options?: { outcomeFilter?: OutcomeFilter }) {
+  const outcomeFilter = options?.outcomeFilter ?? "all";
+
   const query = useQuery({
     queryKey: [...FEEDBACKS_KEY, "all"],
     queryFn: async () => {
       return listAllFeedbacks();
+    },
+    // TanStack Query's select provides automatic memoization
+    // Only re-runs when data or outcomeFilter changes
+    select: (data) => {
+      if (outcomeFilter === "all") return data;
+      return data.filter((f) => {
+        const outcome = (f.data as FeedbackData).outcome;
+        if (outcomeFilter === "positive") return outcome === 2;
+        if (outcomeFilter === "neutral") return outcome === 1;
+        if (outcomeFilter === "negative") return outcome === 0;
+        return true;
+      });
     },
     staleTime: 30_000, // 30 seconds
   });

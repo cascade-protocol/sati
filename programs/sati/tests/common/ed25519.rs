@@ -8,13 +8,11 @@
 use ed25519_dalek::{Signer, SigningKey};
 use rand::RngCore;
 use sha3::{Digest, Keccak256};
-use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
+use solana_sdk::{bs58, instruction::Instruction, pubkey::Pubkey};
 
-// Domain separators matching constants.rs
+// Domain separator matching constants.rs
+// (feedback, validation, reputation domains removed - counterparty now signs SIWS message)
 const DOMAIN_INTERACTION: &[u8] = b"SATI:interaction:v1";
-const DOMAIN_FEEDBACK: &[u8] = b"SATI:feedback:v1";
-const DOMAIN_VALIDATION: &[u8] = b"SATI:validation:v1";
-const DOMAIN_REPUTATION: &[u8] = b"SATI:reputation:v1";
 
 /// Generate a new Ed25519 keypair for testing
 pub fn generate_ed25519_keypair() -> SigningKey {
@@ -140,70 +138,55 @@ pub fn create_multi_ed25519_ix(
 
 /// Compute the interaction hash that the agent signs (blind to outcome).
 /// Domain: SATI:interaction:v1
+///
+/// Note: Universal layout migration removed token_account from hash.
+/// Token account binding is now done via ATA ownership verification.
 pub fn compute_interaction_hash(
     sas_schema: &Pubkey,
     task_ref: &[u8; 32],
-    token_account: &Pubkey,
     data_hash: &[u8; 32],
 ) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(DOMAIN_INTERACTION);
     hasher.update(sas_schema.as_ref());
     hasher.update(task_ref);
-    hasher.update(token_account.as_ref());
     hasher.update(data_hash);
     hasher.finalize().into()
 }
 
-/// Compute the feedback hash that the counterparty signs (with outcome).
-/// Domain: SATI:feedback:v1
-pub fn compute_feedback_hash(
-    sas_schema: &Pubkey,
-    task_ref: &[u8; 32],
+// NOTE: compute_feedback_hash, compute_validation_hash, compute_reputation_hash
+// were removed in the universal base layout migration. Counterparty now signs
+// a human-readable SIWS message (passed as counterparty_message parameter).
+// For SingleSigner mode, the provider signs the interaction_hash.
+
+/// Build a SIWS-style counterparty message for signature verification.
+/// This message is human-readable and contains key attestation fields.
+/// MUST match on-chain build_siws_message() in create_attestation.rs exactly!
+pub fn build_counterparty_message(
+    schema_name: &str,
     token_account: &Pubkey,
+    task_ref: &[u8; 32],
     outcome: u8,
-) -> [u8; 32] {
-    let mut hasher = Keccak256::new();
-    hasher.update(DOMAIN_FEEDBACK);
-    hasher.update(sas_schema.as_ref());
-    hasher.update(task_ref);
-    hasher.update(token_account.as_ref());
-    hasher.update([outcome]);
-    hasher.finalize().into()
-}
+    details: Option<&str>,
+) -> Vec<u8> {
+    let outcome_label = match outcome {
+        0 => "Negative",
+        1 => "Neutral",
+        2 => "Positive",
+        _ => "Reserved",
+    };
 
-/// Compute the validation hash that the counterparty signs (with response score).
-/// Domain: SATI:validation:v1
-pub fn compute_validation_hash(
-    sas_schema: &Pubkey,
-    task_ref: &[u8; 32],
-    token_account: &Pubkey,
-    response: u8,
-) -> [u8; 32] {
-    let mut hasher = Keccak256::new();
-    hasher.update(DOMAIN_VALIDATION);
-    hasher.update(sas_schema.as_ref());
-    hasher.update(task_ref);
-    hasher.update(token_account.as_ref());
-    hasher.update([response]);
-    hasher.finalize().into()
-}
+    let task_b58 = bs58::encode(task_ref).into_string();
+    let agent_b58 = token_account.to_string();
 
-/// Compute the reputation hash that the provider signs.
-/// Domain: SATI:reputation:v1
-pub fn compute_reputation_hash(
-    sas_schema: &Pubkey,
-    token_account: &Pubkey,
-    provider: &Pubkey,
-    score: u8,
-) -> [u8; 32] {
-    let mut hasher = Keccak256::new();
-    hasher.update(DOMAIN_REPUTATION);
-    hasher.update(sas_schema.as_ref());
-    hasher.update(token_account.as_ref());
-    hasher.update(provider.as_ref());
-    hasher.update([score]);
-    hasher.finalize().into()
+    // Must match on-chain format: always includes "Details:" line
+    let details_text = details.map_or("(none)".to_string(), |d| d.to_string());
+
+    let text = format!(
+        "SATI {schema_name}\n\nAgent: {agent_b58}\nTask: {task_b58}\nOutcome: {outcome_label}\nDetails: {details_text}\n\nSign to create this attestation."
+    );
+
+    text.into_bytes()
 }
 
 /// Compute data hash for attestation data (Keccak256)
@@ -273,24 +256,41 @@ mod tests {
     fn test_hash_functions_deterministic() {
         let schema = Pubkey::new_unique();
         let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
         let data_hash = [2u8; 32];
 
-        let hash1 = compute_interaction_hash(&schema, &task_ref, &token_account, &data_hash);
-        let hash2 = compute_interaction_hash(&schema, &task_ref, &token_account, &data_hash);
+        let hash1 = compute_interaction_hash(&schema, &task_ref, &data_hash);
+        let hash2 = compute_interaction_hash(&schema, &task_ref, &data_hash);
 
         assert_eq!(hash1, hash2);
     }
 
     #[test]
-    fn test_feedback_hash_varies_by_outcome() {
+    fn test_interaction_hash_varies_by_data_hash() {
         let schema = Pubkey::new_unique();
         let task_ref = [1u8; 32];
+        let data_hash1 = [1u8; 32];
+        let data_hash2 = [2u8; 32];
+
+        let hash1 = compute_interaction_hash(&schema, &task_ref, &data_hash1);
+        let hash2 = compute_interaction_hash(&schema, &task_ref, &data_hash2);
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_counterparty_message_format() {
         let token_account = Pubkey::new_unique();
+        let task_ref = [1u8; 32];
+        let outcome = 2; // Positive
 
-        let hash_neg = compute_feedback_hash(&schema, &task_ref, &token_account, 0);
-        let hash_pos = compute_feedback_hash(&schema, &task_ref, &token_account, 2);
+        let msg = build_counterparty_message("Feedback", &token_account, &task_ref, outcome, None);
+        let text = String::from_utf8(msg).unwrap();
 
-        assert_ne!(hash_neg, hash_pos);
+        assert!(text.starts_with("SATI Feedback\n"));
+        assert!(text.contains("Agent:"));
+        assert!(text.contains("Task:"));
+        assert!(text.contains("Outcome: Positive"));
+        assert!(text.contains("Details: (none)")); // Always includes Details line
+        assert!(text.ends_with("Sign to create this attestation."));
     }
 }

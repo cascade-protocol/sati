@@ -4527,6 +4527,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang 0.32.1",
  "anchor-spl",
+ "bs58",
  "ed25519-dalek 2.2.0",
  "hex",
  "k256",

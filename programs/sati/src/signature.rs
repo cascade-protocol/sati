@@ -30,10 +30,23 @@ const ED25519_OFFSETS_SIZE: usize = 14;
 
 /// Verify Ed25519 signatures by checking the transaction's Ed25519 program instructions.
 /// The calling transaction must include Ed25519 program instructions BEFORE the SATI instruction.
+///
+/// # Arguments
+/// * `instructions_sysvar` - The instructions sysvar account
+/// * `expected_signatures` - Array of expected signature data (pubkey + sig)
+/// * `expected_messages` - Optional messages to verify for each signature.
+///   - Some(msg) = verify the signed message matches this value (e.g., agent's interaction_hash)
+///   - None = only verify signature exists, don't check message content (e.g., counterparty's SIWS)
+///
+/// For DualSignature mode:
+/// - signatures[0] (agent): Pass Some(interaction_hash) to verify they signed the correct hash
+/// - signatures[1] (counterparty): Pass None since Ed25519 precompile already verified the sig
+///
+/// This approach saves ~300 bytes by not requiring counterparty_message in instruction params.
 pub fn verify_ed25519_signatures(
     instructions_sysvar: &AccountInfo,
     expected_signatures: &[SignatureData],
-    expected_messages: &[Vec<u8>],
+    expected_messages: &[Option<Vec<u8>>],
 ) -> Result<()> {
     require!(
         instructions_sysvar.key == &SYSVAR_INSTRUCTIONS_ID,
@@ -115,17 +128,6 @@ pub fn verify_ed25519_signatures(
                 // Check if this pubkey matches any expected signature
                 for (j, expected) in expected_signatures.iter().enumerate() {
                     if expected.pubkey == pubkey {
-                        // Verify message matches expected
-                        require!(
-                            data.len() >= msg_offset + msg_size,
-                            SatiError::InvalidEd25519Instruction
-                        );
-                        let msg = &data[msg_offset..msg_offset + msg_size];
-                        require!(
-                            msg == expected_messages[j].as_slice(),
-                            SatiError::MessageMismatch
-                        );
-
                         // Verify signature matches
                         require!(
                             data.len() >= sig_offset + 64,
@@ -135,6 +137,21 @@ pub fn verify_ed25519_signatures(
                             .try_into()
                             .map_err(|_| SatiError::InvalidEd25519Instruction)?;
                         require!(sig == expected.sig, SatiError::SignatureMismatch);
+
+                        // If expected message is provided, verify it matches
+                        if let Some(expected_msg) = &expected_messages[j] {
+                            require!(
+                                data.len() >= msg_offset + msg_size,
+                                SatiError::InvalidEd25519Instruction
+                            );
+                            let msg = &data[msg_offset..msg_offset + msg_size];
+                            require!(
+                                msg == expected_msg.as_slice(),
+                                SatiError::MessageMismatch
+                            );
+                        }
+                        // If expected_message is None, we only verify signature exists
+                        // (Ed25519 precompile already verified sig against whatever message was signed)
 
                         verified_count += 1;
                     }
@@ -155,71 +172,27 @@ pub fn verify_ed25519_signatures(
 
 /// Compute the interaction hash that the agent signs (blind to outcome).
 /// Domain: SATI:interaction:v1
+///
+/// Used by:
+/// - Agent in DualSignature mode (Feedback, Validation)
+/// - Provider in SingleSigner mode (ReputationScore)
 pub fn compute_interaction_hash(
     sas_schema: &Pubkey,
     task_ref: &[u8; 32],
-    token_account: &Pubkey,
     data_hash: &[u8; 32],
 ) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(DOMAIN_INTERACTION);
     hasher.update(sas_schema.as_ref());
     hasher.update(task_ref);
-    hasher.update(token_account.as_ref());
     hasher.update(data_hash);
     hasher.finalize().into()
 }
 
-/// Compute the feedback hash that the counterparty signs (with outcome).
-/// Domain: SATI:feedback:v1
-pub fn compute_feedback_hash(
-    sas_schema: &Pubkey,
-    task_ref: &[u8; 32],
-    token_account: &Pubkey,
-    outcome: u8,
-) -> [u8; 32] {
-    let mut hasher = Keccak256::new();
-    hasher.update(DOMAIN_FEEDBACK);
-    hasher.update(sas_schema.as_ref());
-    hasher.update(task_ref);
-    hasher.update(token_account.as_ref());
-    hasher.update([outcome]);
-    hasher.finalize().into()
-}
-
-/// Compute the validation hash that the counterparty signs (with response score).
-/// Domain: SATI:validation:v1
-pub fn compute_validation_hash(
-    sas_schema: &Pubkey,
-    task_ref: &[u8; 32],
-    token_account: &Pubkey,
-    response: u8,
-) -> [u8; 32] {
-    let mut hasher = Keccak256::new();
-    hasher.update(DOMAIN_VALIDATION);
-    hasher.update(sas_schema.as_ref());
-    hasher.update(task_ref);
-    hasher.update(token_account.as_ref());
-    hasher.update([response]);
-    hasher.finalize().into()
-}
-
-/// Compute the reputation hash that the provider signs.
-/// Domain: SATI:reputation:v1
-pub fn compute_reputation_hash(
-    sas_schema: &Pubkey,
-    token_account: &Pubkey,
-    provider: &Pubkey,
-    score: u8,
-) -> [u8; 32] {
-    let mut hasher = Keccak256::new();
-    hasher.update(DOMAIN_REPUTATION);
-    hasher.update(sas_schema.as_ref());
-    hasher.update(token_account.as_ref());
-    hasher.update(provider.as_ref());
-    hasher.update([score]);
-    hasher.finalize().into()
-}
+// NOTE: compute_feedback_hash, compute_validation_hash, compute_reputation_hash
+// were removed in the universal base layout migration. Counterparty now signs
+// a human-readable SIWS message (passed as counterparty_message parameter).
+// For SingleSigner mode, the provider signs the interaction_hash.
 
 /// Compute the deterministic nonce for compressed attestation address derivation.
 /// Includes counterparty to ensure unique addresses per (task, agent, counterparty) tuple.
@@ -296,28 +269,25 @@ mod tests {
     fn test_interaction_hash_deterministic() {
         let schema = Pubkey::new_unique();
         let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
         let data_hash = [2u8; 32];
 
-        let hash1 = compute_interaction_hash(&schema, &task_ref, &token_account, &data_hash);
-        let hash2 = compute_interaction_hash(&schema, &task_ref, &token_account, &data_hash);
+        let hash1 = compute_interaction_hash(&schema, &task_ref, &data_hash);
+        let hash2 = compute_interaction_hash(&schema, &task_ref, &data_hash);
 
         assert_eq!(hash1, hash2);
     }
 
     #[test]
-    fn test_feedback_hash_differs_by_outcome() {
+    fn test_interaction_hash_differs_by_data_hash() {
         let schema = Pubkey::new_unique();
         let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
+        let data_hash1 = [1u8; 32];
+        let data_hash2 = [2u8; 32];
 
-        let hash_neg = compute_feedback_hash(&schema, &task_ref, &token_account, 0);
-        let hash_neu = compute_feedback_hash(&schema, &task_ref, &token_account, 1);
-        let hash_pos = compute_feedback_hash(&schema, &task_ref, &token_account, 2);
+        let hash1 = compute_interaction_hash(&schema, &task_ref, &data_hash1);
+        let hash2 = compute_interaction_hash(&schema, &task_ref, &data_hash2);
 
-        assert_ne!(hash_neg, hash_neu);
-        assert_ne!(hash_neu, hash_pos);
-        assert_ne!(hash_neg, hash_pos);
+        assert_ne!(hash1, hash2);
     }
 
     #[test]

@@ -249,7 +249,10 @@ export interface SATILightClient {
   }>;
 
   /** Get lookup table addresses for transaction compression */
-  getLookupTableAddresses(): Promise<Address[]>;
+  getLookupTableAddresses(
+    schemaAddresses?: Address[],
+    agentAtas?: { mint: Address; owner: Address }[],
+  ): Promise<Address[]>;
 }
 
 // =============================================================================
@@ -442,7 +445,18 @@ export class SATILightClientImpl implements SATILightClient {
     };
   }
 
-  async getLookupTableAddresses(): Promise<Address[]> {
+  /**
+   * Get addresses that should be included in the lookup table for transaction compression.
+   *
+   * @param schemaAddresses - Optional schema addresses to include their schemaConfigPdas
+   *                          (use deployed schema addresses for maximum compression)
+   * @param agentAtas - Optional agent ATA info to include derived ATAs
+   *                    (use known agents for maximum compression)
+   */
+  async getLookupTableAddresses(
+    schemaAddresses?: Address[],
+    agentAtas?: { mint: Address; owner: Address }[],
+  ): Promise<Address[]> {
     // Solana system programs
     const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
     const ED25519_PROGRAM = address("Ed25519SigVerify111111111111111111111111111");
@@ -455,6 +469,51 @@ export class SATILightClientImpl implements SATILightClient {
       programAddress: this.programId,
       seeds: [getUtf8Encoder().encode("__event_authority")],
     });
+
+    // Derive CPI signer PDA: PDA(SATI_PROGRAM, ["cpi_authority"])
+    // This is used by Light Protocol for CPI calls from our program
+    const [cpiSigner] = await getProgramDerivedAddress({
+      programAddress: this.programId,
+      seeds: [getUtf8Encoder().encode("cpi_authority")],
+    });
+
+    // Derive account compression authority PDA: PDA(LIGHT_SYSTEM_PROGRAM, ["cpi_authority"])
+    // This is used by Light Protocol for account compression operations
+    const [compressionAuthority] = await getProgramDerivedAddress({
+      programAddress: LIGHT_SYSTEM_PROGRAM,
+      seeds: [getUtf8Encoder().encode("cpi_authority")],
+    });
+
+    // Derive schemaConfigPdas for provided schemas
+    // Each schemaConfigPda in ALT saves 32 bytes per transaction
+    const schemaConfigPdas: Address[] = [];
+    if (schemaAddresses) {
+      for (const sasSchema of schemaAddresses) {
+        const [schemaConfigPda] = await getProgramDerivedAddress({
+          programAddress: this.programId,
+          seeds: [getUtf8Encoder().encode("schema_config"), getAddressEncoder().encode(sasSchema)],
+        });
+        schemaConfigPdas.push(schemaConfigPda);
+      }
+    }
+
+    // Derive ATAs for provided agent info
+    // Each agentAta in ALT saves 32 bytes per transaction
+    const ASSOCIATED_TOKEN_PROGRAM = address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+    const derivedAtas: Address[] = [];
+    if (agentAtas) {
+      for (const ataInfo of agentAtas) {
+        const [ata] = await getProgramDerivedAddress({
+          programAddress: ASSOCIATED_TOKEN_PROGRAM,
+          seeds: [
+            getAddressEncoder().encode(ataInfo.owner),
+            getAddressEncoder().encode(TOKEN_2022_PROGRAM),
+            getAddressEncoder().encode(ataInfo.mint),
+          ],
+        });
+        derivedAtas.push(ata);
+      }
+    }
 
     return [
       // Light Protocol core
@@ -469,9 +528,19 @@ export class SATILightClientImpl implements SATILightClient {
       MERKLE_TREE_PUBKEY,
       NULLIFIER_QUEUE_PUBKEY,
 
+      // Light Protocol CPI authorities (CRITICAL for transaction size!)
+      cpiSigner,
+      compressionAuthority,
+
       // SATI program and PDAs
       this.programId,
       eventAuthority,
+
+      // Schema config PDAs (saves 32 bytes per schema used)
+      ...schemaConfigPdas,
+
+      // Agent ATAs (saves 32 bytes per agent used)
+      ...derivedAtas,
 
       // Solana system programs
       SYSTEM_PROGRAM,

@@ -7,6 +7,8 @@
  */
 
 import {
+  addDecoderSizePrefix,
+  addEncoderSizePrefix,
   assertAccountExists,
   assertAccountsExist,
   combineCodec,
@@ -23,17 +25,21 @@ import {
   getBytesEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU32Decoder,
+  getU32Encoder,
   getU8Decoder,
   getU8Encoder,
+  getUtf8Decoder,
+  getUtf8Encoder,
   transformEncoder,
   type Account,
   type Address,
+  type Codec,
+  type Decoder,
   type EncodedAccount,
+  type Encoder,
   type FetchAccountConfig,
   type FetchAccountsConfig,
-  type FixedSizeCodec,
-  type FixedSizeDecoder,
-  type FixedSizeEncoder,
   type MaybeAccount,
   type MaybeEncodedAccount,
   type ReadonlyUint8Array,
@@ -69,6 +75,8 @@ export type SchemaConfig = {
   storageType: StorageType;
   /** Whether attestations can be closed/nullified */
   closeable: boolean;
+  /** Schema name for signing messages (max 32 chars) */
+  name: string;
   /** PDA bump seed */
   bump: number;
 };
@@ -82,12 +90,14 @@ export type SchemaConfigArgs = {
   storageType: StorageTypeArgs;
   /** Whether attestations can be closed/nullified */
   closeable: boolean;
+  /** Schema name for signing messages (max 32 chars) */
+  name: string;
   /** PDA bump seed */
   bump: number;
 };
 
 /** Gets the encoder for {@link SchemaConfigArgs} account data. */
-export function getSchemaConfigEncoder(): FixedSizeEncoder<SchemaConfigArgs> {
+export function getSchemaConfigEncoder(): Encoder<SchemaConfigArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
@@ -95,6 +105,7 @@ export function getSchemaConfigEncoder(): FixedSizeEncoder<SchemaConfigArgs> {
       ["signatureMode", getSignatureModeEncoder()],
       ["storageType", getStorageTypeEncoder()],
       ["closeable", getBooleanEncoder()],
+      ["name", addEncoderSizePrefix(getUtf8Encoder(), getU32Encoder())],
       ["bump", getU8Encoder()],
     ]),
     (value) => ({ ...value, discriminator: SCHEMA_CONFIG_DISCRIMINATOR }),
@@ -102,22 +113,20 @@ export function getSchemaConfigEncoder(): FixedSizeEncoder<SchemaConfigArgs> {
 }
 
 /** Gets the decoder for {@link SchemaConfig} account data. */
-export function getSchemaConfigDecoder(): FixedSizeDecoder<SchemaConfig> {
+export function getSchemaConfigDecoder(): Decoder<SchemaConfig> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["sasSchema", getAddressDecoder()],
     ["signatureMode", getSignatureModeDecoder()],
     ["storageType", getStorageTypeDecoder()],
     ["closeable", getBooleanDecoder()],
+    ["name", addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
     ["bump", getU8Decoder()],
   ]);
 }
 
 /** Gets the codec for {@link SchemaConfig} account data. */
-export function getSchemaConfigCodec(): FixedSizeCodec<
-  SchemaConfigArgs,
-  SchemaConfig
-> {
+export function getSchemaConfigCodec(): Codec<SchemaConfigArgs, SchemaConfig> {
   return combineCodec(getSchemaConfigEncoder(), getSchemaConfigDecoder());
 }
 
@@ -172,8 +181,4 @@ export async function fetchAllMaybeSchemaConfig(
 ): Promise<MaybeAccount<SchemaConfig>[]> {
   const maybeAccounts = await fetchEncodedAccounts(rpc, addresses, config);
   return maybeAccounts.map((maybeAccount) => decodeSchemaConfig(maybeAccount));
-}
-
-export function getSchemaConfigSize(): number {
-  return 44;
 }

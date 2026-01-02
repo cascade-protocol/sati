@@ -14,6 +14,7 @@ import {
   Sati,
   createSATILightClient,
   type Outcome,
+  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
 } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
@@ -54,7 +55,10 @@ interface BuildFeedbackTxRequest {
   // Signatures (hex-encoded 64 bytes each)
   agentSignature: string;
   agentAddress: string;
-  counterpartySignature: string;
+  counterpartySignature?: string; // Optional for SingleSigner schemas
+  // Optional content (JSON string with tags/score/message)
+  content?: string;
+  contentType?: number; // ContentType enum (1 = JSON)
 }
 
 // =============================================================================
@@ -78,6 +82,10 @@ const LOOKUP_TABLE = deployedConfig?.lookupTable;
 
 function hexToBytes(hex: string): Uint8Array {
   const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
+  // Validate hex string format to prevent silent NaN corruption
+  if (!/^[0-9a-fA-F]*$/.test(cleanHex) || cleanHex.length % 2 !== 0) {
+    throw new Error(`Invalid hex string: ${hex}`);
+  }
   const bytes = new Uint8Array(cleanHex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
@@ -131,8 +139,8 @@ function createApp(env: EchoEnv) {
   // Get agent address for payment routing
   let agentAddress: string | undefined;
   let agentSignerBytes: Uint8Array | undefined;
-  // CryptoKeyPair is created lazily in the route handler (async)
-  let agentKeyPair: CryptoKeyPair | undefined;
+  // CryptoKeyPair Promise for concurrent-safe lazy initialization
+  let agentKeyPairPromise: Promise<CryptoKeyPair> | undefined;
 
   if (env.SATI_AGENT_SIGNER_KEY) {
     try {
@@ -229,17 +237,13 @@ function createApp(env: EchoEnv) {
     }
 
     // Compute and sign the interaction hash
-    const interactionHash = computeInteractionHash(
-      body.sasSchema as Address,
-      taskRefBytes,
-      body.tokenAccount as Address,
-      dataHashBytes,
-    );
+    const interactionHash = computeInteractionHash(body.sasSchema as Address, taskRefBytes, dataHashBytes);
 
-    // Create keypair lazily (async) - cache for subsequent requests
-    if (!agentKeyPair) {
-      agentKeyPair = await createKeyPairFromBytes(agentSignerBytes);
+    // Create keypair lazily (async) - Promise ensures concurrent-safe initialization
+    if (!agentKeyPairPromise) {
+      agentKeyPairPromise = createKeyPairFromBytes(agentSignerBytes);
     }
+    const agentKeyPair = await agentKeyPairPromise;
 
     // Sign the interaction hash with agent's private key using Web Crypto
     const signature = await signBytes(agentKeyPair.privateKey, interactionHash);
@@ -290,6 +294,10 @@ function createApp(env: EchoEnv) {
     if (!isAddress(body.sasSchema)) {
       return c.json({ error: "Invalid sasSchema address" }, 400);
     }
+    // Validate schema is the expected feedback schema (security check)
+    if (body.sasSchema !== FEEDBACK_SCHEMA) {
+      return c.json({ error: "Invalid schema - only feedback schema supported" }, 400);
+    }
     if (!isAddress(body.tokenAccount)) {
       return c.json({ error: "Invalid tokenAccount address" }, 400);
     }
@@ -329,6 +337,19 @@ function createApp(env: EchoEnv) {
       return c.json({ error: "outcome must be 0, 1, or 2" }, 400);
     }
 
+    // Validate content size (SingleSigner schema has 240 byte limit)
+    if (body.content) {
+      const contentBytes = new TextEncoder().encode(body.content);
+      if (contentBytes.length > MAX_SINGLE_SIGNATURE_CONTENT_SIZE) {
+        return c.json(
+          {
+            error: `Content too large: ${contentBytes.length} bytes exceeds maximum ${MAX_SINGLE_SIGNATURE_CONTENT_SIZE} bytes`,
+          },
+          400,
+        );
+      }
+    }
+
     try {
       // Initialize Sati client with Helius RPC for Light Protocol
       const sati = new Sati({
@@ -364,6 +385,11 @@ function createApp(env: EchoEnv) {
           },
         }),
         lookupTableAddress: LOOKUP_TABLE as Address,
+        // Optional content (JSON with tags/score/message)
+        ...(body.content && {
+          contentType: body.contentType ?? 1, // 1 = JSON
+          content: new TextEncoder().encode(body.content),
+        }),
       });
 
       return c.json({

@@ -44,6 +44,14 @@ export interface CreateLookupTableResult {
 // Lookup Table Creation
 // =============================================================================
 
+/** Agent ATA info for lookup table creation */
+export interface AgentAtaInfo {
+  /** Token mint address (agent identity) */
+  mint: Address;
+  /** Token account owner (agent signer) */
+  owner: Address;
+}
+
 /**
  * Create an address lookup table for SATI transactions.
  *
@@ -55,15 +63,25 @@ export interface CreateLookupTableResult {
  * - State tree accounts
  * - Ed25519 program
  * - System program
+ * - SchemaConfig PDAs for provided schemas (CRITICAL for tx size!)
+ * - Agent ATAs for provided agents (CRITICAL for tx size!)
  *
  * @param sati - SATI client instance
  * @param payer - Transaction fee payer signer (must have SOL)
+ * @param schemaAddresses - Schema addresses to include their schemaConfigPdas (saves 32 bytes each)
+ * @param agentAtas - Agent ATA info to include in lookup table (saves 32 bytes each)
  * @param rpcUrl - Optional RPC URL (defaults to localnet)
  * @returns Created lookup table address and signature
  *
  * @example
  * ```typescript
- * const { address: lookupTableAddress } = await createSatiLookupTable(sati, payerSigner);
+ * // Include schema PDAs and agent ATAs for transaction compression
+ * const { address: lookupTableAddress } = await createSatiLookupTable(
+ *   sati,
+ *   payerSigner,
+ *   [feedbackSchema],
+ *   [{ mint: agentMint, owner: agentOwner }]
+ * );
  *
  * // Use in createFeedback
  * await sati.createFeedback({ ...params, lookupTableAddress });
@@ -72,6 +90,8 @@ export interface CreateLookupTableResult {
 export async function createSatiLookupTable(
   sati: Sati,
   payer: KeyPairSigner,
+  schemaAddresses: Address[] = [],
+  agentAtas: AgentAtaInfo[] = [],
   rpcUrl = "http://127.0.0.1:8899",
   wsUrl = "ws://127.0.0.1:8900",
 ): Promise<CreateLookupTableResult> {
@@ -79,9 +99,9 @@ export async function createSatiLookupTable(
   const rpcSubscriptions = createSolanaRpcSubscriptions(wsUrl);
 
   // Get addresses to include in lookup table (do this first, before fetching slot)
-  // Includes Light Protocol addresses, SATI program/PDAs, and Token-2022
+  // Includes Light Protocol addresses, SATI program/PDAs, Token-2022, and schema PDAs
   const light = await sati.getLightClient();
-  const addresses = await light.getLookupTableAddresses();
+  const addresses = await light.getLookupTableAddresses(schemaAddresses, agentAtas);
 
   // Get current slot for lookup table creation
   const slot = await rpc.getSlot({ commitment: "finalized" }).send();

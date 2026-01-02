@@ -4,6 +4,16 @@
  * Data layouts for SATI attestations with fixed offsets for memcmp filtering.
  * These schemas must match the on-chain program's expectations.
  *
+ * ## Universal Base Layout (130 bytes)
+ * All schemas share identical first 130 bytes:
+ *   - task_ref: 0-31 (32 bytes) - CAIP-220 tx hash or task ID
+ *   - token_account: 32-63 (32 bytes) - agent's MINT ADDRESS
+ *   - counterparty: 64-95 (32 bytes) - counterparty address
+ *   - outcome: 96 (1 byte) - 0=Negative, 1=Neutral, 2=Positive
+ *   - data_hash: 97-128 (32 bytes) - blind commitment (zeros for SingleSigner)
+ *   - content_type: 129 (1 byte) - format: 0=None, 1=JSON, 2=UTF-8, etc.
+ *   - content: 130+ (variable) - up to 512 bytes
+ *
  * ## Identity Model
  * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
  * - Named for SAS wire format compatibility (NOT an Associated Token Account)
@@ -16,17 +26,39 @@ import { getAddressEncoder, getAddressDecoder, type Address } from "@solana/kit"
 // Constants
 // ============================================================================
 
-/** Maximum content size in bytes */
+/** Maximum content size in bytes (theoretical storage limit) */
 export const MAX_CONTENT_SIZE = 512;
 
-/** Maximum tag length in characters */
-export const MAX_TAG_LENGTH = 32;
+/**
+ * Maximum content size for DualSignature mode attestations.
+ *
+ * Due to Solana's 1232-byte transaction limit, content in DualSignature
+ * mode is severely constrained because:
+ * 1. Content appears TWICE: in data blob AND in SIWS message
+ * 2. Agent ATA (32 bytes) can never be in lookup table (user-specific)
+ * 3. SIWS message overhead is ~194 bytes
+ *
+ * Use ContentType.IPFS or ContentType.Arweave for larger content.
+ */
+export const MAX_DUAL_SIGNATURE_CONTENT_SIZE = 70;
 
 /**
- * Minimum base layout size (task_ref + token_account + counterparty).
+ * Maximum content size for SingleSignature mode attestations.
+ *
+ * SingleSignature mode has more headroom because:
+ * 1. Content appears only once (no SIWS message duplication)
+ * 2. No counterparty signature verification overhead
+ */
+export const MAX_SINGLE_SIGNATURE_CONTENT_SIZE = 240;
+
+/**
+ * Minimum universal base layout size.
+ * All schemas share: task_ref(32) + token_account(32) + counterparty(32) +
+ * outcome(1) + data_hash(32) + content_type(1) = 130 bytes.
+ *
  * Note: token_account stores the agent's mint address (named for SAS compatibility).
  */
-export const MIN_BASE_LAYOUT_SIZE = 96;
+export const MIN_BASE_LAYOUT_SIZE = 130;
 
 /**
  * SAS attestation header size in bytes.
@@ -37,6 +69,34 @@ export const MIN_BASE_LAYOUT_SIZE = 96;
  * Must match programs/sati/src/constants.rs SAS_HEADER_SIZE
  */
 export const SAS_HEADER_SIZE = 101;
+
+// ============================================================================
+// Universal Offsets
+// ============================================================================
+
+/**
+ * Universal base layout offsets (all schemas share these).
+ * Must match programs/sati/src/constants.rs offsets module.
+ */
+export const OFFSETS = {
+  /** CAIP-220 tx hash or task identifier (32 bytes) */
+  TASK_REF: 0,
+  /** Agent's mint address (32 bytes) */
+  TOKEN_ACCOUNT: 32,
+  /** Counterparty address (32 bytes) */
+  COUNTERPARTY: 64,
+  /** Outcome: 0=Negative, 1=Neutral, 2=Positive */
+  OUTCOME: 96,
+  /** Blind commitment hash (32 bytes, zeros for SingleSigner) */
+  DATA_HASH: 97,
+  /** Content format: 0=None, 1=JSON, 2=UTF-8, etc. */
+  CONTENT_TYPE: 129,
+  /** Variable-length content (up to 512 bytes) */
+  CONTENT: 130,
+} as const;
+
+/** Alias for backward compatibility */
+export const BASE_OFFSETS = OFFSETS;
 
 // ============================================================================
 // Enums
@@ -75,7 +135,7 @@ export enum Outcome {
  * Content type determines how to interpret the variable-length content field
  */
 export enum ContentType {
-  /** Empty content - just use outcome/tags */
+  /** Empty content - just use outcome */
   None = 0,
   /** Inline JSON object */
   JSON = 1,
@@ -90,7 +150,10 @@ export enum ContentType {
 }
 
 /**
- * Validation method types
+ * Validation method types.
+ *
+ * Note: In v2 universal layout, this is stored in JSON content,
+ * not as a binary field. Kept for SDK convenience.
  */
 export enum ValidationType {
   /** Trusted Execution Environment */
@@ -128,10 +191,10 @@ export enum StorageType {
 // ============================================================================
 
 /**
- * Base data layout (first 96 bytes)
+ * Universal base data layout (130 bytes)
  *
- * All schemas MUST start with this layout. Program parses this for signature
- * binding; full schema is parsed by indexers.
+ * All schemas MUST use this layout. Program parses this for signature
+ * verification; schema-specific data goes in JSON content.
  */
 export interface BaseLayout {
   /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
@@ -140,180 +203,72 @@ export interface BaseLayout {
   tokenAccount: Address;
   /** Counterparty address (32 bytes) */
   counterparty: Address;
+  /** Outcome: 0=Negative, 1=Neutral, 2=Positive */
+  outcome: Outcome;
+  /** Hash of request/interaction data for agent's blind signature (32 bytes) */
+  dataHash: Uint8Array;
+  /** Content format (see ContentType) */
+  contentType: ContentType;
+  /** Variable-length content based on contentType */
+  content: Uint8Array;
 }
-
-/**
- * Fixed offsets in base layout
- */
-export const BASE_OFFSETS = {
-  TASK_REF: 0,
-  TOKEN_ACCOUNT: 32,
-  COUNTERPARTY: 64,
-} as const;
 
 // ============================================================================
 // Feedback Schema (data_type = 0)
 // ============================================================================
 
 /**
- * Feedback schema layout
+ * Feedback schema - uses universal base layout
  *
- * Fixed offsets for memcmp filtering:
- * - outcome: offset 129
- *
- * Variable-length fields: tag1, tag2, content
+ * Schema-specific fields (tags, score, message) go in JSON content:
+ * { "score": 85, "tags": ["fast", "accurate"], "m": "Great response!" }
  */
-export interface FeedbackData {
-  /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
-  taskRef: Uint8Array;
-  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
-  tokenAccount: Address;
-  /** Client (feedback giver) */
-  counterparty: Address;
-  /** Hash of request/interaction data for agent's blind signature (32 bytes) */
-  dataHash: Uint8Array;
-  /** Content format (see ContentType) */
-  contentType: ContentType;
-  /** Feedback outcome: Negative, Neutral, Positive */
-  outcome: Outcome;
-  /** Primary category tag (max 32 chars) */
-  tag1: string;
-  /** Secondary category tag (max 32 chars) */
-  tag2: string;
-  /** Variable-length content based on contentType */
-  content: Uint8Array;
+export interface FeedbackData extends BaseLayout {}
+
+/**
+ * Feedback JSON content structure (optional fields in content)
+ */
+export interface FeedbackContent {
+  /** ERC-8004 compatible score: 0-100 */
+  score?: number;
+  /** Category tags (max 32 chars each) */
+  tags?: string[];
+  /** Feedback message */
+  m?: string;
 }
 
 /**
- * Fixed offsets in Feedback schema
+ * Fixed offsets in Feedback schema (same as universal)
  */
-export const FEEDBACK_OFFSETS = {
-  ...BASE_OFFSETS,
-  DATA_HASH: 96,
-  CONTENT_TYPE: 128,
-  /** Fixed offset for Photon memcmp filtering */
-  OUTCOME: 129,
-  /** Variable: starts at 130, length-prefixed string */
-  TAG1_LEN: 130,
-} as const;
+export const FEEDBACK_OFFSETS = OFFSETS;
 
 /**
  * Serialize Feedback data to bytes
  */
 export function serializeFeedback(data: FeedbackData): Uint8Array {
-  const tag1Bytes = new TextEncoder().encode(data.tag1.slice(0, MAX_TAG_LENGTH));
-  const tag2Bytes = new TextEncoder().encode(data.tag2.slice(0, MAX_TAG_LENGTH));
-  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
-
-  // Calculate total size: base(96) + dataHash(32) + contentType(1) + outcome(1) +
-  // tag1_len(1) + tag1 + tag2_len(1) + tag2 + content_len(4) + content
-  const totalSize = 96 + 32 + 1 + 1 + 1 + tag1Bytes.length + 1 + tag2Bytes.length + 4 + contentBytes.length;
-
-  const buffer = new Uint8Array(totalSize);
-  const view = new DataView(buffer.buffer);
-  let offset = 0;
-
-  // taskRef (32 bytes)
-  buffer.set(data.taskRef, offset);
-  offset += 32;
-
-  // tokenAccount (32 bytes) - need to decode from Address
-  const tokenAccountBytes = addressToBytes(data.tokenAccount);
-  buffer.set(tokenAccountBytes, offset);
-  offset += 32;
-
-  // counterparty (32 bytes)
-  const counterpartyBytes = addressToBytes(data.counterparty);
-  buffer.set(counterpartyBytes, offset);
-  offset += 32;
-
-  // dataHash (32 bytes)
-  buffer.set(data.dataHash, offset);
-  offset += 32;
-
-  // contentType (1 byte)
-  buffer[offset++] = data.contentType;
-
-  // outcome (1 byte)
-  buffer[offset++] = data.outcome;
-
-  // tag1 (length-prefixed string)
-  buffer[offset++] = tag1Bytes.length;
-  buffer.set(tag1Bytes, offset);
-  offset += tag1Bytes.length;
-
-  // tag2 (length-prefixed string)
-  buffer[offset++] = tag2Bytes.length;
-  buffer.set(tag2Bytes, offset);
-  offset += tag2Bytes.length;
-
-  // content (4-byte length prefix + data)
-  view.setUint32(offset, contentBytes.length, true);
-  offset += 4;
-  buffer.set(contentBytes, offset);
-
-  return buffer;
+  return serializeUniversalLayout(data);
 }
 
 /**
  * Deserialize Feedback data from bytes
  */
 export function deserializeFeedback(bytes: Uint8Array): FeedbackData {
-  if (bytes.length < 132) {
-    throw new Error("Feedback data too small (minimum 132 bytes)");
+  return deserializeUniversalLayout(bytes);
+}
+
+/**
+ * Parse Feedback JSON content
+ */
+export function parseFeedbackContent(content: Uint8Array, contentType: ContentType): FeedbackContent | null {
+  if (contentType !== ContentType.JSON || content.length === 0) {
+    return null;
   }
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset);
-  let offset = 0;
-
-  // taskRef (32 bytes)
-  const taskRef = bytes.slice(offset, offset + 32);
-  offset += 32;
-
-  // tokenAccount (32 bytes)
-  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
-  offset += 32;
-
-  // counterparty (32 bytes)
-  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
-  offset += 32;
-
-  // dataHash (32 bytes)
-  const dataHash = bytes.slice(offset, offset + 32);
-  offset += 32;
-
-  // contentType (1 byte)
-  const contentType = bytes[offset++] as ContentType;
-
-  // outcome (1 byte)
-  const outcome = bytes[offset++] as Outcome;
-
-  // tag1 (length-prefixed string)
-  const tag1Len = bytes[offset++];
-  const tag1 = new TextDecoder().decode(bytes.slice(offset, offset + tag1Len));
-  offset += tag1Len;
-
-  // tag2 (length-prefixed string)
-  const tag2Len = bytes[offset++];
-  const tag2 = new TextDecoder().decode(bytes.slice(offset, offset + tag2Len));
-  offset += tag2Len;
-
-  // content (4-byte length prefix + data)
-  const contentLen = view.getUint32(offset, true);
-  offset += 4;
-  const content = bytes.slice(offset, offset + contentLen);
-
-  return {
-    taskRef,
-    tokenAccount,
-    counterparty,
-    dataHash,
-    contentType,
-    outcome,
-    tag1,
-    tag2,
-    content,
-  };
+  try {
+    const text = new TextDecoder().decode(content);
+    return JSON.parse(text) as FeedbackContent;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
@@ -321,147 +276,57 @@ export function deserializeFeedback(bytes: Uint8Array): FeedbackData {
 // ============================================================================
 
 /**
- * Validation schema layout
+ * Validation schema - uses universal base layout
  *
- * Fixed offsets for memcmp filtering:
- * - response: offset 130
- *
- * Variable-length field: content
+ * Schema-specific fields (type, confidence) go in JSON content:
+ * { "type": "tee", "confidence": 95, "methodology": "..." }
  */
-export interface ValidationData {
-  /** Task reference (32 bytes) */
-  taskRef: Uint8Array;
-  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
-  tokenAccount: Address;
-  /** Validator address */
-  counterparty: Address;
-  /** Hash of work being validated for agent's blind signature (32 bytes) */
-  dataHash: Uint8Array;
-  /** Content format (see ContentType) */
-  contentType: ContentType;
-  /** Validation method (see ValidationType) */
-  validationType: ValidationType;
-  /** Validation confidence score: 0-100 */
-  response: number;
-  /** Variable-length content (validation report/evidence) */
-  content: Uint8Array;
+export interface ValidationData extends BaseLayout {}
+
+/**
+ * Validation JSON content structure (optional fields in content)
+ */
+export interface ValidationContent {
+  /** Validation method: "tee", "zkml", "reexecution", "consensus" */
+  type?: string;
+  /** Confidence score: 0-100 */
+  confidence?: number;
+  /** Methodology description */
+  methodology?: string;
 }
 
 /**
- * Fixed offsets in Validation schema
+ * Fixed offsets in Validation schema (same as universal)
  */
-export const VALIDATION_OFFSETS = {
-  ...BASE_OFFSETS,
-  DATA_HASH: 96,
-  CONTENT_TYPE: 128,
-  VALIDATION_TYPE: 129,
-  /** Fixed offset for Photon memcmp filtering */
-  RESPONSE: 130,
-  CONTENT_LEN: 131,
-} as const;
+export const VALIDATION_OFFSETS = OFFSETS;
 
 /**
  * Serialize Validation data to bytes
  */
 export function serializeValidation(data: ValidationData): Uint8Array {
-  if (data.response > 100) {
-    throw new Error("Response score must be 0-100");
-  }
-
-  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
-
-  // Calculate total size: base(96) + dataHash(32) + contentType(1) + validationType(1) +
-  // response(1) + content_len(4) + content
-  const totalSize = 96 + 32 + 1 + 1 + 1 + 4 + contentBytes.length;
-
-  const buffer = new Uint8Array(totalSize);
-  const view = new DataView(buffer.buffer);
-  let offset = 0;
-
-  // taskRef (32 bytes)
-  buffer.set(data.taskRef, offset);
-  offset += 32;
-
-  // tokenAccount (32 bytes)
-  buffer.set(addressToBytes(data.tokenAccount), offset);
-  offset += 32;
-
-  // counterparty (32 bytes)
-  buffer.set(addressToBytes(data.counterparty), offset);
-  offset += 32;
-
-  // dataHash (32 bytes)
-  buffer.set(data.dataHash, offset);
-  offset += 32;
-
-  // contentType (1 byte)
-  buffer[offset++] = data.contentType;
-
-  // validationType (1 byte)
-  buffer[offset++] = data.validationType;
-
-  // response (1 byte)
-  buffer[offset++] = data.response;
-
-  // content (4-byte length prefix + data)
-  view.setUint32(offset, contentBytes.length, true);
-  offset += 4;
-  buffer.set(contentBytes, offset);
-
-  return buffer;
+  return serializeUniversalLayout(data);
 }
 
 /**
  * Deserialize Validation data from bytes
  */
 export function deserializeValidation(bytes: Uint8Array): ValidationData {
-  if (bytes.length < 135) {
-    throw new Error("Validation data too small (minimum 135 bytes)");
+  return deserializeUniversalLayout(bytes);
+}
+
+/**
+ * Parse Validation JSON content
+ */
+export function parseValidationContent(content: Uint8Array, contentType: ContentType): ValidationContent | null {
+  if (contentType !== ContentType.JSON || content.length === 0) {
+    return null;
   }
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset);
-  let offset = 0;
-
-  // taskRef (32 bytes)
-  const taskRef = bytes.slice(offset, offset + 32);
-  offset += 32;
-
-  // tokenAccount (32 bytes)
-  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
-  offset += 32;
-
-  // counterparty (32 bytes)
-  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
-  offset += 32;
-
-  // dataHash (32 bytes)
-  const dataHash = bytes.slice(offset, offset + 32);
-  offset += 32;
-
-  // contentType (1 byte)
-  const contentType = bytes[offset++] as ContentType;
-
-  // validationType (1 byte)
-  const validationType = bytes[offset++] as ValidationType;
-
-  // response (1 byte)
-  const response = bytes[offset++];
-
-  // content (4-byte length prefix + data)
-  const contentLen = view.getUint32(offset, true);
-  offset += 4;
-  const content = bytes.slice(offset, offset + contentLen);
-
-  return {
-    taskRef,
-    tokenAccount,
-    counterparty,
-    dataHash,
-    contentType,
-    validationType,
-    response,
-    content,
-  };
+  try {
+    const text = new TextDecoder().decode(content);
+    return JSON.parse(text) as ValidationContent;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
@@ -469,124 +334,65 @@ export function deserializeValidation(bytes: Uint8Array): ValidationData {
 // ============================================================================
 
 /**
- * ReputationScore schema layout (regular SAS storage)
+ * ReputationScore schema - uses universal base layout (regular SAS storage)
  *
  * Provider-computed scores with direct on-chain queryability.
  * One ReputationScore per (provider, agent) pair - updates replace previous.
  *
  * Note: task_ref is deterministic: keccak256(counterparty, token_account)
+ *
+ * Schema-specific fields (score, methodology) go in JSON content:
+ * { "score": 85, "methodology": "weighted_average", "components": {...} }
  */
-export interface ReputationScoreData {
-  /** Deterministic: keccak256(counterparty, token_account) (32 bytes) */
-  taskRef: Uint8Array;
-  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
-  tokenAccount: Address;
-  /** Reputation provider */
-  counterparty: Address;
+export interface ReputationScoreData extends BaseLayout {}
+
+/**
+ * ReputationScore JSON content structure (optional fields in content)
+ */
+export interface ReputationScoreContent {
   /** Normalized reputation score: 0-100 */
-  score: number;
-  /** Content format (see ContentType) */
-  contentType: ContentType;
-  /** Variable-length content (methodology/details) */
-  content: Uint8Array;
+  score?: number;
+  /** Methodology description */
+  methodology?: string;
+  /** Component scores breakdown */
+  components?: Record<string, number>;
 }
 
 /**
- * Fixed offsets in ReputationScore schema
+ * Fixed offsets in ReputationScore schema (same as universal)
  */
-export const REPUTATION_SCORE_OFFSETS = {
-  ...BASE_OFFSETS,
-  SCORE: 96,
-  CONTENT_TYPE: 97,
-  CONTENT_LEN: 98,
-} as const;
+export const REPUTATION_SCORE_OFFSETS = OFFSETS;
 
 /**
  * Serialize ReputationScore data to bytes
  */
 export function serializeReputationScore(data: ReputationScoreData): Uint8Array {
-  if (data.score > 100) {
-    throw new Error("Score must be 0-100");
-  }
-
-  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
-
-  // Calculate total size: taskRef(32) + tokenAccount(32) + counterparty(32) +
-  // score(1) + contentType(1) + content_len(4) + content
-  const totalSize = 32 + 32 + 32 + 1 + 1 + 4 + contentBytes.length;
-
-  const buffer = new Uint8Array(totalSize);
-  const view = new DataView(buffer.buffer);
-  let offset = 0;
-
-  // taskRef (32 bytes)
-  buffer.set(data.taskRef, offset);
-  offset += 32;
-
-  // tokenAccount (32 bytes)
-  buffer.set(addressToBytes(data.tokenAccount), offset);
-  offset += 32;
-
-  // counterparty (32 bytes)
-  buffer.set(addressToBytes(data.counterparty), offset);
-  offset += 32;
-
-  // score (1 byte)
-  buffer[offset++] = data.score;
-
-  // contentType (1 byte)
-  buffer[offset++] = data.contentType;
-
-  // content (4-byte length prefix + data)
-  view.setUint32(offset, contentBytes.length, true);
-  offset += 4;
-  buffer.set(contentBytes, offset);
-
-  return buffer;
+  return serializeUniversalLayout(data);
 }
 
 /**
  * Deserialize ReputationScore data from bytes
  */
 export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreData {
-  if (bytes.length < 102) {
-    throw new Error("ReputationScore data too small (minimum 102 bytes)");
+  return deserializeUniversalLayout(bytes);
+}
+
+/**
+ * Parse ReputationScore JSON content
+ */
+export function parseReputationScoreContent(
+  content: Uint8Array,
+  contentType: ContentType,
+): ReputationScoreContent | null {
+  if (contentType !== ContentType.JSON || content.length === 0) {
+    return null;
   }
-
-  const view = new DataView(bytes.buffer, bytes.byteOffset);
-  let offset = 0;
-
-  // taskRef (32 bytes)
-  const taskRef = bytes.slice(offset, offset + 32);
-  offset += 32;
-
-  // tokenAccount (32 bytes)
-  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
-  offset += 32;
-
-  // counterparty (32 bytes)
-  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
-  offset += 32;
-
-  // score (1 byte)
-  const score = bytes[offset++];
-
-  // contentType (1 byte)
-  const contentType = bytes[offset++] as ContentType;
-
-  // content (4-byte length prefix + data)
-  const contentLen = view.getUint32(offset, true);
-  offset += 4;
-  const content = bytes.slice(offset, offset + contentLen);
-
-  return {
-    taskRef,
-    tokenAccount,
-    counterparty,
-    score,
-    contentType,
-    content,
-  };
+  try {
+    const text = new TextDecoder().decode(content);
+    return JSON.parse(text) as ReputationScoreContent;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
@@ -652,6 +458,8 @@ export interface SchemaConfig {
   storageType: StorageType;
   /** Whether attestations can be closed/nullified */
   closeable: boolean;
+  /** Human-readable schema name (max 32 chars) */
+  name: string;
 }
 
 /**
@@ -662,21 +470,25 @@ export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
     closeable: false,
+    name: "Feedback",
   },
   FeedbackPublic: {
     signatureMode: SignatureMode.SingleSigner,
     storageType: StorageType.Compressed,
     closeable: false,
+    name: "FeedbackPublic",
   },
   Validation: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
     closeable: false,
+    name: "Validation",
   },
   ReputationScore: {
     signatureMode: SignatureMode.SingleSigner,
     storageType: StorageType.Regular,
     closeable: true,
+    name: "ReputationScore",
   },
 } as const;
 
@@ -691,15 +503,100 @@ const addressDecoder = getAddressDecoder();
 /**
  * Convert Address to 32-byte Uint8Array
  */
-function addressToBytes(address: Address): Uint8Array {
+export function addressToBytes(address: Address): Uint8Array {
   return new Uint8Array(addressEncoder.encode(address));
 }
 
 /**
  * Convert 32-byte Uint8Array to Address
  */
-function bytesToAddress(bytes: Uint8Array): Address {
+export function bytesToAddress(bytes: Uint8Array): Address {
   return addressDecoder.decode(bytes);
+}
+
+/**
+ * Serialize universal base layout data to bytes
+ */
+export function serializeUniversalLayout(data: BaseLayout): Uint8Array {
+  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
+
+  // Total size: 130 (base) + content
+  const totalSize = MIN_BASE_LAYOUT_SIZE + contentBytes.length;
+  const buffer = new Uint8Array(totalSize);
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  buffer.set(data.taskRef, offset);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  buffer.set(addressToBytes(data.tokenAccount), offset);
+  offset += 32;
+
+  // counterparty (32 bytes)
+  buffer.set(addressToBytes(data.counterparty), offset);
+  offset += 32;
+
+  // outcome (1 byte)
+  buffer[offset++] = data.outcome;
+
+  // dataHash (32 bytes)
+  buffer.set(data.dataHash, offset);
+  offset += 32;
+
+  // contentType (1 byte)
+  buffer[offset++] = data.contentType;
+
+  // content (variable, no length prefix - length derived from total size)
+  buffer.set(contentBytes, offset);
+
+  return buffer;
+}
+
+/**
+ * Deserialize universal base layout data from bytes
+ */
+export function deserializeUniversalLayout(bytes: Uint8Array): BaseLayout {
+  if (bytes.length < MIN_BASE_LAYOUT_SIZE) {
+    throw new Error(`Data too small (minimum ${MIN_BASE_LAYOUT_SIZE} bytes, got ${bytes.length})`);
+  }
+
+  let offset = 0;
+
+  // taskRef (32 bytes)
+  const taskRef = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // tokenAccount (32 bytes)
+  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // counterparty (32 bytes)
+  const counterparty = bytesToAddress(bytes.slice(offset, offset + 32));
+  offset += 32;
+
+  // outcome (1 byte)
+  const outcome = bytes[offset++] as Outcome;
+
+  // dataHash (32 bytes)
+  const dataHash = bytes.slice(offset, offset + 32);
+  offset += 32;
+
+  // contentType (1 byte)
+  const contentType = bytes[offset++] as ContentType;
+
+  // content (remaining bytes)
+  const content = bytes.slice(offset);
+
+  return {
+    taskRef,
+    tokenAccount,
+    counterparty,
+    outcome,
+    dataHash,
+    contentType,
+    content,
+  };
 }
 
 /**
@@ -776,19 +673,133 @@ export function getContentTypeLabel(contentType: ContentType): string {
 }
 
 /**
- * Get the validation type label string
+ * Create JSON content bytes from a content object
  */
-export function getValidationTypeLabel(validationType: ValidationType): string {
-  switch (validationType) {
-    case ValidationType.TEE:
-      return "TEE";
-    case ValidationType.ZKML:
-      return "ZKML";
-    case ValidationType.Reexecution:
-      return "Re-execution";
-    case ValidationType.Consensus:
-      return "Consensus";
-    default:
-      return "Unknown";
+export function createJsonContent<T>(content: T): Uint8Array {
+  const json = JSON.stringify(content);
+  return new TextEncoder().encode(json);
+}
+
+/**
+ * Create zero-filled data hash (for SingleSigner schemas)
+ */
+export function zeroDataHash(): Uint8Array {
+  return new Uint8Array(32);
+}
+
+/**
+ * Validate universal base layout
+ */
+export function validateBaseLayout(data: Uint8Array): void {
+  if (data.length < MIN_BASE_LAYOUT_SIZE) {
+    throw new Error(`Data too small (minimum ${MIN_BASE_LAYOUT_SIZE} bytes)`);
   }
+
+  const outcome = data[OFFSETS.OUTCOME];
+  if (outcome > 2) {
+    throw new Error(`Invalid outcome value: ${outcome} (must be 0, 1, or 2)`);
+  }
+
+  const contentType = data[OFFSETS.CONTENT_TYPE];
+  if (contentType > 15) {
+    throw new Error(`Invalid content type: ${contentType} (must be 0-15)`);
+  }
+
+  const contentLen = data.length - OFFSETS.CONTENT;
+  if (contentLen > MAX_CONTENT_SIZE) {
+    throw new Error(`Content too large: ${contentLen} bytes (max ${MAX_CONTENT_SIZE})`);
+  }
+}
+
+// ============================================================================
+// Content Size Validation
+// ============================================================================
+
+/**
+ * Content size validation options
+ */
+export interface ContentSizeValidationOptions {
+  /** Throw error if content exceeds limit (default: true) */
+  throwOnError?: boolean;
+}
+
+/**
+ * Content size validation result
+ */
+export interface ContentSizeValidationResult {
+  /** Whether content size is valid */
+  valid: boolean;
+  /** Maximum allowed size for this mode */
+  maxSize: number;
+  /** Actual content size */
+  actualSize: number;
+  /** Error message if invalid */
+  error?: string;
+}
+
+/**
+ * Get maximum content size for a signature mode.
+ *
+ * @param signatureMode - DualSignature (0) or SingleSigner (1)
+ * @returns Maximum content size in bytes
+ *
+ * @example
+ * ```typescript
+ * const maxSize = getMaxContentSize(SignatureMode.DualSignature);
+ * // => 70
+ * ```
+ */
+export function getMaxContentSize(signatureMode: SignatureMode): number {
+  return signatureMode === SignatureMode.DualSignature
+    ? MAX_DUAL_SIGNATURE_CONTENT_SIZE
+    : MAX_SINGLE_SIGNATURE_CONTENT_SIZE;
+}
+
+/**
+ * Validate content size for a given signature mode.
+ *
+ * @param content - Content bytes to validate
+ * @param signatureMode - DualSignature (0) or SingleSigner (1)
+ * @param options - Validation options
+ * @returns Validation result
+ * @throws Error if content exceeds limit and throwOnError is true (default)
+ *
+ * @example
+ * ```typescript
+ * // Check before building transaction
+ * const result = validateContentSize(myContent, SignatureMode.DualSignature, { throwOnError: false });
+ * if (!result.valid) {
+ *   console.log(`Content too large: ${result.actualSize}/${result.maxSize} bytes`);
+ * }
+ *
+ * // Or throw on error (default behavior)
+ * validateContentSize(myContent, SignatureMode.DualSignature); // throws if too large
+ * ```
+ */
+export function validateContentSize(
+  content: Uint8Array,
+  signatureMode: SignatureMode,
+  options: ContentSizeValidationOptions = {},
+): ContentSizeValidationResult {
+  const { throwOnError = true } = options;
+  const maxSize = getMaxContentSize(signatureMode);
+  const actualSize = content.length;
+  const valid = actualSize <= maxSize;
+
+  const result: ContentSizeValidationResult = {
+    valid,
+    maxSize,
+    actualSize,
+  };
+
+  if (!valid) {
+    const modeName = signatureMode === SignatureMode.DualSignature ? "DualSignature" : "SingleSignature";
+    result.error = `Content too large for ${modeName} mode: ${actualSize} bytes exceeds maximum ${maxSize} bytes. Use ContentType.IPFS or ContentType.Arweave for larger content.`;
+
+    if (throwOnError) {
+      throw new Error(result.error);
+    }
+  }
+
+  return result;
 }

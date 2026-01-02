@@ -15,28 +15,49 @@ import {
   getImageUrl,
   type RegistrationFile,
   loadDeployedConfig,
+  // Content parsing
+  parseFeedbackContent,
+  ContentType,
+  type FeedbackContent,
 } from "@cascade-fyi/sati-sdk";
 import type { Address } from "@solana/kit";
 import { getNetwork, getRpcUrl } from "./network";
 
-// Read network once at module load (will be consistent until page reload)
-const currentNetwork = getNetwork();
-const RPC_URL = getRpcUrl(currentNetwork);
-
-// Singleton Sati client instance
+// Singleton Sati client instance with network tracking
 let satiClient: Sati | null = null;
+let clientNetwork: string | null = null;
 
 /**
- * Get or create the Sati client singleton
+ * Get the current network (always fresh)
+ */
+function getCurrentNetwork() {
+  return getNetwork();
+}
+
+/**
+ * Get the current RPC URL (always fresh)
+ */
+function getCurrentRpcUrl() {
+  return getRpcUrl(getCurrentNetwork());
+}
+
+/**
+ * Get or create the Sati client singleton.
+ * Automatically recreates if network has changed.
  */
 export function getSatiClient(): Sati {
-  if (!satiClient) {
+  const network = getCurrentNetwork();
+  const rpcUrl = getCurrentRpcUrl();
+
+  // Recreate client if network changed
+  if (!satiClient || clientNetwork !== network) {
     satiClient = new Sati({
-      network: currentNetwork,
-      rpcUrl: RPC_URL,
+      network,
+      rpcUrl,
       // Use same RPC for Photon queries (Helius RPC supports both)
-      photonRpcUrl: RPC_URL,
+      photonRpcUrl: rpcUrl,
     });
+    clientNetwork = network;
   }
   return satiClient;
 }
@@ -46,12 +67,19 @@ export function getSatiClient(): Sati {
  */
 export function resetSatiClient(): void {
   satiClient = null;
+  clientNetwork = null;
 }
 
-// Get deployed feedback schema addresses
-const deployedConfig = loadDeployedConfig(currentNetwork);
-const FEEDBACK_SCHEMA = deployedConfig?.schemas?.feedback as Address | undefined;
-const FEEDBACK_PUBLIC_SCHEMA = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
+/**
+ * Get deployed feedback schema addresses (always fresh for current network)
+ */
+function getFeedbackSchemas(): { feedback?: Address; feedbackPublic?: Address } {
+  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
+  return {
+    feedback: deployedConfig?.schemas?.feedback as Address | undefined,
+    feedbackPublic: deployedConfig?.schemas?.feedbackPublic as Address | undefined,
+  };
+}
 
 /**
  * Parsed feedback from SDK - re-exported for convenience
@@ -66,7 +94,8 @@ export type ParsedFeedback = ParsedAttestation;
  */
 export async function listAgentFeedbacks(tokenAccount: Address): Promise<ParsedFeedback[]> {
   const sati = getSatiClient();
-  const schemas = [FEEDBACK_SCHEMA, FEEDBACK_PUBLIC_SCHEMA].filter(Boolean) as Address[];
+  const { feedback, feedbackPublic } = getFeedbackSchemas();
+  const schemas = [feedback, feedbackPublic].filter(Boolean) as Address[];
 
   if (schemas.length === 0) {
     return [];
@@ -93,7 +122,8 @@ export async function listAgentFeedbacks(tokenAccount: Address): Promise<ParsedF
  */
 export async function listAllFeedbacks(): Promise<ParsedFeedback[]> {
   const sati = getSatiClient();
-  const schemas = [FEEDBACK_SCHEMA, FEEDBACK_PUBLIC_SCHEMA].filter(Boolean) as Address[];
+  const { feedback, feedbackPublic } = getFeedbackSchemas();
+  const schemas = [feedback, feedbackPublic].filter(Boolean) as Address[];
 
   if (schemas.length === 0) {
     return [];
@@ -195,7 +225,8 @@ export function formatSlotTime(slot: bigint, currentSlot: bigint): string {
  */
 export async function getCurrentSlot(): Promise<bigint> {
   try {
-    const response = await fetch(RPC_URL, {
+    const rpcUrl = getCurrentRpcUrl();
+    const response = await fetch(rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -243,12 +274,13 @@ export async function listAllAgents(params?: { offset?: number; limit?: number }
   const { offset = 0, limit = 20 } = params ?? {};
 
   const sati = getSatiClient();
+  const rpcUrl = getCurrentRpcUrl();
   const stats = await sati.getRegistryStats();
   const groupMint = stats.groupMint;
 
   try {
     // Step 1: Discover mints via Helius getTransactionsForAddress
-    const response = await fetch(RPC_URL, {
+    const response = await fetch(rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -363,5 +395,14 @@ export function getAgentImageUrl(metadata: AgentMetadata | null): string | null 
   return getImageUrl(metadata);
 }
 
-// Re-export types
-export type { AgentIdentity };
+/**
+ * Parse feedback content from attestation data.
+ * Returns null if content is empty or not JSON.
+ */
+export function parseFeedback(data: { content: Uint8Array; contentType: number }): FeedbackContent | null {
+  return parseFeedbackContent(data.content, data.contentType as ContentType);
+}
+
+// Re-export types and content parsing utilities
+export type { AgentIdentity, FeedbackContent };
+export { ContentType };

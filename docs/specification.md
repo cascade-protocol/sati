@@ -202,7 +202,7 @@ All schemas MUST use this universal layout:
 | 130 | var | `content` | Variable length, up to 512 bytes |
 
 **On-chain validation:**
-- `outcome` ≤ 7 (0-2 defined, 3-7 reserved for future)
+- `outcome` ∈ {0, 1, 2} (0=Negative, 1=Neutral, 2=Positive)
 - `content_type` ≤ 15 (0-5 defined, 6-15 reserved for future)
 - Data length ≥ 130 bytes
 
@@ -296,7 +296,7 @@ Sign to create this attestation.
 `SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed`
 
 **Universal base layout validation:**
-- `InvalidOutcome` — outcome > 7 (0-2 defined, 3-7 reserved)
+- `InvalidOutcome` — outcome not in {0, 1, 2}
 - `InvalidContentType` — content_type > 15 (0-5 defined, 6-15 reserved)
 
 ---
@@ -743,7 +743,7 @@ await sati.createFeedback({
 | Counterparty binding | `signatures[1].pubkey == counterparty` |
 | Self-attestation prevention | `token_account ≠ counterparty` |
 | Duplicate prevention | Deterministic address from task_ref |
-| Outcome range | Verified ≤ 7 before storage (0-2 defined, 3-7 reserved) |
+| Outcome range | Verified ∈ {0, 1, 2} before storage |
 | Content type range | Verified ≤ 15 before storage (0-5 defined, 6-15 reserved) |
 | Closeable enforcement | Schema config controls whether close is allowed |
 

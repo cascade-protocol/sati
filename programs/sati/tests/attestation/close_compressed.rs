@@ -1,7 +1,9 @@
 //! Tests for close_attestation instruction (compressed storage)
 //!
 //! These tests verify:
-//! - Authorization (agent OR counterparty can close)
+//! - Authorization based on signature mode:
+//!   - DualSignature: agent OR counterparty can close
+//!   - SingleSigner: only counterparty (provider) can close
 //! - Schema closeable constraint
 //! - Storage type matching
 //!
@@ -9,7 +11,7 @@
 //! Run with: pnpm localnet && cargo test -p sati --test main attestation::close
 //!
 //! The close_attestation instruction:
-//! 1. Verifies the signer is authorized (counterparty from data OR agent via ATA)
+//! 1. Verifies the signer is authorized based on signature_mode
 //! 2. Checks schema_config.closeable == true
 //! 3. Checks schema_config.storage_type == Compressed
 //! 4. Nullifies the compressed account via Light Protocol CPI

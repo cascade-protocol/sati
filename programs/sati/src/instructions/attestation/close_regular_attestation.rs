@@ -76,10 +76,10 @@ pub fn handler<'info>(
     let token_account_bytes: [u8; 32] = attestation_data
         [SAS_DATA_OFFSET + 32..SAS_DATA_OFFSET + 64]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
     let counterparty_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 64..SAS_DATA_OFFSET + 96]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
 
     let token_account = Pubkey::new_from_array(token_account_bytes);
     let counterparty = Pubkey::new_from_array(counterparty_bytes);
@@ -87,21 +87,29 @@ pub fn handler<'info>(
     // Drop borrow before CPI
     drop(attestation_data);
 
-    // 2. Authorization: NFT owner OR counterparty can close
-    // token_account is the MINT address (agent identity).
-    // Agent authorization verified via ATA ownership (if provided).
+    // 2. Authorization check
+    // - DualSignature: Either agent owner OR counterparty can close
+    // - SingleSigner: Only counterparty (provider) can close
     let signer_key = ctx.accounts.signer.key();
-
     let is_counterparty = signer_key == counterparty;
-    let is_agent_owner =
-        ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
-            ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
-        });
 
-    require!(
-        is_counterparty || is_agent_owner,
-        SatiError::UnauthorizedClose
-    );
+    match schema_config.signature_mode {
+        crate::state::SignatureMode::SingleSigner => {
+            // SingleSigner (e.g., ReputationScore): Only provider can close
+            // This prevents agents from deleting unfavorable scores
+            require!(is_counterparty, SatiError::UnauthorizedClose);
+        }
+        crate::state::SignatureMode::DualSignature => {
+            // DualSignature: Either party can close (both participated in creation)
+            let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
+                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+            });
+            require!(
+                is_counterparty || is_agent_owner,
+                SatiError::UnauthorizedClose
+            );
+        }
+    }
 
     // 3. CPI to SAS CloseAttestation
     let sati_pda_seeds: &[&[u8]] = &[b"sati_attestation", &[ctx.bumps.sati_pda]];

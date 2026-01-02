@@ -46,7 +46,7 @@ export const SATI_ERROR__INVALID_SIGNATURE = 0x177d; // 6013
 export const SATI_ERROR__STORAGE_TYPE_NOT_SUPPORTED = 0x177e; // 6014
 /** StorageTypeMismatch: Storage type mismatch */
 export const SATI_ERROR__STORAGE_TYPE_MISMATCH = 0x177f; // 6015
-/** AttestationDataTooSmall: Attestation data too small (minimum 96 bytes for base layout) */
+/** AttestationDataTooSmall: Attestation data too small (minimum 130 bytes for universal base layout) */
 export const SATI_ERROR__ATTESTATION_DATA_TOO_SMALL = 0x1780; // 6016
 /** AttestationDataTooLarge: Attestation data exceeds maximum size */
 export const SATI_ERROR__ATTESTATION_DATA_TOO_LARGE = 0x1781; // 6017
@@ -64,40 +64,30 @@ export const SATI_ERROR__AGENT_ATA_EMPTY = 0x1786; // 6022
 export const SATI_ERROR__UNAUTHORIZED_CLOSE = 0x1787; // 6023
 /** AttestationNotCloseable: Attestation cannot be closed for this schema */
 export const SATI_ERROR__ATTESTATION_NOT_CLOSEABLE = 0x1788; // 6024
-/** InvalidOutcome: Invalid outcome value (must be 0-2) */
+/** InvalidOutcome: Invalid outcome value (must be 0, 1, or 2) */
 export const SATI_ERROR__INVALID_OUTCOME = 0x1789; // 6025
-/** InvalidContentType: Invalid content type (must be 0-4) */
+/** InvalidContentType: Invalid content type (must be 0-15) */
 export const SATI_ERROR__INVALID_CONTENT_TYPE = 0x178a; // 6026
-/** InvalidDataType: Invalid data type */
-export const SATI_ERROR__INVALID_DATA_TYPE = 0x178b; // 6027
-/** InvalidScore: Invalid score value (must be 0-100) */
-export const SATI_ERROR__INVALID_SCORE = 0x178c; // 6028
-/** InvalidResponse: Invalid validation response (must be 0-100) */
-export const SATI_ERROR__INVALID_RESPONSE = 0x178d; // 6029
-/** TagTooLong: Tag string exceeds maximum length (32 chars) */
-export const SATI_ERROR__TAG_TOO_LONG = 0x178e; // 6030
-/** InvalidDataLayout: Invalid data layout */
-export const SATI_ERROR__INVALID_DATA_LAYOUT = 0x178f; // 6031
 /** LightCpiInvocationFailed: Light Protocol CPI invocation failed */
-export const SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED = 0x1790; // 6032
+export const SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED = 0x178b; // 6027
 /** InvalidEd25519Instruction: Invalid Ed25519 instruction format */
-export const SATI_ERROR__INVALID_ED25519_INSTRUCTION = 0x1791; // 6033
+export const SATI_ERROR__INVALID_ED25519_INSTRUCTION = 0x178c; // 6028
 /** MissingSignatures: Missing required Ed25519 signatures in transaction */
-export const SATI_ERROR__MISSING_SIGNATURES = 0x1792; // 6034
+export const SATI_ERROR__MISSING_SIGNATURES = 0x178d; // 6029
 /** MessageMismatch: Message hash mismatch - signature was for different data */
-export const SATI_ERROR__MESSAGE_MISMATCH = 0x1793; // 6035
+export const SATI_ERROR__MESSAGE_MISMATCH = 0x178e; // 6030
 /** InvalidInstructionsSysvar: Invalid instructions sysvar */
-export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x1794; // 6036
+export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x178f; // 6031
 /** DuplicateSigners: Duplicate signers not allowed for dual signature mode */
-export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1795; // 6037
+export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1790; // 6032
 /** InvalidSecp256k1Signature: Invalid secp256k1 signature */
-export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1796; // 6038
+export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1791; // 6033
 /** Secp256k1RecoveryFailed: Secp256k1 recovery failed */
-export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1797; // 6039
+export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1792; // 6034
 /** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
-export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1798; // 6040
+export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1793; // 6035
 /** InvalidEvmAddressRecovery: Failed to extract EVM address from secp256k1 key recovery */
-export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x1799; // 6041
+export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x1794; // 6036
 
 export type SatiError =
   | typeof SATI_ERROR__AGENT_ATA_EMPTY
@@ -111,15 +101,11 @@ export type SatiError =
   | typeof SATI_ERROR__IMMUTABLE_AUTHORITY
   | typeof SATI_ERROR__INVALID_AUTHORITY
   | typeof SATI_ERROR__INVALID_CONTENT_TYPE
-  | typeof SATI_ERROR__INVALID_DATA_LAYOUT
-  | typeof SATI_ERROR__INVALID_DATA_TYPE
   | typeof SATI_ERROR__INVALID_ED25519_INSTRUCTION
   | typeof SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY
   | typeof SATI_ERROR__INVALID_GROUP_MINT
   | typeof SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR
   | typeof SATI_ERROR__INVALID_OUTCOME
-  | typeof SATI_ERROR__INVALID_RESPONSE
-  | typeof SATI_ERROR__INVALID_SCORE
   | typeof SATI_ERROR__INVALID_SECP256K1_SIGNATURE
   | typeof SATI_ERROR__INVALID_SIGNATURE
   | typeof SATI_ERROR__INVALID_SIGNATURE_COUNT
@@ -138,7 +124,6 @@ export type SatiError =
   | typeof SATI_ERROR__STORAGE_TYPE_MISMATCH
   | typeof SATI_ERROR__STORAGE_TYPE_NOT_SUPPORTED
   | typeof SATI_ERROR__SYMBOL_TOO_LONG
-  | typeof SATI_ERROR__TAG_TOO_LONG
   | typeof SATI_ERROR__TOO_MANY_METADATA_ENTRIES
   | typeof SATI_ERROR__UNAUTHORIZED_CLOSE
   | typeof SATI_ERROR__URI_TOO_LONG;
@@ -149,23 +134,19 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__AGENT_ATA_EMPTY]: `Agent ATA is empty - signer does not own the agent NFT`,
     [SATI_ERROR__AGENT_ATA_MINT_MISMATCH]: `Agent ATA mint does not match token_account in attestation data`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_LARGE]: `Attestation data exceeds maximum size`,
-    [SATI_ERROR__ATTESTATION_DATA_TOO_SMALL]: `Attestation data too small (minimum 96 bytes for base layout)`,
+    [SATI_ERROR__ATTESTATION_DATA_TOO_SMALL]: `Attestation data too small (minimum 130 bytes for universal base layout)`,
     [SATI_ERROR__ATTESTATION_NOT_CLOSEABLE]: `Attestation cannot be closed for this schema`,
     [SATI_ERROR__CONTENT_TOO_LARGE]: `Content exceeds maximum size (512 bytes)`,
     [SATI_ERROR__DUPLICATE_SIGNERS]: `Duplicate signers not allowed for dual signature mode`,
     [SATI_ERROR__EVM_ADDRESS_MISMATCH]: `EVM address mismatch - recovered address does not match expected`,
     [SATI_ERROR__IMMUTABLE_AUTHORITY]: `Authority is immutable (renounced)`,
     [SATI_ERROR__INVALID_AUTHORITY]: `Invalid authority`,
-    [SATI_ERROR__INVALID_CONTENT_TYPE]: `Invalid content type (must be 0-4)`,
-    [SATI_ERROR__INVALID_DATA_LAYOUT]: `Invalid data layout`,
-    [SATI_ERROR__INVALID_DATA_TYPE]: `Invalid data type`,
+    [SATI_ERROR__INVALID_CONTENT_TYPE]: `Invalid content type (must be 0-15)`,
     [SATI_ERROR__INVALID_ED25519_INSTRUCTION]: `Invalid Ed25519 instruction format`,
     [SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY]: `Failed to extract EVM address from secp256k1 key recovery`,
     [SATI_ERROR__INVALID_GROUP_MINT]: `Invalid group mint - must be owned by Token-2022 with TokenGroup extension`,
     [SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR]: `Invalid instructions sysvar`,
-    [SATI_ERROR__INVALID_OUTCOME]: `Invalid outcome value (must be 0-2)`,
-    [SATI_ERROR__INVALID_RESPONSE]: `Invalid validation response (must be 0-100)`,
-    [SATI_ERROR__INVALID_SCORE]: `Invalid score value (must be 0-100)`,
+    [SATI_ERROR__INVALID_OUTCOME]: `Invalid outcome value (must be 0, 1, or 2)`,
     [SATI_ERROR__INVALID_SECP256K1_SIGNATURE]: `Invalid secp256k1 signature`,
     [SATI_ERROR__INVALID_SIGNATURE]: `Invalid Ed25519 signature`,
     [SATI_ERROR__INVALID_SIGNATURE_COUNT]: `Invalid signature count for signature mode`,
@@ -184,7 +165,6 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__STORAGE_TYPE_MISMATCH]: `Storage type mismatch`,
     [SATI_ERROR__STORAGE_TYPE_NOT_SUPPORTED]: `Storage type not supported for this operation`,
     [SATI_ERROR__SYMBOL_TOO_LONG]: `Symbol too long (max 10 bytes)`,
-    [SATI_ERROR__TAG_TOO_LONG]: `Tag string exceeds maximum length (32 chars)`,
     [SATI_ERROR__TOO_MANY_METADATA_ENTRIES]: `Too many metadata entries (max 10)`,
     [SATI_ERROR__UNAUTHORIZED_CLOSE]: `Unauthorized to close attestation`,
     [SATI_ERROR__URI_TOO_LONG]: `URI too long (max 200 bytes)`,

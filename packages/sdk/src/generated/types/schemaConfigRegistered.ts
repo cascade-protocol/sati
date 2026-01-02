@@ -7,6 +7,8 @@
  */
 
 import {
+  addDecoderSizePrefix,
+  addEncoderSizePrefix,
   combineCodec,
   getAddressDecoder,
   getAddressEncoder,
@@ -14,10 +16,14 @@ import {
   getBooleanEncoder,
   getStructDecoder,
   getStructEncoder,
+  getU32Decoder,
+  getU32Encoder,
+  getUtf8Decoder,
+  getUtf8Encoder,
   type Address,
-  type FixedSizeCodec,
-  type FixedSizeDecoder,
-  type FixedSizeEncoder,
+  type Codec,
+  type Decoder,
+  type Encoder,
 } from "@solana/kit";
 import {
   getSignatureModeDecoder,
@@ -40,6 +46,8 @@ export type SchemaConfigRegistered = {
   storageType: StorageType;
   /** Whether attestations can be closed */
   closeable: boolean;
+  /** Human-readable schema name (max 32 chars) */
+  name: string;
 };
 
 export type SchemaConfigRegisteredArgs = {
@@ -51,27 +59,31 @@ export type SchemaConfigRegisteredArgs = {
   storageType: StorageTypeArgs;
   /** Whether attestations can be closed */
   closeable: boolean;
+  /** Human-readable schema name (max 32 chars) */
+  name: string;
 };
 
-export function getSchemaConfigRegisteredEncoder(): FixedSizeEncoder<SchemaConfigRegisteredArgs> {
+export function getSchemaConfigRegisteredEncoder(): Encoder<SchemaConfigRegisteredArgs> {
   return getStructEncoder([
     ["schema", getAddressEncoder()],
     ["signatureMode", getSignatureModeEncoder()],
     ["storageType", getStorageTypeEncoder()],
     ["closeable", getBooleanEncoder()],
+    ["name", addEncoderSizePrefix(getUtf8Encoder(), getU32Encoder())],
   ]);
 }
 
-export function getSchemaConfigRegisteredDecoder(): FixedSizeDecoder<SchemaConfigRegistered> {
+export function getSchemaConfigRegisteredDecoder(): Decoder<SchemaConfigRegistered> {
   return getStructDecoder([
     ["schema", getAddressDecoder()],
     ["signatureMode", getSignatureModeDecoder()],
     ["storageType", getStorageTypeDecoder()],
     ["closeable", getBooleanDecoder()],
+    ["name", addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
   ]);
 }
 
-export function getSchemaConfigRegisteredCodec(): FixedSizeCodec<
+export function getSchemaConfigRegisteredCodec(): Codec<
   SchemaConfigRegisteredArgs,
   SchemaConfigRegistered
 > {

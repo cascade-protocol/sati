@@ -16,7 +16,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { type Outcome, loadDeployedConfig } from "@cascade-fyi/sati-sdk";
+import { type Outcome, loadDeployedConfig, MAX_SINGLE_SIGNATURE_CONTENT_SIZE } from "@cascade-fyi/sati-sdk";
 import { createPaymentClient } from "@/lib/x402";
 import { getNetwork } from "@/lib/network";
 
@@ -32,7 +32,10 @@ import {
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
+import { Loader2, X } from "lucide-react";
 
 // Get deployed FeedbackPublic schema address (SingleSigner mode - no counterparty sig needed)
 const deployedConfig = loadDeployedConfig(getNetwork());
@@ -77,6 +80,8 @@ interface BuildFeedbackTxRequest {
   agentSignature: string;
   agentAddress: string;
   counterpartySignature?: string; // Optional for SingleSigner schemas
+  content?: string; // JSON string with tags/score/message
+  contentType?: number; // ContentType enum (1 = JSON)
 }
 
 interface BuildFeedbackTxResponse {
@@ -100,10 +105,53 @@ function bytesToHex(bytes: Uint8Array): string {
 export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }: GiveFeedbackDialogProps) {
   const [open, setOpen] = useState(false);
   const [outcome, setOutcome] = useState<string>("2"); // Default to Positive
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [message, setMessage] = useState("");
+  const [score, setScore] = useState<number | undefined>(undefined);
+  const [showScore, setShowScore] = useState(false);
   const queryClient = useQueryClient();
   const session = useWalletSession();
   const cluster = useClusterState();
   const solanaClient = useSolanaClient();
+
+  // Add a tag from input
+  const addTag = () => {
+    const trimmed = tagInput.trim();
+    if (trimmed && !tags.includes(trimmed) && tags.length < 5) {
+      setTags([...tags, trimmed]);
+      setTagInput("");
+    }
+  };
+
+  // Remove a tag
+  const removeTag = (tag: string) => {
+    setTags(tags.filter((t) => t !== tag));
+  };
+
+  // Handle tag input keydown
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag();
+    }
+  };
+
+  // Build JSON content from form state and calculate size
+  const buildContent = (): { json: string | undefined; size: number } => {
+    const content: { tags?: string[]; score?: number; m?: string } = {};
+    if (tags.length > 0) content.tags = tags;
+    if (score !== undefined) content.score = score;
+    if (message.trim()) content.m = message.trim();
+    if (Object.keys(content).length === 0) return { json: undefined, size: 0 };
+    const json = JSON.stringify(content);
+    return { json, size: new TextEncoder().encode(json).length };
+  };
+
+  // Calculate current content size for validation feedback
+  const { size: contentSize } = buildContent();
+  const contentExceedsLimit = contentSize > MAX_SINGLE_SIGNATURE_CONTENT_SIZE;
+  const contentNearLimit = contentSize > MAX_SINGLE_SIGNATURE_CONTENT_SIZE * 0.8;
 
   const feedbackMutation = useMutation({
     mutationFn: async (selectedOutcome: Outcome) => {
@@ -116,9 +164,9 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         // tokenAccount IS the agent mint address (not ATA) - named for SAS wire format compatibility
         const tokenAccount = agentMint;
 
-        // 1. Generate random taskRef and dataHash
+        // 1. Generate random taskRef; dataHash is zeros for SingleSigner (no blind commitment)
         const taskRef = crypto.getRandomValues(new Uint8Array(32));
-        const dataHash = crypto.getRandomValues(new Uint8Array(32));
+        const dataHash = new Uint8Array(32); // zeros - SingleSigner doesn't need blind commitment
 
         // 3. Build echo request
         const echoRequest: EchoRequest = {
@@ -156,6 +204,9 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         // FeedbackPublic uses SingleSigner mode - only agent signature required
         toast.loading("Building transaction...", { id: toastId });
 
+        // Build JSON content from form state
+        const { json: contentJson } = buildContent();
+
         const buildRequest: BuildFeedbackTxRequest = {
           sasSchema: FEEDBACK_SCHEMA_ADDRESS,
           taskRef: bytesToHex(taskRef),
@@ -165,6 +216,7 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
           counterparty: session.account.address,
           agentSignature: echo.data.signature,
           agentAddress: echo.data.agentAddress,
+          ...(contentJson && { content: contentJson, contentType: 1 }), // 1 = JSON
         };
 
         const buildResponse = await fetch("/api/build-feedback-tx", {
@@ -242,7 +294,8 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
 
         // Combine message bytes with signature(s) into wire format
         // Solana wire format: [num_signatures, ...signatures, message_bytes]
-        const signaturesArray = Object.values(signedTx.signatures);
+        // IMPORTANT: Signatures must be in the exact order of signers in the transaction message
+        const signaturesArray = buildResult.data.signers.map((signer) => signedTx.signatures[signer]);
         const numSigs = signaturesArray.length;
         const wireBytes = new Uint8Array(1 + numSigs * 64 + signedTx.messageBytes.length);
         wireBytes[0] = numSigs;
@@ -279,6 +332,13 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sati", "feedbacks"] });
       setOpen(false);
+      // Reset form state
+      setTags([]);
+      setTagInput("");
+      setMessage("");
+      setScore(undefined);
+      setShowScore(false);
+      setOutcome("2");
       onSuccess?.();
     },
   });
@@ -291,7 +351,7 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
     feedbackMutation.mutate(outcomeValue);
   };
 
-  const isDisabled = !session || feedbackMutation.isPending;
+  const isDisabled = !session || feedbackMutation.isPending || contentExceedsLimit;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -305,31 +365,128 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-4">
-          <Label className="mb-3 block text-sm font-medium">How was your experience?</Label>
-          <RadioGroup value={outcome} onValueChange={setOutcome} className="flex flex-col gap-3">
-            <div className="flex items-center space-x-3">
-              <RadioGroupItem value="2" id="positive" />
-              <Label htmlFor="positive" className="flex items-center gap-2">
-                <span className="text-green-500">Positive</span>
-                <span className="text-muted-foreground text-sm">- Agent was helpful</span>
-              </Label>
+        <div className="py-4 space-y-6">
+          {/* Outcome */}
+          <div>
+            <Label className="mb-3 block text-sm font-medium">How was your experience?</Label>
+            <RadioGroup value={outcome} onValueChange={setOutcome} className="flex flex-col gap-3">
+              <div className="flex items-center space-x-3">
+                <RadioGroupItem value="2" id="positive" />
+                <Label htmlFor="positive" className="flex items-center gap-2">
+                  <span className="text-green-500">Positive</span>
+                  <span className="text-muted-foreground text-sm">- Agent was helpful</span>
+                </Label>
+              </div>
+              <div className="flex items-center space-x-3">
+                <RadioGroupItem value="1" id="neutral" />
+                <Label htmlFor="neutral" className="flex items-center gap-2">
+                  <span className="text-yellow-500">Neutral</span>
+                  <span className="text-muted-foreground text-sm">- Neither good nor bad</span>
+                </Label>
+              </div>
+              <div className="flex items-center space-x-3">
+                <RadioGroupItem value="0" id="negative" />
+                <Label htmlFor="negative" className="flex items-center gap-2">
+                  <span className="text-red-500">Negative</span>
+                  <span className="text-muted-foreground text-sm">- Had issues</span>
+                </Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          {/* Tags */}
+          <div>
+            <Label className="mb-2 block text-sm font-medium">Tags (optional)</Label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {tags.map((tag) => (
+                <span key={tag} className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-muted rounded-full">
+                  {tag}
+                  <button type="button" onClick={() => removeTag(tag)} className="hover:text-destructive">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
             </div>
-            <div className="flex items-center space-x-3">
-              <RadioGroupItem value="1" id="neutral" />
-              <Label htmlFor="neutral" className="flex items-center gap-2">
-                <span className="text-yellow-500">Neutral</span>
-                <span className="text-muted-foreground text-sm">- Neither good nor bad</span>
-              </Label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Add a tag..."
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={handleTagKeyDown}
+                maxLength={32}
+                disabled={tags.length >= 5}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addTag}
+                disabled={!tagInput.trim() || tags.length >= 5}
+              >
+                Add
+              </Button>
             </div>
-            <div className="flex items-center space-x-3">
-              <RadioGroupItem value="0" id="negative" />
-              <Label htmlFor="negative" className="flex items-center gap-2">
-                <span className="text-red-500">Negative</span>
-                <span className="text-muted-foreground text-sm">- Had issues</span>
-              </Label>
+            <p className="text-xs text-muted-foreground mt-1">
+              {tags.length}/5 tags{tagInput.length > 0 && ` • ${tagInput.length}/32 chars`}. Press Enter or comma to
+              add.
+            </p>
+          </div>
+
+          {/* Message */}
+          <div>
+            <Label className="mb-2 block text-sm font-medium">Message (optional)</Label>
+            <Textarea
+              placeholder="Share more details about your experience..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={150}
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground mt-1">{message.length}/150 characters</p>
+          </div>
+
+          {/* Score */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-sm font-medium">Score (optional)</Label>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setShowScore(!showScore);
+                  if (!showScore) setScore(50);
+                  else setScore(undefined);
+                }}
+              >
+                {showScore ? "Remove score" : "Add score"}
+              </button>
             </div>
-          </RadioGroup>
+            {showScore && (
+              <div className="space-y-2">
+                <Slider value={[score ?? 50]} onValueChange={([val]) => setScore(val)} min={0} max={100} step={1} />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0 (Poor)</span>
+                  <span className="font-medium text-foreground">{score ?? 50}/100</span>
+                  <span>100 (Excellent)</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Content size indicator - always show to set expectations */}
+          <div
+            className={`text-xs ${
+              contentExceedsLimit ? "text-destructive" : contentNearLimit ? "text-yellow-500" : "text-muted-foreground"
+            }`}
+          >
+            Content size: {contentSize}/{MAX_SINGLE_SIGNATURE_CONTENT_SIZE} bytes
+            {contentExceedsLimit && " — Too large, reduce tags or message"}
+            {!contentExceedsLimit && contentSize === 0 && (
+              <span className="block mt-1">
+                Tags + message must fit within {MAX_SINGLE_SIGNATURE_CONTENT_SIZE} bytes total
+              </span>
+            )}
+          </div>
         </div>
 
         <DialogFooter>

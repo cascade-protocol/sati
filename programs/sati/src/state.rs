@@ -80,11 +80,14 @@ pub struct SchemaConfig {
     pub storage_type: StorageType,
     /// Whether attestations can be closed/nullified
     pub closeable: bool,
+    /// Schema name for signing messages (max 32 chars)
+    #[max_len(32)]
+    pub name: String,
     /// PDA bump seed
     pub bump: u8,
 }
 
-// Account size: 8 (discriminator) + 32 + 1 + 1 + 1 + 1 = 44 bytes
+// Account size: 8 (discriminator) + 32 + 1 + 1 + 1 + 4 + 32 + 1 = 80 bytes
 
 /// Compressed attestation stored via Light Protocol.
 ///
@@ -156,7 +159,7 @@ pub struct SignatureData {
 pub struct CreateParams {
     /// Data type: 0=Feedback, 1=Validation
     pub data_type: u8,
-    /// Schema-conformant data bytes (96+ bytes)
+    /// Schema-conformant data bytes (130+ bytes, universal layout)
     pub data: Vec<u8>,
     /// Ed25519 signatures with public keys
     pub signatures: Vec<SignatureData>,

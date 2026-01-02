@@ -187,7 +187,7 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
     agentMint = dummySigner.address;
   }
 
-  // Register schema
+  // Register schema BEFORE creating lookup table so we can include its PDA
   let feedbackSchema: Address;
   if (!skipSchemaRegistration) {
     const schemaSigner = await generateKeyPairSigner();
@@ -199,16 +199,21 @@ export async function setupE2ETest(options: SetupOptions = {}): Promise<E2ETestC
       signatureMode: SignatureMode.DualSignature,
       storageType: StorageType.Compressed,
       closeable: true,
+      name: "Feedback",
     });
   } else {
     const dummySigner = await generateKeyPairSigner();
     feedbackSchema = dummySigner.address;
   }
 
-  // Create lookup table
+  // Create lookup table with schema PDAs and known ATAs included
+  // This is CRITICAL for transaction size - each address in ALT saves 32 bytes
   let lookupTableAddress: Address;
   if (!skipLookupTable) {
-    const { address: lutAddress } = await createSatiLookupTable(sati, payer);
+    const schemaAddresses = skipSchemaRegistration ? [] : [feedbackSchema];
+    // Include the agentAta for ctx.agentMint - tests should use this agent for attestations
+    const agentAtas = skipAgentRegistration ? [] : [{ mint: agentMint, owner: agentOwner.address }];
+    const { address: lutAddress } = await createSatiLookupTable(sati, payer, schemaAddresses, agentAtas);
     lookupTableAddress = lutAddress;
   } else {
     const dummySigner = await generateKeyPairSigner();

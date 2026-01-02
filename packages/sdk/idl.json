@@ -999,6 +999,10 @@
         {
           "name": "closeable",
           "type": "bool"
+        },
+        {
+          "name": "name",
+          "type": "string"
         }
       ]
     },
@@ -1269,7 +1273,7 @@
     {
       "code": 6016,
       "name": "AttestationDataTooSmall",
-      "msg": "Attestation data too small (minimum 96 bytes for base layout)"
+      "msg": "Attestation data too small (minimum 130 bytes for universal base layout)"
     },
     {
       "code": 6017,
@@ -1314,85 +1318,60 @@
     {
       "code": 6025,
       "name": "InvalidOutcome",
-      "msg": "Invalid outcome value (must be 0-2)"
+      "msg": "Invalid outcome value (must be 0, 1, or 2)"
     },
     {
       "code": 6026,
       "name": "InvalidContentType",
-      "msg": "Invalid content type (must be 0-4)"
+      "msg": "Invalid content type (must be 0-15)"
     },
     {
       "code": 6027,
-      "name": "InvalidDataType",
-      "msg": "Invalid data type"
-    },
-    {
-      "code": 6028,
-      "name": "InvalidScore",
-      "msg": "Invalid score value (must be 0-100)"
-    },
-    {
-      "code": 6029,
-      "name": "InvalidResponse",
-      "msg": "Invalid validation response (must be 0-100)"
-    },
-    {
-      "code": 6030,
-      "name": "TagTooLong",
-      "msg": "Tag string exceeds maximum length (32 chars)"
-    },
-    {
-      "code": 6031,
-      "name": "InvalidDataLayout",
-      "msg": "Invalid data layout"
-    },
-    {
-      "code": 6032,
       "name": "LightCpiInvocationFailed",
       "msg": "Light Protocol CPI invocation failed"
     },
     {
-      "code": 6033,
+      "code": 6028,
       "name": "InvalidEd25519Instruction",
       "msg": "Invalid Ed25519 instruction format"
     },
     {
-      "code": 6034,
+      "code": 6029,
       "name": "MissingSignatures",
       "msg": "Missing required Ed25519 signatures in transaction"
     },
     {
-      "code": 6035,
+      "code": 6030,
       "name": "MessageMismatch",
       "msg": "Message hash mismatch - signature was for different data"
     },
     {
-      "code": 6036,
+      "code": 6031,
       "name": "InvalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
-      "code": 6037,
+      "code": 6032,
       "name": "DuplicateSigners",
       "msg": "Duplicate signers not allowed for dual signature mode"
     },
     {
-      "code": 6038,
+      "code": 6033,
       "name": "InvalidSecp256k1Signature",
       "msg": "Invalid secp256k1 signature"
     },
     {
-      "code": 6039,
+      "code": 6034,
       "name": "Secp256k1RecoveryFailed",
       "msg": "Secp256k1 recovery failed"
     },
     {
-      "code": 6040,
+      "code": 6035,
       "name": "EvmAddressMismatch",
       "msg": "EVM address mismatch - recovered address does not match expected"
     },
     {
-      "code": 6041,
+      "code": 6036,
       "name": "InvalidEvmAddressRecovery",
       "msg": "Failed to extract EVM address from secp256k1 key recovery"
     }
@@ -1704,7 +1683,7 @@
           {
             "name": "data",
             "docs": [
-              "Schema-conformant data bytes (96+ bytes)"
+              "Schema-conformant data bytes (130+ bytes, universal layout)"
             ],
             "type": "bytes"
           },
@@ -2080,6 +2059,13 @@
             "type": "bool"
           },
           {
+            "name": "name",
+            "docs": [
+              "Schema name for signing messages (max 32 chars)"
+            ],
+            "type": "string"
+          },
+          {
             "name": "bump",
             "docs": [
               "PDA bump seed"
@@ -2132,6 +2118,13 @@
               "Whether attestations can be closed"
             ],
             "type": "bool"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Human-readable schema name (max 32 chars)"
+            ],
+            "type": "string"
           }
         ]
       }

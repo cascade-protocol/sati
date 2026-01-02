@@ -13,10 +13,7 @@ use solana_program::sysvar::instructions as instructions_sysvar;
 use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
-use crate::signature::{
-    compute_attestation_nonce, compute_feedback_hash, compute_interaction_hash,
-    compute_validation_hash, verify_ed25519_signatures,
-};
+use crate::signature::{compute_attestation_nonce, compute_interaction_hash, verify_ed25519_signatures};
 use crate::state::{CompressedAttestation, CreateParams, SchemaConfig, SignatureMode, StorageType};
 use crate::ID;
 use crate::LIGHT_CPI_SIGNER;
@@ -91,13 +88,13 @@ pub fn handler<'info>(
     // NOT a wallet address. Authorization is verified via agent_ata account.
     let task_ref: [u8; 32] = params.data[0..32]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
     let token_account_bytes: [u8; 32] = params.data[32..64]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
     let counterparty_bytes: [u8; 32] = params.data[64..96]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
 
     let token_account_pubkey = Pubkey::new_from_array(token_account_bytes);
     let counterparty_pubkey = Pubkey::new_from_array(counterparty_bytes);
@@ -133,25 +130,13 @@ pub fn handler<'info>(
         );
     }
 
-    // 6. Validate minimum data length based on data_type
-    // Feedback (0): needs outcome at offset 129, so min length 130
-    // Validation (1): needs response at offset 130, so min length 131
-    let min_length = match params.data_type {
-        0 => 130, // Feedback: outcome at 129
-        1 => 131, // Validation: response at 130
-        _ => return Err(SatiError::InvalidDataType.into()),
-    };
-    require!(
-        params.data.len() >= min_length,
-        SatiError::AttestationDataTooSmall
-    );
+    // 6. Validate universal base layout fields
+    // All schemas use the same 130-byte universal layout
+    validate_universal_base(&params.data)?;
 
-    // 7. Validate schema-specific fields
-    validate_schema_fields(&params)?;
-
-    // 8. Construct expected message hashes for signature verification
-    let expected_messages =
-        build_expected_messages(&params, schema_config, &task_ref, &token_account_pubkey)?;
+    // 7. Construct expected message hashes for signature verification
+    // Agent must sign the interaction_hash; counterparty's message is verified by Ed25519 precompile
+    let expected_messages = build_expected_messages(&params, schema_config, &task_ref)?;
 
     // 9. Verify Ed25519 signatures via instruction introspection
     verify_ed25519_signatures(
@@ -237,119 +222,125 @@ pub fn handler<'info>(
     Ok(())
 }
 
-/// Validate schema-specific fields at fixed offsets
-fn validate_schema_fields(params: &CreateParams) -> Result<()> {
-    match params.data_type {
-        0 => {
-            // Feedback: content_type at 128, outcome at 129, tags are variable-length
-            if params.data.len() >= 132 {
-                let content_type = params.data[128];
-                require!(content_type <= 4, SatiError::InvalidContentType);
+/// Validate universal base layout fields at fixed offsets.
+/// All schemas share the same 130-byte universal layout.
+fn validate_universal_base(data: &[u8]) -> Result<()> {
+    // Validate outcome at offset 96 (0-2 defined, 3-7 reserved)
+    let outcome = data[offsets::OUTCOME];
+    require!(outcome <= MAX_OUTCOME_VALUE, SatiError::InvalidOutcome);
 
-                let outcome = params.data[129];
-                require!(outcome <= 2, SatiError::InvalidOutcome);
+    // Validate content_type at offset 129 (0-5 defined, 6-15 reserved)
+    let content_type = data[offsets::CONTENT_TYPE];
+    require!(
+        content_type <= MAX_CONTENT_TYPE_VALUE,
+        SatiError::InvalidContentType
+    );
 
-                // Validate tag string lengths (max 32 chars each)
-                let tag1_len = params.data[130] as usize;
-                require!(tag1_len <= MAX_TAG_LENGTH, SatiError::TagTooLong);
-
-                let tag2_start = 131 + tag1_len;
-                require!(params.data.len() > tag2_start, SatiError::InvalidDataLayout);
-                let tag2_len = params.data[tag2_start] as usize;
-                require!(tag2_len <= MAX_TAG_LENGTH, SatiError::TagTooLong);
-
-                // Validate content size if present
-                let content_start = tag2_start + 1 + tag2_len;
-                if params.data.len() >= content_start + 4 {
-                    let content_len = u32::from_le_bytes(
-                        params.data[content_start..content_start + 4]
-                            .try_into()
-                            .map_err(|_| SatiError::InvalidDataLayout)?,
-                    ) as usize;
-                    require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
-                }
-            }
-        }
-        1 => {
-            // Validation: content_type at 128, validation_type at 129, response at 130
-            if params.data.len() >= 131 {
-                let content_type = params.data[128];
-                require!(content_type <= 4, SatiError::InvalidContentType);
-
-                let response = params.data[130];
-                require!(response <= 100, SatiError::InvalidResponse);
-
-                // Validate content size if present
-                if params.data.len() >= 135 {
-                    let content_len = u32::from_le_bytes(
-                        params.data[131..135]
-                            .try_into()
-                            .map_err(|_| SatiError::InvalidDataLayout)?,
-                    ) as usize;
-                    require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
-                }
-            }
-        }
-        _ => {
-            return Err(SatiError::InvalidDataType.into());
-        }
-    }
+    // Validate content size if present
+    let content_len = data.len().saturating_sub(offsets::CONTENT);
+    require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
 
     Ok(())
 }
 
-/// Build expected message hashes based on data type and signature mode
+/// Build expected message hashes based on signature mode.
+/// - Agent always signs interaction_hash (verified against expected)
+/// - Counterparty (DualSignature) signs SIWS message (built on-chain and verified)
+///
+/// Returns Option<Vec<u8>> for each signature:
+/// - Some(msg) = verify the signed message matches this value
 fn build_expected_messages(
     params: &CreateParams,
     schema_config: &SchemaConfig,
     task_ref: &[u8; 32],
-    token_account: &Pubkey,
-) -> Result<Vec<Vec<u8>>> {
-    // data_hash is at offset 96-128 for Feedback and Validation
-    let data_hash: [u8; 32] = params.data[96..128]
+) -> Result<Vec<Option<Vec<u8>>>> {
+    // data_hash is at offset 97-129 in universal layout
+    let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
         .try_into()
-        .map_err(|_| SatiError::InvalidDataLayout)?;
+        .map_err(|_| SatiError::InvalidSignature)?;
 
-    // Compute interaction hash (always needed - agent's signature)
-    let interaction_hash = compute_interaction_hash(
-        &schema_config.sas_schema,
-        task_ref,
-        token_account,
-        &data_hash,
-    )
-    .to_vec();
+    // Compute interaction hash (agent's signature)
+    let interaction_hash = compute_interaction_hash(&schema_config.sas_schema, task_ref, &data_hash).to_vec();
 
     // For SingleSigner mode, only the interaction hash is verified
     if schema_config.signature_mode == SignatureMode::SingleSigner {
-        return Ok(vec![interaction_hash]);
+        return Ok(vec![Some(interaction_hash)]);
     }
 
-    // DualSignature mode: include both hashes
-    match params.data_type {
-        0 => {
-            // Feedback: interaction_hash (agent) + feedback_hash (counterparty)
-            let outcome = params.data[129];
-            Ok(vec![
-                interaction_hash,
-                compute_feedback_hash(&schema_config.sas_schema, task_ref, token_account, outcome)
-                    .to_vec(),
-            ])
+    // DualSignature mode:
+    // - Agent (signatures[0]): verify they signed the interaction_hash
+    // - Counterparty (signatures[1]): verify they signed the expected SIWS message
+    //
+    // SECURITY: We must verify the counterparty's message content matches the data.
+    // Otherwise an attacker could sign "Positive" but submit "Negative" data.
+    let siws_message = build_siws_message(&schema_config.name, &params.data)?;
+    Ok(vec![Some(interaction_hash), Some(siws_message)])
+}
+
+/// Build the expected SIWS message that counterparty should have signed.
+/// Must match the SDK's buildCounterpartyMessage() exactly.
+///
+/// Format:
+/// ```text
+/// SATI {schema_name}
+///
+/// Agent: {token_account_base58}
+/// Task: {task_ref_base58}
+/// Outcome: {Negative|Neutral|Positive}
+/// Details: {content_text}
+///
+/// Sign to create this attestation.
+/// ```
+fn build_siws_message(schema_name: &str, data: &[u8]) -> Result<Vec<u8>> {
+    use bs58;
+
+    // Extract fields from universal layout
+    let task_ref = &data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT];
+    let token_account = &data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY];
+    let outcome = data[offsets::OUTCOME];
+    let content_type = data[offsets::CONTENT_TYPE];
+    let content = &data[offsets::CONTENT..];
+
+    // Convert to base58
+    let token_account_b58 = bs58::encode(token_account).into_string();
+    let task_ref_b58 = bs58::encode(task_ref).into_string();
+
+    // Map outcome to label
+    let outcome_label = match outcome {
+        0 => "Negative",
+        1 => "Neutral",
+        2 => "Positive",
+        _ => return Err(SatiError::InvalidOutcome.into()),
+    };
+
+    // Decode content for display
+    let details_text = decode_content_for_display(content, content_type);
+
+    // Build SIWS message (must match SDK exactly!)
+    let message = format!(
+        "SATI {schema_name}\n\nAgent: {token_account_b58}\nTask: {task_ref_b58}\nOutcome: {outcome_label}\nDetails: {details_text}\n\nSign to create this attestation."
+    );
+
+    Ok(message.into_bytes())
+}
+
+/// Decode content bytes for human-readable display in SIWS message.
+/// Must match SDK's decodeContentForDisplay() exactly.
+fn decode_content_for_display(content: &[u8], content_type: u8) -> String {
+    if content.is_empty() {
+        return "(none)".to_string();
+    }
+
+    match content_type {
+        0 => "(none)".to_string(), // ContentType::None
+        1 | 2 => {
+            // ContentType::JSON or UTF8
+            String::from_utf8(content.to_vec()).unwrap_or_else(|_| format!("({} bytes)", content.len()))
         }
-        1 => {
-            // Validation: interaction_hash (agent) + validation_hash (counterparty)
-            let response = params.data[130];
-            Ok(vec![
-                interaction_hash,
-                compute_validation_hash(
-                    &schema_config.sas_schema,
-                    task_ref,
-                    token_account,
-                    response,
-                )
-                .to_vec(),
-            ])
-        }
-        _ => Err(SatiError::InvalidDataType.into()),
+        3 => format!("ipfs://{}", bs58::encode(content).into_string()), // ContentType::IPFS
+        4 => format!("ar://{}", bs58::encode(content).into_string()),   // ContentType::Arweave
+        5 => "(encrypted)".to_string(),                                 // ContentType::Encrypted
+        _ => format!("({} bytes)", content.len()),
     }
 }
 
@@ -358,19 +349,16 @@ mod tests {
     use super::*;
     use light_sdk::instruction::PackedAddressTreeInfo;
 
-    /// Create minimal test CreateParams with proper data layout
-    fn make_test_params(data_type: u8, outcome_or_response: u8) -> CreateParams {
-        // Minimum data layout: 132 bytes for Feedback, 131 for Validation
-        // [0-32]: task_ref, [32-64]: token_account, [64-96]: counterparty
-        // [96-128]: data_hash, [128]: content_type, [129]: outcome/validation_type, [130]: response (validation only)
-        let mut data = vec![0u8; 135];
+    /// Create minimal test CreateParams with universal layout (130 bytes)
+    /// Layout: task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1)
+    fn make_test_params(data_type: u8, outcome: u8) -> CreateParams {
+        let mut data = vec![0u8; 140]; // 130 min + some content
 
-        // Set outcome at offset 129 (Feedback) or response at offset 130 (Validation)
-        if data_type == 0 {
-            data[129] = outcome_or_response; // outcome for Feedback
-        } else {
-            data[130] = outcome_or_response; // response for Validation
-        }
+        // Set outcome at offset 96
+        data[offsets::OUTCOME] = outcome;
+
+        // Set content_type at offset 129
+        data[offsets::CONTENT_TYPE] = 1; // JSON
 
         CreateParams {
             data_type,
@@ -388,79 +376,64 @@ mod tests {
             signature_mode,
             storage_type: StorageType::Compressed,
             closeable: false,
+            name: "test".to_string(),
             bump: 255,
         }
     }
 
     #[test]
-    fn test_build_expected_messages_single_signer_feedback_returns_one_hash() {
+    fn test_build_expected_messages_single_signer_returns_one_hash() {
         let params = make_test_params(0, 2); // Feedback with Positive outcome
         let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
         let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
 
-        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        let result = build_expected_messages(&params, &schema_config, &task_ref);
         assert!(result.is_ok());
 
         let messages = result.unwrap();
         assert_eq!(
             messages.len(),
             1,
-            "SingleSigner mode should return exactly 1 message (interaction_hash only)"
+            "SingleSigner mode should return exactly 1 message (Some(interaction_hash))"
+        );
+        assert!(
+            messages[0].is_some(),
+            "SingleSigner should have Some(interaction_hash)"
         );
     }
 
     #[test]
-    fn test_build_expected_messages_single_signer_validation_returns_one_hash() {
-        let params = make_test_params(1, 50); // Validation with response=50
-        let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
-        let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
-
-        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
-        assert!(result.is_ok());
-
-        let messages = result.unwrap();
-        assert_eq!(
-            messages.len(),
-            1,
-            "SingleSigner mode should return exactly 1 message regardless of data_type"
-        );
-    }
-
-    #[test]
-    fn test_build_expected_messages_dual_signature_feedback_returns_two_hashes() {
+    fn test_build_expected_messages_dual_signature_returns_two_entries() {
         let params = make_test_params(0, 2); // Feedback with Positive outcome
         let schema_config = make_test_schema_config(SignatureMode::DualSignature);
         let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
 
-        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        let result = build_expected_messages(&params, &schema_config, &task_ref);
         assert!(result.is_ok());
 
         let messages = result.unwrap();
         assert_eq!(
             messages.len(),
             2,
-            "DualSignature mode should return 2 messages (interaction_hash + feedback_hash)"
+            "DualSignature mode should return 2 entries"
         );
-    }
-
-    #[test]
-    fn test_build_expected_messages_dual_signature_validation_returns_two_hashes() {
-        let params = make_test_params(1, 50); // Validation with response=50
-        let schema_config = make_test_schema_config(SignatureMode::DualSignature);
-        let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
-
-        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
-        assert!(result.is_ok());
-
-        let messages = result.unwrap();
-        assert_eq!(
-            messages.len(),
-            2,
-            "DualSignature mode should return 2 messages (interaction_hash + validation_hash)"
+        // First entry should be Some(interaction_hash) for agent verification
+        assert!(
+            messages[0].is_some(),
+            "Agent message should be Some(interaction_hash)"
+        );
+        // Second entry should be Some(siws_message) for counterparty verification
+        // SECURITY: We verify the SIWS message content matches the data
+        assert!(
+            messages[1].is_some(),
+            "Counterparty message should be Some(siws_message)"
+        );
+        // Verify the SIWS message contains expected outcome
+        let siws_msg = messages[1].as_ref().unwrap();
+        let siws_str = std::str::from_utf8(siws_msg).unwrap();
+        assert!(
+            siws_str.contains("Outcome: Positive"),
+            "SIWS message should contain the correct outcome"
         );
     }
 
@@ -469,26 +442,99 @@ mod tests {
         let params = make_test_params(0, 2);
         let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
         let task_ref = [1u8; 32];
-        let token_account = Pubkey::new_unique();
 
-        // Extract data_hash from params.data[96..128]
-        let data_hash: [u8; 32] = params.data[96..128].try_into().unwrap();
+        // Extract data_hash from params.data at universal offset
+        let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
+            .try_into()
+            .unwrap();
 
-        // Compute expected interaction hash
-        let expected_hash = compute_interaction_hash(
-            &schema_config.sas_schema,
-            &task_ref,
-            &token_account,
-            &data_hash,
-        );
+        // Compute expected interaction hash (now 3 params, no token_account)
+        let expected_hash = compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
 
-        let result = build_expected_messages(&params, &schema_config, &task_ref, &token_account);
+        let result = build_expected_messages(&params, &schema_config, &task_ref);
         let messages = result.unwrap();
 
         assert_eq!(
-            messages[0],
-            expected_hash.to_vec(),
-            "SingleSigner should return the interaction_hash"
+            messages[0].as_ref().unwrap(),
+            &expected_hash.to_vec(),
+            "SingleSigner should return Some(interaction_hash)"
         );
+    }
+
+    #[test]
+    fn test_siws_message_format_matches_test_helper() {
+        // This test verifies that build_siws_message produces the same output
+        // as the test helper build_counterparty_message
+        use bs58;
+
+        let schema_name = "Feedback";
+        let token_account = Pubkey::new_unique();
+        let task_ref = [1u8; 32];
+        let outcome: u8 = 2; // Positive
+        let content_type: u8 = 0; // None
+
+        // Build data array matching test setup
+        let mut data = vec![0u8; 130];
+        data[0..32].copy_from_slice(&task_ref);
+        data[32..64].copy_from_slice(token_account.as_ref());
+        data[64..96].copy_from_slice(Pubkey::new_unique().as_ref()); // counterparty
+        data[offsets::OUTCOME] = outcome;
+        data[offsets::CONTENT_TYPE] = content_type;
+
+        // Build on-chain message
+        let onchain_msg = build_siws_message(schema_name, &data).unwrap();
+        let onchain_str = String::from_utf8(onchain_msg.clone()).unwrap();
+
+        // Build test helper message manually (same logic as ed25519.rs test helper)
+        let outcome_label = "Positive";
+        let task_b58 = bs58::encode(&task_ref).into_string();
+        let agent_b58 = token_account.to_string();
+        let details_text = "(none)";
+
+        let test_msg_str = format!(
+            "SATI {schema_name}\n\nAgent: {agent_b58}\nTask: {task_b58}\nOutcome: {outcome_label}\nDetails: {details_text}\n\nSign to create this attestation."
+        );
+
+        // Print both for debugging if they don't match
+        if onchain_str != test_msg_str {
+            println!("ON-CHAIN MESSAGE:\n{}", onchain_str);
+            println!("---");
+            println!("TEST HELPER MESSAGE:\n{}", test_msg_str);
+            println!("---");
+            println!("ON-CHAIN BYTES: {:?}", onchain_msg);
+            println!("TEST HELPER BYTES: {:?}", test_msg_str.as_bytes());
+        }
+
+        assert_eq!(onchain_str, test_msg_str, "SIWS messages should match exactly");
+    }
+
+    #[test]
+    fn test_validate_universal_base_valid() {
+        let mut data = vec![0u8; 140];
+        data[offsets::OUTCOME] = 2; // Positive
+        data[offsets::CONTENT_TYPE] = 1; // JSON
+
+        let result = validate_universal_base(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_universal_base_invalid_outcome() {
+        let mut data = vec![0u8; 140];
+        data[offsets::OUTCOME] = 10; // Invalid (> 7)
+        data[offsets::CONTENT_TYPE] = 1;
+
+        let result = validate_universal_base(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_universal_base_invalid_content_type() {
+        let mut data = vec![0u8; 140];
+        data[offsets::OUTCOME] = 2;
+        data[offsets::CONTENT_TYPE] = 20; // Invalid (> 15)
+
+        let result = validate_universal_base(&data);
+        assert!(result.is_err());
     }
 }

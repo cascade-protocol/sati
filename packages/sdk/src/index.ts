@@ -23,7 +23,9 @@ export {
   Outcome,
   ContentType,
   ValidationType,
-  // Offsets for memcmp filtering
+  // Universal offsets (all schemas share these)
+  OFFSETS,
+  // Offsets for memcmp filtering (backward compat aliases)
   BASE_OFFSETS,
   COMPRESSED_OFFSETS,
   FEEDBACK_OFFSETS,
@@ -31,20 +33,49 @@ export {
   REPUTATION_SCORE_OFFSETS,
   // Schema size limits and constants
   MAX_CONTENT_SIZE,
-  MAX_TAG_LENGTH,
+  MIN_BASE_LAYOUT_SIZE,
   SAS_HEADER_SIZE,
-  // Data interfaces
+  // Content size limits by signature mode (transaction size constraints)
+  MAX_DUAL_SIGNATURE_CONTENT_SIZE,
+  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  // Data interfaces (all extend BaseLayout)
+  type BaseLayout,
   type FeedbackData,
   type ValidationData,
   type ReputationScoreData,
   type CompressedAttestation,
-  // Serialization
+  // Content type interfaces (for JSON content)
+  type FeedbackContent,
+  type ValidationContent,
+  type ReputationScoreContent,
+  // Content size validation (for transaction size limits)
+  type ContentSizeValidationOptions,
+  type ContentSizeValidationResult,
+  // Serialization (universal layout)
   serializeFeedback,
   serializeValidation,
   serializeReputationScore,
   deserializeFeedback,
   deserializeValidation,
   deserializeReputationScore,
+  serializeUniversalLayout,
+  deserializeUniversalLayout,
+  // Content parsers
+  parseFeedbackContent,
+  parseValidationContent,
+  parseReputationScoreContent,
+  // Helpers
+  addressToBytes,
+  bytesToAddress,
+  getOutcomeLabel,
+  outcomeToScore,
+  getContentTypeLabel,
+  createJsonContent,
+  zeroDataHash,
+  validateBaseLayout,
+  // Content size helpers
+  getMaxContentSize,
+  validateContentSize,
 } from "./schemas";
 
 // Domain-separated hash functions for attestations

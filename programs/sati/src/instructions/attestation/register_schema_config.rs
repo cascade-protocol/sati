@@ -43,6 +43,7 @@ pub fn handler(
     signature_mode: SignatureMode,
     storage_type: StorageType,
     closeable: bool,
+    name: String,
 ) -> Result<()> {
     let schema_config = &mut ctx.accounts.schema_config;
 
@@ -50,6 +51,7 @@ pub fn handler(
     schema_config.signature_mode = signature_mode;
     schema_config.storage_type = storage_type;
     schema_config.closeable = closeable;
+    schema_config.name = name.clone();
     schema_config.bump = ctx.bumps.schema_config;
 
     emit!(SchemaConfigRegistered {
@@ -57,6 +59,7 @@ pub fn handler(
         signature_mode,
         storage_type,
         closeable,
+        name,
     });
 
     Ok(())

@@ -92,6 +92,7 @@ pub mod sati {
         signature_mode: SignatureMode,
         storage_type: StorageType,
         closeable: bool,
+        name: String,
     ) -> Result<()> {
         instructions::attestation::register_schema_config::handler(
             ctx,
@@ -99,6 +100,7 @@ pub mod sati {
             signature_mode,
             storage_type,
             closeable,
+            name,
         )
     }
 

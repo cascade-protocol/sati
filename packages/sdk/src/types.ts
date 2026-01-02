@@ -179,8 +179,8 @@ export interface SignatureVerificationResult {
   valid: boolean;
   /** Whether agent signature is valid */
   agentValid: boolean;
-  /** Whether counterparty signature is valid (client/validator/provider) */
-  counterpartyValid: boolean;
+  /** Whether counterparty signature is valid (client/validator/provider). Undefined if schema name not provided. */
+  counterpartyValid?: boolean;
 }
 
 // ============ AGENT METADATA UPDATE TYPES ============

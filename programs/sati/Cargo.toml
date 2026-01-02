@@ -40,6 +40,9 @@ solana-attestation-service-client.workspace = true
 # Crypto
 sha3.workspace = true
 
+# Base58 encoding for SIWS message building
+bs58 = "0.5"
+
 [dev-dependencies]
 # LiteSVM for fast in-process testing
 litesvm = "0.7"
