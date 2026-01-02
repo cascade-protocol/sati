@@ -8,6 +8,22 @@
  * 4. Query via Photon with filters
  * 5. Verify data integrity
  *
+ * ## Test Isolation Strategy
+ *
+ * This file uses TWO isolation patterns:
+ *
+ * 1. **Flow-based tests** ("E2E: Full Feedback Lifecycle"):
+ *    - Share a single `E2ETestContext` (agent, schema, lookup table)
+ *    - Tests sequential operations on the same agent
+ *    - Context is expensive to create (~5-10s)
+ *    - Nested describes test agent registration → schema → feedback → query
+ *
+ * 2. **Signature-only tests** (Multiple Feedbacks, Signature Edge Cases):
+ *    - Use isolated `SignatureTestContext` via `setupSignatureTest()`
+ *    - No RPC calls - pure cryptographic tests
+ *    - Fast to create, each describe has its own keypairs
+ *    - Complete isolation between test blocks
+ *
  * These tests require a running light test-validator or devnet.
  *
  * Run: pnpm test:e2e -- --grep "Feedback Lifecycle"
@@ -49,6 +65,11 @@ const TEST_TIMEOUT = 60000;
 // Full Feedback Lifecycle Tests
 // =============================================================================
 
+/**
+ * Flow-based E2E tests sharing a single context.
+ * Tests sequential feedback lifecycle: registration → schema → create → query.
+ * Nested describes share state intentionally - they test the same agent.
+ */
 describe("E2E: Full Feedback Lifecycle", () => {
   let ctx: E2ETestContext;
 
@@ -301,11 +322,16 @@ describe("E2E: Full Feedback Lifecycle", () => {
 // Multiple Feedbacks Test
 // =============================================================================
 
+/**
+ * Isolated signature-only tests - each describe has its own SignatureTestContext.
+ * No RPC calls, no shared state with other test blocks.
+ * Tests multiple feedback creation with different outcomes and collision prevention.
+ */
 describe("E2E: Multiple Feedbacks Flow", () => {
   let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // Use lightweight fixture - no RPC needed for these signature-only tests
+    // Isolated context: fresh keypairs, no RPC needed
     sigCtx = await setupSignatureTest(200);
   }, TEST_TIMEOUT);
 
@@ -395,11 +421,16 @@ describe("E2E: Multiple Feedbacks Flow", () => {
 // Signature Edge Cases
 // =============================================================================
 
+/**
+ * Isolated signature-only tests - each describe has its own SignatureTestContext.
+ * No RPC calls, no shared state with other test blocks.
+ * Tests edge cases: blind signing, forgery detection, cross-agent attacks.
+ */
 describe("E2E: Feedback Signature Edge Cases", () => {
   let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // Use lightweight fixture - no RPC needed
+    // Isolated context: fresh keypairs, no RPC needed
     sigCtx = await setupSignatureTest(600);
   }, TEST_TIMEOUT);
 
@@ -531,8 +562,13 @@ describe("E2E: Feedback Signature Edge Cases", () => {
 // Offset Verification Tests (for Photon memcmp)
 // =============================================================================
 
+/**
+ * Pure computation tests - no context needed.
+ * Tests that COMPRESSED_OFFSETS constants match the expected byte layout.
+ * These offsets are critical for Photon memcmp filters.
+ */
 describe("E2E: Compressed Attestation Offset Verification", () => {
-  // No beforeAll needed - these are pure computation tests that don't require RPC
+  // No beforeAll needed - pure computation, no context required
 
   test(
     "verifies COMPRESSED_OFFSETS are correctly defined",

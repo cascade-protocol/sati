@@ -1,0 +1,45 @@
+{
+  "description": "SIWS message format test vectors. Both Rust and TypeScript must produce identical output for these inputs.",
+  "vectors": [
+    {
+      "name": "feedback_positive_no_content",
+      "schemaName": "Feedback",
+      "tokenAccountHex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "taskRefHex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "outcome": 2,
+      "contentType": 0,
+      "contentHex": "",
+      "expectedBase64": "U0FUSSBGZWVkYmFjawoKQWdlbnQ6IDI5ZDJTN3ZCNDUzck5ZRmRSNVljd3Q3eTloYVJUNWZ3VndMOXpUbUJoZlYyClRhc2s6IDNKRjNzRXFNNzk2aGs1V0ZxQTZFdG1Fd0pROXF1QUxzenNmSnl2WE5RS3kzCk91dGNvbWU6IFBvc2l0aXZlCkRldGFpbHM6IChub25lKQoKU2lnbiB0byBjcmVhdGUgdGhpcyBhdHRlc3RhdGlvbi4="
+    },
+    {
+      "name": "feedback_negative_with_json",
+      "schemaName": "Feedback",
+      "tokenAccountHex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "taskRefHex": "4444444444444444444444444444444444444444444444444444444444444444",
+      "outcome": 0,
+      "contentType": 1,
+      "contentHex": "7b2273636f7265223a32357d",
+      "expectedBase64": "U0FUSSBGZWVkYmFjawoKQWdlbnQ6IDRTczVKTWtYQUQ5Wjdja3RGRWRycWVNdVQ2akdNRjFwVm96VHlQSFo2elQ0ClRhc2s6IDViVjZqVWZoREhDUVZBMVdmS0JVblhVc2JvSmdvS2dremtLY3hyM2pvZXc1Ck91dGNvbWU6IE5lZ2F0aXZlCkRldGFpbHM6IHsic2NvcmUiOjI1fQoKU2lnbiB0byBjcmVhdGUgdGhpcyBhdHRlc3RhdGlvbi4="
+    },
+    {
+      "name": "validation_neutral",
+      "schemaName": "Validation",
+      "tokenAccountHex": "5555555555555555555555555555555555555555555555555555555555555555",
+      "taskRefHex": "6666666666666666666666666666666666666666666666666666666666666666",
+      "outcome": 1,
+      "contentType": 2,
+      "contentHex": "7061737365642076616c69646174696f6e",
+      "expectedBase64": "U0FUSSBWYWxpZGF0aW9uCgpBZ2VudDogNms3OEFiYXNHTUZGcmhHOTVQajZqUWJxa1Z0N0ZRTWhWZ2VteEpvdldLUjYKVGFzazogN3RqOWJpVzNLUko3RUVXbVZVR2lnSGlvdUNUWGhWMmR6Y3l2d21hN0N5dTcKT3V0Y29tZTogTmV1dHJhbApEZXRhaWxzOiBwYXNzZWQgdmFsaWRhdGlvbgoKU2lnbiB0byBjcmVhdGUgdGhpcyBhdHRlc3RhdGlvbi4="
+    },
+    {
+      "name": "feedback_positive_utf8_content",
+      "schemaName": "Feedback",
+      "tokenAccountHex": "7777777777777777777777777777777777777777777777777777777777777777",
+      "taskRefHex": "8888888888888888888888888888888888888888888888888888888888888888",
+      "outcome": 2,
+      "contentType": 2,
+      "contentHex": "477265617420776f726b21",
+      "expectedBase64": "U0FUSSBGZWVkYmFjawoKQWdlbnQ6IDkzTUIycVJETlZMeGJtbVB1WXBMZEFxbjN1Mng5WmhhVlpLNXdFTEh1ZVA4ClRhc2s6IEFCeUNUeExQUlpQb3lLMjJLZE14YTN4a0NiY05iZU5XelZlRXZoNlVjSnM5Ck91dGNvbWU6IFBvc2l0aXZlCkRldGFpbHM6IEdyZWF0IHdvcmshCgpTaWduIHRvIGNyZWF0ZSB0aGlzIGF0dGVzdGF0aW9uLg=="
+    }
+  ]
+}

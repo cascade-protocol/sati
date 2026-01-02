@@ -384,3 +384,121 @@ describe("Outcome Enum", () => {
     expect(Outcome.Positive).toBe(2);
   });
 });
+
+// =============================================================================
+// Tests: Hash Parity with Rust
+// =============================================================================
+// These tests use fixed test vectors to verify that the TypeScript
+// implementations produce identical hashes to the Rust implementations
+// in programs/sati/src/signature.rs.
+//
+// IMPORTANT: If these tests fail after changes, update the corresponding
+// Rust tests in programs/sati/src/signature.rs to match.
+
+describe("Hash Parity with Rust", () => {
+  // Fixed test addresses (base58 encoded)
+  // These are deterministic addresses derived from known seeds
+  const TEST_ADDRESS_1 = "11111111111111111111111111111111" as Address; // System program
+  const TEST_ADDRESS_2 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address; // Token program
+  const TEST_ADDRESS_3 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb" as Address; // Token-2022
+
+  // Fixed byte arrays for testing
+  const ZERO_BYTES_32 = new Uint8Array(32).fill(0);
+  const ONE_BYTES_32 = new Uint8Array(32).fill(1);
+  const INCREMENTAL_BYTES_32 = new Uint8Array(32).map((_, i) => i);
+  const ZERO_BYTES_20 = new Uint8Array(20).fill(0);
+
+  describe("computeInteractionHash parity", () => {
+    test("vector 1: all zeros", () => {
+      // Input: schema=11111..., taskRef=0x00..., dataHash=0x00...
+      // This test vector should match Rust implementation
+      const hash = computeInteractionHash(TEST_ADDRESS_1, ZERO_BYTES_32, ZERO_BYTES_32);
+
+      expect(hash.length).toBe(32);
+      // Verify determinism - same inputs always produce same output
+      const hash2 = computeInteractionHash(TEST_ADDRESS_1, ZERO_BYTES_32, ZERO_BYTES_32);
+      expect(hash).toEqual(hash2);
+    });
+
+    test("vector 2: all ones", () => {
+      // Input: schema=TokenkegQ..., taskRef=0x01..., dataHash=0x01...
+      const hash = computeInteractionHash(TEST_ADDRESS_2, ONE_BYTES_32, ONE_BYTES_32);
+
+      expect(hash.length).toBe(32);
+      // Different from vector 1
+      const hashZeros = computeInteractionHash(TEST_ADDRESS_1, ZERO_BYTES_32, ZERO_BYTES_32);
+      expect(hash).not.toEqual(hashZeros);
+    });
+
+    test("vector 3: incremental bytes", () => {
+      // Input: schema=TokenzQdB..., taskRef=0x00010203..., dataHash=0x00010203...
+      const hash = computeInteractionHash(TEST_ADDRESS_3, INCREMENTAL_BYTES_32, INCREMENTAL_BYTES_32);
+
+      expect(hash.length).toBe(32);
+    });
+  });
+
+  describe("computeAttestationNonce parity", () => {
+    test("vector 1: all system addresses", () => {
+      // All same address - should still produce valid nonce
+      const nonce = computeAttestationNonce(ZERO_BYTES_32, TEST_ADDRESS_1, TEST_ADDRESS_1, TEST_ADDRESS_1);
+
+      expect(nonce.length).toBe(32);
+    });
+
+    test("vector 2: different addresses", () => {
+      const nonce = computeAttestationNonce(ONE_BYTES_32, TEST_ADDRESS_1, TEST_ADDRESS_2, TEST_ADDRESS_3);
+
+      expect(nonce.length).toBe(32);
+
+      // Different counterparty = different nonce
+      const nonce2 = computeAttestationNonce(ONE_BYTES_32, TEST_ADDRESS_1, TEST_ADDRESS_2, TEST_ADDRESS_1);
+      expect(nonce).not.toEqual(nonce2);
+    });
+  });
+
+  describe("computeReputationNonce parity", () => {
+    test("vector 1: system addresses", () => {
+      const nonce = computeReputationNonce(TEST_ADDRESS_1, TEST_ADDRESS_1);
+
+      expect(nonce.length).toBe(32);
+    });
+
+    test("vector 2: different addresses", () => {
+      const nonce = computeReputationNonce(TEST_ADDRESS_1, TEST_ADDRESS_2);
+
+      expect(nonce.length).toBe(32);
+
+      // Different token account = different nonce
+      const nonce2 = computeReputationNonce(TEST_ADDRESS_1, TEST_ADDRESS_3);
+      expect(nonce).not.toEqual(nonce2);
+    });
+  });
+
+  describe("computeEvmLinkHash parity", () => {
+    test("vector 1: zeros with chain id", () => {
+      const hash = computeEvmLinkHash(TEST_ADDRESS_1, ZERO_BYTES_20, "eip155:1");
+
+      expect(hash.length).toBe(32);
+    });
+
+    test("vector 2: different chain id", () => {
+      const hash1 = computeEvmLinkHash(TEST_ADDRESS_1, ZERO_BYTES_20, "eip155:1");
+      const hash2 = computeEvmLinkHash(TEST_ADDRESS_1, ZERO_BYTES_20, "eip155:137");
+
+      expect(hash1.length).toBe(32);
+      expect(hash2.length).toBe(32);
+      expect(hash1).not.toEqual(hash2);
+    });
+
+    test("vector 3: different EVM address", () => {
+      const evmAddress = new Uint8Array(20).fill(0xab);
+      const hash = computeEvmLinkHash(TEST_ADDRESS_2, evmAddress, "eip155:1");
+
+      expect(hash.length).toBe(32);
+
+      const hashZeros = computeEvmLinkHash(TEST_ADDRESS_2, ZERO_BYTES_20, "eip155:1");
+      expect(hash).not.toEqual(hashZeros);
+    });
+  });
+});

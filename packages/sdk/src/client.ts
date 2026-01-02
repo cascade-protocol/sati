@@ -22,6 +22,7 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstruction,
   appendTransactionMessageInstructions,
+  addSignersToTransactionMessage,
   compressTransactionMessageUsingAddressLookupTables,
   compileTransaction,
   getSignatureFromTransaction,
@@ -675,6 +676,8 @@ export class Sati {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstruction(transferIx, msg),
+      // Attach payer signer to fee payer (needed when payer !== owner)
+      (msg) => addSignersToTransactionMessage([payer, owner], msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -720,6 +723,8 @@ export class Sati {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstructions([transferIx, updateAuthorityIx], msg),
+      // Attach payer signer to fee payer (needed when payer !== owner)
+      (msg) => addSignersToTransactionMessage([payer, owner], msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);
@@ -934,6 +939,8 @@ export class Sati {
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
       (msg) => appendTransactionMessageInstructions(ixList, msg),
+      // Attach payer signer to fee payer (needed when payer !== owner)
+      (msg) => addSignersToTransactionMessage([payer, owner], msg),
     );
 
     const signedTx = await signTransactionMessageWithSigners(tx);

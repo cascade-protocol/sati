@@ -9,6 +9,22 @@
  * 5. Attestation submitted and indexed
  * 6. Query returns correct data
  *
+ * ## Test Isolation Strategy
+ *
+ * This file uses TWO isolation patterns:
+ *
+ * 1. **Flow-based tests** ("E2E: Attestation Flow"):
+ *    - Share a single `E2ETestContext` (agent, schema, lookup table)
+ *    - Tests sequential operations on the same agent
+ *    - Context is expensive to create (~5-10s): registering agent, schema, lookup table
+ *    - Nested describes test the same agent's lifecycle
+ *
+ * 2. **Signature-only tests** (Validation, ReputationScore, Error Handling):
+ *    - Use isolated `SignatureTestContext` via `setupSignatureTest()`
+ *    - No RPC calls - pure cryptographic tests
+ *    - Fast to create, each describe has its own keypairs
+ *    - Complete isolation between test blocks
+ *
  * Prerequisites:
  * - light test-validator (or devnet with HELIUS_API_KEY)
  * - SATI program deployed
@@ -46,6 +62,11 @@ const TEST_TIMEOUT = 60000; // 60s for network operations
 // E2E Tests
 // =============================================================================
 
+/**
+ * Flow-based E2E tests sharing a single context.
+ * Tests sequential agent lifecycle: registration → schema → attestation → query.
+ * Nested describes share state intentionally - they test the same agent.
+ */
 describe("E2E: Attestation Flow", () => {
   let ctx: E2ETestContext;
 
@@ -329,11 +350,16 @@ describe("E2E: Attestation Flow", () => {
 // E2E: Validation Attestation Flow
 // =============================================================================
 
+/**
+ * Isolated signature-only tests - each describe has its own SignatureTestContext.
+ * No RPC calls, no shared state with other test blocks.
+ * Tests validation attestation signature creation and verification.
+ */
 describe("E2E: Validation Attestation Flow", () => {
   let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // Use lightweight fixture - no RPC needed for these signature-only tests
+    // Isolated context: fresh keypairs, no RPC needed
     sigCtx = await setupSignatureTest(10);
   }, TEST_TIMEOUT);
 
@@ -411,11 +437,16 @@ describe("E2E: Validation Attestation Flow", () => {
 // E2E: ReputationScore Attestation Flow
 // =============================================================================
 
+/**
+ * Isolated signature-only tests - each describe has its own SignatureTestContext.
+ * No RPC calls, no shared state with other test blocks.
+ * Tests SingleSigner mode reputation attestation signatures.
+ */
 describe("E2E: ReputationScore Attestation Flow", () => {
   let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // Use lightweight fixture - no RPC needed for these signature-only tests
+    // Isolated context: fresh keypairs, no RPC needed
     sigCtx = await setupSignatureTest(20);
   }, TEST_TIMEOUT);
 
@@ -482,11 +513,16 @@ describe("E2E: ReputationScore Attestation Flow", () => {
 // E2E: Error Handling
 // =============================================================================
 
+/**
+ * Isolated signature-only tests - each describe has its own SignatureTestContext.
+ * No RPC calls, no shared state with other test blocks.
+ * Tests signature error detection: tampering, wrong signer, wrong hash.
+ */
 describe("E2E: Error Handling", () => {
   let sigCtx: SignatureTestContext;
 
   beforeAll(async () => {
-    // Use lightweight fixture - no RPC needed for these signature error tests
+    // Isolated context: fresh keypairs, no RPC needed
     sigCtx = await setupSignatureTest(40);
   }, TEST_TIMEOUT);
 

@@ -20,10 +20,10 @@ use light_sdk::{
     address::v1::derive_address,
     instruction::{PackedAccounts, SystemAccountMetaConfig},
 };
-use sha2::{Digest, Sha256};
 use solana_sdk::{account::Account, pubkey::Pubkey, signer::Signer};
 
 use crate::common::{
+    accounts::{compute_anchor_account_discriminator, derive_token22_ata},
     ed25519::{
         build_counterparty_message, compute_attestation_nonce, compute_data_hash,
         compute_interaction_hash, create_multi_ed25519_ix, generate_ed25519_keypair,
@@ -32,16 +32,11 @@ use crate::common::{
     instructions::{
         build_create_attestation_ix, CreateParams, SignatureData, SignatureMode, StorageType,
     },
-    setup::{derive_schema_config_pda, setup_light_test_env, LightTestEnv, SATI_PROGRAM_ID},
+    setup::{
+        derive_schema_config_pda, setup_light_test_env, LightTestEnv, SATI_PROGRAM_ID,
+        TOKEN_2022_PROGRAM_ID,
+    },
 };
-
-/// Compute Anchor account discriminator: sha256("account:AccountName")[..8]
-fn compute_anchor_discriminator(account_name: &str) -> [u8; 8] {
-    let mut hasher = Sha256::new();
-    hasher.update(format!("account:{}", account_name));
-    let result = hasher.finalize();
-    result[..8].try_into().unwrap()
-}
 
 /// SchemaConfig account size with "Feedback" name (8 bytes):
 /// 8 (discriminator) + 32 (sas_schema) + 1 (signature_mode) + 1 (storage_type) + 1 (closeable) + 4 (name len) + 8 (name "Feedback") + 1 (bump) = 56 bytes
@@ -49,26 +44,6 @@ const SCHEMA_CONFIG_SIZE: usize = 56;
 
 /// Schema name used in SIWS messages - must match build_counterparty_message calls
 const SCHEMA_NAME: &str = "Feedback";
-
-/// Token-2022 program ID
-const TOKEN_2022_PROGRAM_ID: Pubkey =
-    solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-
-/// ATA program ID
-const ATA_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-
-/// Derive ATA address for Token-2022
-fn derive_token22_ata(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
-    Pubkey::find_program_address(
-        &[
-            owner.as_ref(),
-            TOKEN_2022_PROGRAM_ID.as_ref(),
-            mint.as_ref(),
-        ],
-        &ATA_PROGRAM_ID,
-    )
-    .0
-}
 
 /// Create mock Token-2022 mint account data
 fn create_mock_mint_data(mint_authority: &Pubkey) -> Vec<u8> {
@@ -120,7 +95,7 @@ async fn test_create_attestation_feedback_success() {
     // Mock SchemaConfig account (avoids Token-2022 registry setup)
     // Layout: discriminator(8) + sas_schema(32) + signature_mode(1) + storage_type(1) + closeable(1) + name_len(4) + name(N) + bump(1)
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref()); // sas_schema
     schema_data[40] = SignatureMode::DualSignature as u8; // signature_mode
@@ -317,7 +292,7 @@ async fn test_create_attestation_missing_signature() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref());
     schema_data[40] = SignatureMode::DualSignature as u8;
@@ -481,7 +456,7 @@ async fn test_create_attestation_invalid_signature() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref());
     schema_data[40] = SignatureMode::DualSignature as u8;
@@ -545,9 +520,6 @@ async fn test_create_attestation_invalid_signature() {
     data[96] = outcome;
     data[97..129].copy_from_slice(&data_hash);
     data[129] = 0; // content_type = None (no content)
-
-    // Define correct counterparty message (needed for CreateParams)
-    let counterparty_msg = build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
 
     // Sign WRONG message hashes (valid signatures, but for wrong messages)
     let wrong_hash = compute_data_hash(b"wrong message");
@@ -651,7 +623,7 @@ async fn test_create_attestation_wrong_signer() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref());
     schema_data[40] = SignatureMode::DualSignature as u8;
@@ -824,7 +796,7 @@ async fn test_create_attestation_self_attestation() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref());
     schema_data[40] = SignatureMode::DualSignature as u8;
@@ -992,7 +964,7 @@ async fn test_create_attestation_data_too_small() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref());
     schema_data[40] = SignatureMode::DualSignature as u8;
@@ -1051,7 +1023,6 @@ async fn test_create_attestation_data_too_small() {
     let dummy_message = compute_data_hash(b"dummy");
     let agent_sig = sign_message(&agent_keypair, &dummy_message);
     let counterparty_sig = sign_message(&counterparty_keypair, &dummy_message);
-    let counterparty_msg = b"dummy message".to_vec(); // Won't be validated since data is too small
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -1151,7 +1122,7 @@ async fn test_create_attestation_wrong_storage_type() {
 
     // Set storage_type = Regular (but using compressed handler)
     let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     schema_data[0..8].copy_from_slice(&discriminator);
     schema_data[8..40].copy_from_slice(sas_schema.as_ref());
     schema_data[40] = SignatureMode::DualSignature as u8;
@@ -1305,6 +1276,1653 @@ async fn test_create_attestation_wrong_storage_type() {
     assert!(
         err_str.contains("StorageTypeMismatch") || err_str.contains("6015"),
         "Expected StorageTypeMismatch error, got: {}",
+        err_str
+    );
+}
+
+// ============================================================================
+// ATA Substitution Attack Tests
+// ============================================================================
+
+/// Test that create_attestation fails when agent_ata.mint doesn't match token_account
+///
+/// Attack vector: Attacker creates ATA for a different mint but with correct owner,
+/// attempting to create attestation for a different agent identity.
+#[tokio::test]
+async fn test_create_attestation_wrong_mint_ata() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Create keypairs
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    // Create TWO different mints - one for data.token_account, one for the ATA
+    let actual_agent_mint = Pubkey::new_unique(); // This will be in data.token_account
+    let wrong_mint = Pubkey::new_unique(); // This is what the ATA actually holds
+
+    // ATA is derived from wrong_mint but owned by agent_pubkey
+    let wrong_ata = derive_token22_ata(&agent_pubkey, &wrong_mint);
+
+    // Mock the wrong mint
+    rpc.set_account(
+        wrong_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Mock the ATA with WRONG mint (agent owns wrong_mint, not actual_agent_mint)
+    rpc.set_account(
+        wrong_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&wrong_mint, &agent_pubkey, 1), // mint = wrong_mint
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Build attestation data with actual_agent_mint as token_account
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(actual_agent_mint.as_ref()); // token_account = actual_agent_mint
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    // Build signatures
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &actual_agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    // Build remaining_accounts
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &actual_agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        actual_agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &wrong_ata, // Pass ATA with WRONG mint
+        params,
+        system_accounts,
+    );
+
+    // Send transaction - should fail with AgentAtaMintMismatch
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail when ATA mint doesn't match token_account"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("AgentAtaMintMismatch") || err_str.contains("6021"),
+        "Expected AgentAtaMintMismatch error (6021), got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails when agent_ata.owner doesn't match signer
+///
+/// Attack vector: Attacker provides someone else's ATA, hoping to create attestation
+/// as if they were the agent NFT owner.
+#[tokio::test]
+async fn test_create_attestation_wrong_owner_ata() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Create keypairs - attacker_keypair will sign, but victim_keypair owns the NFT
+    let victim_keypair = generate_ed25519_keypair();
+    let attacker_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+
+    let victim_pubkey = keypair_to_pubkey(&victim_keypair);
+    let attacker_pubkey = keypair_to_pubkey(&attacker_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+
+    // ATA is owned by VICTIM, not attacker
+    let victim_ata = derive_token22_ata(&victim_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&victim_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // ATA owner is victim_pubkey, not attacker_pubkey
+    rpc.set_account(
+        victim_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &victim_pubkey, 1), // owner = victim
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    // ATTACKER signs the interaction_hash (not the victim)
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let attacker_sig = sign_message(&attacker_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: attacker_pubkey, // ATTACKER's pubkey in signature
+                sig: attacker_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&attacker_pubkey, &interaction_hash, &attacker_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &victim_ata, // Victim's ATA, but attacker signed
+        params,
+        system_accounts,
+    );
+
+    // Send transaction - should fail because ATA owner != signer
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail when ATA owner doesn't match signer"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    // Could be SignatureMismatch (6019) or similar authorization error
+    assert!(
+        err_str.contains("SignatureMismatch")
+            || err_str.contains("6019")
+            || err_str.contains("Unauthorized"),
+        "Expected SignatureMismatch error (6019), got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails when agent_ata has zero balance
+///
+/// Attack vector: Attacker creates an empty ATA (no NFT held) to pretend they own
+/// the agent identity without actually holding the NFT.
+#[tokio::test]
+async fn test_create_attestation_empty_ata() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // ATA with ZERO balance - agent doesn't actually hold the NFT
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 0), // amount = 0
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata, // ATA with zero balance
+        params,
+        system_accounts,
+    );
+
+    // Send transaction - should fail with AgentAtaEmpty
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail when ATA has zero balance"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("AgentAtaEmpty") || err_str.contains("6022"),
+        "Expected AgentAtaEmpty error (6022), got: {}",
+        err_str
+    );
+}
+
+// ============================================================================
+// Signature Count Manipulation Tests
+// ============================================================================
+
+/// Test that create_attestation fails with DualSignature schema but only 1 signature
+///
+/// Attack vector: User provides only one signature when schema requires two,
+/// hoping to create attestation without counterparty consent.
+#[tokio::test]
+async fn test_dual_signature_with_one_sig() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8; // Requires 2 signatures
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    // Only provide ONE signature when schema requires TWO
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![SignatureData {
+            pubkey: agent_pubkey,
+            sig: agent_sig,
+        }], // Only 1 signature!
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[(&agent_pubkey, &interaction_hash, &agent_sig)]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Send transaction - should fail with InvalidSignatureCount
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with only 1 signature for DualSignature schema"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("InvalidSignatureCount") || err_str.contains("6012"),
+        "Expected InvalidSignatureCount error (6012), got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails with SingleSigner schema but 2 signatures
+///
+/// Tests that excess signatures are rejected for SingleSigner mode.
+#[tokio::test]
+async fn test_single_signer_with_two_sigs() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::SingleSigner as u8; // Only requires 1 signature
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let extra_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let extra_pubkey = keypair_to_pubkey(&extra_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    // For SingleSigner, counterparty field can be agent's own identity or any pubkey
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(extra_pubkey.as_ref()); // counterparty (not same as token_account)
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let extra_sig = sign_message(&extra_keypair, &counterparty_msg);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce = compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &extra_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    // Provide TWO signatures when schema only requires ONE
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: extra_pubkey,
+                sig: extra_sig,
+            },
+        ], // 2 signatures for SingleSigner!
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&extra_pubkey, &counterparty_msg, &extra_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Send transaction - should fail with InvalidSignatureCount
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with 2 signatures for SingleSigner schema"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("InvalidSignatureCount") || err_str.contains("6012"),
+        "Expected InvalidSignatureCount error (6012), got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails with duplicate signers in DualSignature mode
+///
+/// Attack vector: User tries to sign as both agent and counterparty using same keypair.
+#[tokio::test]
+async fn test_dual_signature_duplicate_pubkeys() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Use SAME keypair for both agent and "counterparty" signatures
+    let single_keypair = generate_ed25519_keypair();
+    let single_pubkey = keypair_to_pubkey(&single_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&single_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&single_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &single_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    // Use single_pubkey as counterparty in data so signature pubkey validation passes
+    // This allows us to test the duplicate signers check
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(single_pubkey.as_ref()); // Same as signer!
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    // Both signatures from SAME keypair
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&single_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&single_keypair, &counterparty_msg); // Same signer!
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &single_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    // Both signatures use SAME pubkey - duplicate signers attack
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: single_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: single_pubkey, // SAME pubkey!
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&single_pubkey, &interaction_hash, &agent_sig),
+        (&single_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    // Send transaction - should fail with DuplicateSigners
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with duplicate signers"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("DuplicateSigners") || err_str.contains("6032"),
+        "Expected DuplicateSigners error (6032), got: {}",
+        err_str
+    );
+}
+
+// ============================================================================
+// Boundary Value Tests
+// ============================================================================
+
+/// Test that create_attestation fails with data exactly 129 bytes (one less than minimum)
+///
+/// The universal base layout requires exactly 130 bytes minimum:
+/// task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1)
+#[tokio::test]
+async fn test_data_exactly_129_bytes() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    // Exactly 129 bytes - one byte short of minimum
+    let data = vec![0u8; 129];
+
+    let dummy_message = compute_data_hash(b"dummy");
+    let agent_sig = sign_message(&agent_keypair, &dummy_message);
+    let counterparty_sig = sign_message(&counterparty_keypair, &dummy_message);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let task_ref = [1u8; 32];
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &dummy_message, &agent_sig),
+        (&counterparty_pubkey, &dummy_message, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with 129-byte data (minimum is 130)"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("AttestationDataTooSmall") || err_str.contains("6016"),
+        "Expected AttestationDataTooSmall error (6016), got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails with content exceeding 512 bytes
+///
+/// Maximum content size is 512 bytes. Total data can be up to 768 bytes (130 base + 512 content + padding).
+/// This test uses 513 bytes of content to verify the ContentTooLarge check.
+#[tokio::test]
+async fn test_content_513_bytes() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    // Build data with 513 bytes of content (one over limit)
+    let content = vec![b'x'; 513]; // 513 bytes - exceeds 512 limit
+    let mut data = vec![0u8; 130 + content.len()]; // 643 bytes total
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 1; // content_type = JSON
+    data[130..].copy_from_slice(&content);
+
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with 513-byte content (max is 512)"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("ContentTooLarge") || err_str.contains("6018"),
+        "Expected ContentTooLarge error (6018), got: {}",
+        err_str
+    );
+}
+
+// ============================================================================
+// Invalid Value Tests
+// ============================================================================
+
+/// Test that create_attestation fails with invalid outcome value (3)
+///
+/// Valid outcome values are: 0=Negative, 1=Neutral, 2=Positive
+#[tokio::test]
+async fn test_invalid_outcome_value_3() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let invalid_outcome: u8 = 3; // INVALID - must be 0, 1, or 2
+
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = invalid_outcome; // Invalid outcome value
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 0;
+
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    // Use a modified message for counterparty since outcome is different
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, invalid_outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with outcome=3 (valid values: 0, 1, 2)"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("InvalidOutcome") || err_str.contains("6025"),
+        "Expected InvalidOutcome error (6025), got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails with invalid content_type value (16)
+///
+/// Valid content_type values are 0-15 (4-bit field)
+#[tokio::test]
+async fn test_invalid_content_type_value_16() {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+
+    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    schema_data[0..8].copy_from_slice(&discriminator);
+    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
+    schema_data[40] = SignatureMode::DualSignature as u8;
+    schema_data[41] = StorageType::Compressed as u8;
+    schema_data[42] = 1;
+    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    schema_data[47 + SCHEMA_NAME.len()] = bump;
+
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: schema_data,
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let task_ref = [1u8; 32];
+    let data_hash = compute_data_hash(b"test");
+    let outcome: u8 = 2;
+
+    let mut data = vec![0u8; 140];
+    data[0..32].copy_from_slice(&task_ref);
+    data[32..64].copy_from_slice(agent_mint.as_ref());
+    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
+    data[96] = outcome;
+    data[97..129].copy_from_slice(&data_hash);
+    data[129] = 16; // INVALID - content_type must be 0-15
+
+    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
+    let _ = remaining_accounts.add_system_accounts(system_config);
+
+    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_pubkey = address_tree_info.tree;
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let seeds: &[&[u8]] = &[
+        b"attestation",
+        sas_schema.as_ref(),
+        agent_mint.as_ref(),
+        &nonce,
+    ];
+    let (compressed_address, _) = derive_address(seeds, &address_tree_pubkey, &SATI_PROGRAM_ID);
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: address_tree_pubkey,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed_tree_infos.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    let params = CreateParams {
+        data_type: 0,
+        data: data.clone(),
+        signatures: vec![
+            SignatureData {
+                pubkey: agent_pubkey,
+                sig: agent_sig,
+            },
+            SignatureData {
+                pubkey: counterparty_pubkey,
+                sig: counterparty_sig,
+            },
+        ],
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        address_tree_info,
+    };
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &interaction_hash, &agent_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+    let attestation_ix = build_create_attestation_ix(
+        &payer.pubkey(),
+        &schema_config_pda,
+        &agent_ata,
+        params,
+        system_accounts,
+    );
+
+    let result = rpc
+        .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Transaction should fail with content_type=16 (valid values: 0-15)"
+    );
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("InvalidContentType") || err_str.contains("6026"),
+        "Expected InvalidContentType error (6026), got: {}",
         err_str
     );
 }

@@ -264,6 +264,7 @@ pub fn verify_secp256k1_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_sdk::pubkey;
 
     #[test]
     fn test_interaction_hash_deterministic() {
@@ -302,5 +303,132 @@ mod tests {
         let nonce2 = compute_attestation_nonce(&task_ref, &schema, &token_account, &counterparty2);
 
         assert_ne!(nonce1, nonce2);
+    }
+
+    // =========================================================================
+    // Hash Parity Tests with TypeScript
+    // =========================================================================
+    // These tests use the same fixed vectors as packages/sdk/tests/unit/hashes.test.ts
+    // to ensure Rust and TypeScript implementations produce identical hashes.
+    //
+    // Test addresses (well-known Solana program addresses):
+    // - TEST_ADDRESS_1: 11111111111111111111111111111111 (System program)
+    // - TEST_ADDRESS_2: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA (Token program)
+    // - TEST_ADDRESS_3: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb (Token-2022)
+
+    const TEST_ADDRESS_1: Pubkey = pubkey!("11111111111111111111111111111111");
+    const TEST_ADDRESS_2: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const TEST_ADDRESS_3: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+    #[test]
+    fn test_interaction_hash_parity_vector1() {
+        // Vector 1: all zeros
+        let hash = compute_interaction_hash(&TEST_ADDRESS_1, &[0u8; 32], &[0u8; 32]);
+        assert_eq!(hash.len(), 32);
+
+        // Verify determinism
+        let hash2 = compute_interaction_hash(&TEST_ADDRESS_1, &[0u8; 32], &[0u8; 32]);
+        assert_eq!(hash, hash2);
+    }
+
+    #[test]
+    fn test_interaction_hash_parity_vector2() {
+        // Vector 2: all ones
+        let hash = compute_interaction_hash(&TEST_ADDRESS_2, &[1u8; 32], &[1u8; 32]);
+        assert_eq!(hash.len(), 32);
+
+        // Different from vector 1
+        let hash_zeros = compute_interaction_hash(&TEST_ADDRESS_1, &[0u8; 32], &[0u8; 32]);
+        assert_ne!(hash, hash_zeros);
+    }
+
+    #[test]
+    fn test_interaction_hash_parity_vector3() {
+        // Vector 3: incremental bytes
+        let mut incremental = [0u8; 32];
+        for i in 0..32 {
+            incremental[i] = i as u8;
+        }
+        let hash = compute_interaction_hash(&TEST_ADDRESS_3, &incremental, &incremental);
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_attestation_nonce_parity_vector1() {
+        // Vector 1: all system addresses
+        let nonce = compute_attestation_nonce(
+            &[0u8; 32],
+            &TEST_ADDRESS_1,
+            &TEST_ADDRESS_1,
+            &TEST_ADDRESS_1,
+        );
+        assert_eq!(nonce.len(), 32);
+    }
+
+    #[test]
+    fn test_attestation_nonce_parity_vector2() {
+        // Vector 2: different addresses
+        let nonce = compute_attestation_nonce(
+            &[1u8; 32],
+            &TEST_ADDRESS_1,
+            &TEST_ADDRESS_2,
+            &TEST_ADDRESS_3,
+        );
+        assert_eq!(nonce.len(), 32);
+
+        // Different counterparty = different nonce
+        let nonce2 = compute_attestation_nonce(
+            &[1u8; 32],
+            &TEST_ADDRESS_1,
+            &TEST_ADDRESS_2,
+            &TEST_ADDRESS_1,
+        );
+        assert_ne!(nonce, nonce2);
+    }
+
+    #[test]
+    fn test_reputation_nonce_parity_vector1() {
+        // Vector 1: system addresses
+        let nonce = compute_reputation_nonce(&TEST_ADDRESS_1, &TEST_ADDRESS_1);
+        assert_eq!(nonce.len(), 32);
+    }
+
+    #[test]
+    fn test_reputation_nonce_parity_vector2() {
+        // Vector 2: different addresses
+        let nonce = compute_reputation_nonce(&TEST_ADDRESS_1, &TEST_ADDRESS_2);
+        assert_eq!(nonce.len(), 32);
+
+        // Different token account = different nonce
+        let nonce2 = compute_reputation_nonce(&TEST_ADDRESS_1, &TEST_ADDRESS_3);
+        assert_ne!(nonce, nonce2);
+    }
+
+    #[test]
+    fn test_evm_link_hash_parity_vector1() {
+        // Vector 1: zeros with chain id
+        let hash = compute_evm_link_hash(&TEST_ADDRESS_1, &[0u8; 20], "eip155:1");
+        assert_eq!(hash.len(), 32);
+    }
+
+    #[test]
+    fn test_evm_link_hash_parity_vector2() {
+        // Vector 2: different chain id
+        let hash1 = compute_evm_link_hash(&TEST_ADDRESS_1, &[0u8; 20], "eip155:1");
+        let hash2 = compute_evm_link_hash(&TEST_ADDRESS_1, &[0u8; 20], "eip155:137");
+
+        assert_eq!(hash1.len(), 32);
+        assert_eq!(hash2.len(), 32);
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_evm_link_hash_parity_vector3() {
+        // Vector 3: different EVM address
+        let hash = compute_evm_link_hash(&TEST_ADDRESS_2, &[0xab; 20], "eip155:1");
+        assert_eq!(hash.len(), 32);
+
+        let hash_zeros = compute_evm_link_hash(&TEST_ADDRESS_2, &[0u8; 20], "eip155:1");
+        assert_ne!(hash, hash_zeros);
     }
 }

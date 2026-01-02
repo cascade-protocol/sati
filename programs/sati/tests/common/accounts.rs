@@ -85,7 +85,7 @@ pub fn create_mock_group_mint(
 }
 
 /// Compute Anchor account discriminator: sha256("account:AccountName")[..8]
-fn compute_anchor_account_discriminator(account_name: &str) -> [u8; 8] {
+pub fn compute_anchor_account_discriminator(account_name: &str) -> [u8; 8] {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(format!("account:{}", account_name));

@@ -269,7 +269,7 @@ importers:
         version: 20.19.26
       '@vitest/coverage-v8':
         specifier: 4.0.16
-        version: 4.0.16(vitest@4.0.16(@types/jsdom@27.0.0)(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0))
+        version: 4.0.16(vitest@4.0.16(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0))
       codama:
         specifier: ^1.4.2
         version: 1.5.0
@@ -287,7 +287,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: 4.0.16
-        version: 4.0.16(@types/jsdom@27.0.0)(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0)
+        version: 4.0.16(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0)
 
 packages:
 
@@ -3280,9 +3280,6 @@ packages:
   '@types/bn.js@4.11.6':
     resolution: {integrity: sha512-pqr857jrp2kPuO9uRjZ3PwnJTjoQy+fcdxvBTvHm6dkmEL9q+hDD/2j/0ELOBPtPnS8LjCX0gI9nbl8lVkadpg==}
 
-  '@types/bn.js@5.2.0':
-    resolution: {integrity: sha512-DLbJ1BPqxvQhIGbeu8VbUC1DiAiahHtAYvA0ZEAa4P31F7IaArc8z3C3BRQdWX4mtLQuABG4yzp76ZrS02Ui1Q==}
-
   '@types/body-parser@1.19.6':
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
 
@@ -3291,9 +3288,6 @@ packages:
 
   '@types/bs58@4.0.4':
     resolution: {integrity: sha512-0IEpMFXXQi2zXaXl9GJ3sRwQo0uEkD+yFOv+FnAU5lkPtcu6h61xb7jc2CFPEZ5BUOaiP13ThuGc9HD4R8lR5g==}
-
-  '@types/call-bind@1.0.5':
-    resolution: {integrity: sha512-7kCxl5FGXPEu5ov4auOTJiXQy6/heCpRcjbk54WAeKOEAclJTb5z6PDb8Ai85A51bxczAM0PHdes3p3340nM3g==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -3344,14 +3338,8 @@ packages:
   '@types/express@5.0.6':
     resolution: {integrity: sha512-sKYVuV7Sv9fbPIt/442koC7+IIwK5olP1KWeD88e/idgoJqDm3JV/YUiPwkoKK92ylff2MGxSz1CSjsXelx0YA==}
 
-  '@types/fastestsmallesttextencoderdecoder@1.0.2':
-    resolution: {integrity: sha512-0Md9qUxGnQ9uJ0NjsA70Y0NHIl3NwfBO1d8CGXK0zhczRL85CXJ3M0JZsmCNQ0WcAbt08FuT4U1G1mWQqgOsUg==}
-
   '@types/fs-extra@11.0.4':
     resolution: {integrity: sha512-yTbItCNreRooED33qjunPthRcSjERP1r4MqCZc7wv0u2sUkzTFp45tgUfS5+r7FrZPdmCCNflLhVSP/o+SemsQ==}
-
-  '@types/function-bind@1.1.10':
-    resolution: {integrity: sha512-DCqXAnivJmYtk2ERufryJbNB606D4ae4PjjD2PC1eboq+mBF1XGlMEMCmoarPAWicKMIpSFoxXlWfgHnWoXvCQ==}
 
   '@types/get-intrinsic@1.2.3':
     resolution: {integrity: sha512-snGKUfZKZ4OBdh5exTMWbfCx2BgTx8QePbIg0jOawZe56AlJXRsuehT/vwZwEFW6Ac6NB0aDE6NhHsq3k0WSyQ==}
@@ -3362,42 +3350,17 @@ packages:
   '@types/glob-to-regexp@0.4.4':
     resolution: {integrity: sha512-nDKoaKJYbnn1MZxUY0cA1bPmmgZbg0cTq7Rh13d0KWYNOiKbqoR+2d89SnRPszGh7ROzSwZ/GOjZ4jPbmmZ6Eg==}
 
-  '@types/gopd@1.0.3':
-    resolution: {integrity: sha512-tRTWCb/kQgjCxHjAv0G7K0rQ1j/Cu1zVzFuS7LFcqii1fESnDgx79XYOLrPud9Bb2BRVMGIxG8EqHvOjNgq+0A==}
-
   '@types/graceful-fs@4.1.9':
     resolution: {integrity: sha512-olP3sd1qOEe5dXTSaFvQG+02VdRXcdytWLAZsAq1PecU8uqQAhkrnbli7DagjtXKW/Bl7YJbUsa8MPcuc8LHEQ==}
 
-  '@types/has-property-descriptors@1.0.3':
-    resolution: {integrity: sha512-0WhrwJZ7kXr9muyCjtii6vGnfyexO9WOMVWU9ESo4sh4xet7j5cJC4ye4+LMzAzXimE5iR3xa1vXWBXkX/WMNQ==}
-
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
-
-  '@types/isarray@2.0.3':
-    resolution: {integrity: sha512-o0zAZHi8xBzOZLGwh7IpSFfB5zd2gNhuehciZ8cwkHTht59NhUlGHDNOCkhOYnuti+nnBSPP6Oeo6KpCRDt0uQ==}
-
-  '@types/istanbul-lib-coverage@2.0.6':
-    resolution: {integrity: sha512-2QF/t/auWm0lsy8XtKVPG19v3sSOQlJe/YHZgfjb/KBBHOGSV+J2q/S671rcq9uTBrLAXmZpqJiaQbMT+zNU1w==}
-
-  '@types/istanbul-lib-report@3.0.3':
-    resolution: {integrity: sha512-NQn7AHQnk/RSLOxrBbGyJM/aVQ+pjj5HCgasFxc0K/KhoATfQ/47AyUl15I2yBUpihjmas+a+VJBOqecrFH+uA==}
-
-  '@types/istanbul-lib-source-maps@4.0.4':
-    resolution: {integrity: sha512-p+nSH0hBMLvuqgnT0rbBnDcfO3IuOZrLU+Yf4x0BhGVmXynB+gm9D35gAvWeMuk+riik5Rj12NBQm8rnzIPH3g==}
-
-  '@types/istanbul-reports@3.0.4':
-    resolution: {integrity: sha512-pk2B1NWalF9toCRu6gjBzR69syFjP4Od8WRAX+0mmf9lAjCRicLOWc+ZrxZHx/0XRjotgkF9t6iaMJ+aXcOdZQ==}
 
   '@types/js-yaml@4.0.9':
     resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
 
   '@types/jsdom@27.0.0':
     resolution: {integrity: sha512-NZyFl/PViwKzdEkQg96gtnB8wm+1ljhdDay9ahn4hgb+SfVtPCbm3TlmDUFXTA+MGN3CijicnMhG18SI5H3rFw==}
-
-  '@types/json-stable-stringify@1.2.0':
-    resolution: {integrity: sha512-PEHY3ohqolHqAzDyB1+31tFaAMnoLN7x/JgdcGmNZ2uvtEJ6rlFCUYNQc0Xe754xxCYLNGZbLUGydSE6tS4S9A==}
-    deprecated: This is a stub types definition. json-stable-stringify provides its own type definitions, so you do not need this installed.
 
   '@types/jsonfile@6.1.4':
     resolution: {integrity: sha512-D5qGUYwjvnNNextdU59/+fI+spnwtTFmyQP0h+PfIOSkNfpU6AOICUOkm4i0OnSk+NyjdPJrxCDro0sJsWlRpQ==}
@@ -3437,9 +3400,6 @@ packages:
 
   '@types/object-inspect@1.13.0':
     resolution: {integrity: sha512-lwGTVESDDV+XsQ1pH4UifpJ1f7OtXzQ6QBOX2Afq2bM/T3oOt8hF6exJMjjIjtEWeAN2YAo25J7HxWh97CCz9w==}
-
-  '@types/object-keys@1.0.3':
-    resolution: {integrity: sha512-frEHAIYW+h03LnGdIAGHvDQVBDRG+aeU1zG2DX0LFadIkVX/9RUOhtANHqO0hmTF1IO5rQmBa4cBgFcFRBqNNw==}
 
   '@types/pako@1.0.7':
     resolution: {integrity: sha512-YBtzT2ztNF6R/9+UXj2wTGFnC9NklAnASt3sC0h2m1bbH7G6FyBIkt4AN8ThZpNfxUo1b2iMVO0UawiJymEt8A==}
@@ -4183,7 +4143,6 @@ packages:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
     engines: {node: '>=12.0.0'}
     peerDependencies:
-      '@types/picomatch': '*'
       picomatch: ^3 || ^4
     peerDependenciesMeta:
       picomatch:
@@ -6212,7 +6171,6 @@ snapshots:
       '@codama/nodes': 1.5.0
       '@codama/visitors': 1.5.0
       '@codama/visitors-core': 1.5.0
-      '@types/prompts': 2.4.9
       commander: 14.0.2
       picocolors: 1.1.1
       prompts: 2.4.2
@@ -6254,7 +6212,6 @@ snapshots:
       '@codama/renderers-core': 1.3.5
       '@codama/visitors-core': 1.5.0
       '@solana/codecs-strings': 5.0.0(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)
-      '@types/semver': 7.7.1
       prettier: 3.7.4
       semver: 7.7.3
     transitivePeerDependencies:
@@ -6271,7 +6228,6 @@ snapshots:
     dependencies:
       '@codama/errors': 1.5.0
       '@codama/nodes': 1.5.0
-      '@types/json-stable-stringify': 1.2.0
       json-stable-stringify: 1.3.0
 
   '@codama/visitors@1.5.0':
@@ -8935,10 +8891,6 @@ snapshots:
     dependencies:
       '@types/node': 24.10.3
 
-  '@types/bn.js@5.2.0':
-    dependencies:
-      '@types/node': 24.10.3
-
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
@@ -8950,10 +8902,6 @@ snapshots:
     dependencies:
       '@types/node': 24.10.3
       base-x: 3.0.11
-
-  '@types/call-bind@1.0.5':
-    dependencies:
-      '@types/get-intrinsic': 1.2.3
 
   '@types/chai@5.2.3':
     dependencies:
@@ -9013,14 +8961,10 @@ snapshots:
       '@types/express-serve-static-core': 5.1.0
       '@types/serve-static': 2.2.0
 
-  '@types/fastestsmallesttextencoderdecoder@1.0.2': {}
-
   '@types/fs-extra@11.0.4':
     dependencies:
       '@types/jsonfile': 6.1.4
       '@types/node': 24.10.3
-
-  '@types/function-bind@1.1.10': {}
 
   '@types/get-intrinsic@1.2.3': {}
 
@@ -9028,32 +8972,11 @@ snapshots:
 
   '@types/glob-to-regexp@0.4.4': {}
 
-  '@types/gopd@1.0.3': {}
-
   '@types/graceful-fs@4.1.9':
     dependencies:
       '@types/node': 24.10.3
 
-  '@types/has-property-descriptors@1.0.3': {}
-
   '@types/http-errors@2.0.5': {}
-
-  '@types/isarray@2.0.3': {}
-
-  '@types/istanbul-lib-coverage@2.0.6': {}
-
-  '@types/istanbul-lib-report@3.0.3':
-    dependencies:
-      '@types/istanbul-lib-coverage': 2.0.6
-
-  '@types/istanbul-lib-source-maps@4.0.4':
-    dependencies:
-      '@types/istanbul-lib-coverage': 2.0.6
-      source-map: 0.6.1
-
-  '@types/istanbul-reports@3.0.4':
-    dependencies:
-      '@types/istanbul-lib-report': 3.0.3
 
   '@types/js-yaml@4.0.9': {}
 
@@ -9062,10 +8985,6 @@ snapshots:
       '@types/node': 24.10.3
       '@types/tough-cookie': 4.0.5
       parse5: 7.3.0
-
-  '@types/json-stable-stringify@1.2.0':
-    dependencies:
-      json-stable-stringify: 1.3.0
 
   '@types/jsonfile@6.1.4':
     dependencies:
@@ -9089,7 +9008,7 @@ snapshots:
 
   '@types/mute-stream@0.0.4':
     dependencies:
-      '@types/node': 24.10.3
+      '@types/node': 20.19.26
 
   '@types/node@12.20.55': {}
 
@@ -9106,8 +9025,6 @@ snapshots:
       undici-types: 7.16.0
 
   '@types/object-inspect@1.13.0': {}
-
-  '@types/object-keys@1.0.3': {}
 
   '@types/pako@1.0.7': {}
 
@@ -9194,13 +9111,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/coverage-v8@4.0.16(vitest@4.0.16(@types/jsdom@27.0.0)(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0))':
+  '@vitest/coverage-v8@4.0.16(vitest@4.0.16(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0))':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
-      '@types/istanbul-lib-coverage': 2.0.6
-      '@types/istanbul-lib-report': 3.0.3
-      '@types/istanbul-lib-source-maps': 4.0.4
-      '@types/istanbul-reports': 3.0.4
       '@vitest/utils': 4.0.16
       ast-v8-to-istanbul: 0.3.9
       istanbul-lib-coverage: 3.2.2
@@ -9211,7 +9124,7 @@ snapshots:
       obug: 2.1.1
       std-env: 3.10.0
       tinyrainbow: 3.0.3
-      vitest: 4.0.16(@types/jsdom@27.0.0)(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0)
+      vitest: 4.0.16(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -9224,14 +9137,14 @@ snapshots:
       chai: 6.2.1
       tinyrainbow: 3.0.3
 
-  '@vitest/mocker@4.0.16(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(vite@7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))':
+  '@vitest/mocker@4.0.16(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(vite@7.2.7(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))':
     dependencies:
       '@vitest/spy': 4.0.16
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
       msw: 2.12.4(@types/node@20.19.26)(typescript@5.9.3)
-      vite: 7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+      vite: 7.2.7(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   '@vitest/mocker@4.0.16(msw@2.12.4(@types/node@24.10.3)(typescript@5.9.3))(vite@7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))':
     dependencies:
@@ -9242,14 +9155,14 @@ snapshots:
       msw: 2.12.4(@types/node@24.10.3)(typescript@5.9.3)
       vite: 7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
-  '@vitest/mocker@4.0.16(msw@2.12.4(@types/node@25.0.3)(typescript@5.9.3))(vite@7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))':
+  '@vitest/mocker@4.0.16(msw@2.12.4(@types/node@25.0.3)(typescript@5.9.3))(vite@7.2.7(@types/node@25.0.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))':
     dependencies:
       '@vitest/spy': 4.0.16
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
       msw: 2.12.4(@types/node@25.0.3)(typescript@5.9.3)
-      vite: 7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+      vite: 7.2.7(@types/node@25.0.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
   '@vitest/pretty-format@4.0.16':
     dependencies:
@@ -9445,7 +9358,6 @@ snapshots:
 
   borsh@0.7.0:
     dependencies:
-      '@types/bn.js': 5.2.0
       bn.js: 5.2.2
       bs58: 4.0.1
       text-encoding-utf-8: 1.0.2
@@ -9501,7 +9413,6 @@ snapshots:
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
-      '@types/function-bind': 1.1.10
       es-errors: 1.3.0
       function-bind: 1.1.2
 
@@ -9514,7 +9425,6 @@ snapshots:
 
   call-bound@1.0.4:
     dependencies:
-      '@types/get-intrinsic': 1.2.3
       call-bind-apply-helpers: 1.0.2
       get-intrinsic: 1.3.0
 
@@ -9658,7 +9568,6 @@ snapshots:
 
   define-data-property@1.1.4:
     dependencies:
-      '@types/gopd': 1.0.3
       es-define-property: 1.0.1
       es-errors: 1.3.0
       gopd: 1.2.0
@@ -9951,6 +9860,10 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.3
 
+  fdir@6.5.0(picomatch@4.0.3):
+    optionalDependencies:
+      picomatch: 4.0.3
+
   fetch-blob@3.2.0:
     dependencies:
       node-domexception: 1.0.0
@@ -10066,7 +9979,6 @@ snapshots:
 
   hasown@2.0.2:
     dependencies:
-      '@types/function-bind': 1.1.10
       function-bind: 1.1.2
 
   headers-polyfill@4.0.3: {}
@@ -10243,9 +10155,6 @@ snapshots:
 
   json-stable-stringify@1.3.0:
     dependencies:
-      '@types/call-bind': 1.0.5
-      '@types/isarray': 2.0.3
-      '@types/object-keys': 1.0.3
       call-bind: 1.0.8
       call-bound: 1.0.4
       isarray: 2.0.5
@@ -10342,7 +10251,6 @@ snapshots:
   litesvm@0.4.0(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10):
     dependencies:
       '@solana/web3.js': 1.98.4(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      '@types/fastestsmallesttextencoderdecoder': 1.0.2
       fastestsmallesttextencoderdecoder: 1.0.22
     optionalDependencies:
       litesvm-darwin-arm64: 0.4.0
@@ -11083,9 +10991,6 @@ snapshots:
 
   set-function-length@1.2.2:
     dependencies:
-      '@types/function-bind': 1.1.10
-      '@types/gopd': 1.0.3
-      '@types/has-property-descriptors': 1.0.3
       define-data-property: 1.1.4
       es-errors: 1.3.0
       function-bind: 1.1.2
@@ -11326,8 +11231,7 @@ snapshots:
 
   tinyglobby@0.2.15:
     dependencies:
-      '@types/picomatch': 4.0.2
-      fdir: 6.5.0(@types/picomatch@4.0.2)(picomatch@4.0.3)
+      fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
 
   tinyrainbow@3.0.3: {}
@@ -11369,7 +11273,6 @@ snapshots:
 
   tsdown@0.16.8(@arethetypeswrong/core@0.18.2)(oxc-resolver@11.15.0)(publint@0.3.16)(typescript@5.9.3):
     dependencies:
-      '@types/semver': 7.7.1
       ansis: 4.2.0
       cac: 6.7.14
       chokidar: 5.0.0
@@ -11540,10 +11443,10 @@ snapshots:
       - utf-8-validate
       - zod
 
-  vite@7.2.7(@types/node@20.19.26)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0):
+  vite@7.2.7(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0):
     dependencies:
       esbuild: 0.25.12
-      fdir: 6.5.0(@types/picomatch@4.0.2)(picomatch@4.0.3)
+      fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
       postcss: 8.5.6
       rollup: 4.53.3
@@ -11554,8 +11457,6 @@ snapshots:
       jiti: 2.6.1
       lightningcss: 1.30.2
       tsx: 4.21.0
-    transitivePeerDependencies:
-      - '@types/picomatch'
 
   vite@7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0):
     dependencies:
@@ -11590,45 +11491,6 @@ snapshots:
       tsx: 4.21.0
     transitivePeerDependencies:
       - '@types/picomatch'
-
-  vitest@4.0.16(@types/jsdom@27.0.0)(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0):
-    dependencies:
-      '@types/jsdom': 27.0.0
-      '@types/picomatch': 4.0.2
-      '@vitest/expect': 4.0.16
-      '@vitest/mocker': 4.0.16(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(vite@7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))
-      '@vitest/pretty-format': 4.0.16
-      '@vitest/runner': 4.0.16
-      '@vitest/snapshot': 4.0.16
-      '@vitest/spy': 4.0.16
-      '@vitest/utils': 4.0.16
-      es-module-lexer: 1.7.0
-      expect-type: 1.3.0
-      magic-string: 0.30.21
-      obug: 2.1.1
-      pathe: 2.0.3
-      picomatch: 4.0.3
-      std-env: 3.10.0
-      tinybench: 2.9.0
-      tinyexec: 1.0.2
-      tinyglobby: 0.2.15
-      tinyrainbow: 3.0.3
-      vite: 7.2.7(@types/node@20.19.26)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
-      why-is-node-running: 2.3.0
-    optionalDependencies:
-      '@types/node': 20.19.26
-    transitivePeerDependencies:
-      - jiti
-      - less
-      - lightningcss
-      - msw
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - terser
-      - tsx
-      - yaml
 
   vitest@4.0.16(@types/jsdom@27.0.0)(@types/node@24.10.3)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@24.10.3)(typescript@5.9.3))(tsx@4.21.0):
     dependencies:
@@ -11674,7 +11536,7 @@ snapshots:
       '@types/jsdom': 27.0.0
       '@types/picomatch': 4.0.2
       '@vitest/expect': 4.0.16
-      '@vitest/mocker': 4.0.16(msw@2.12.4(@types/node@25.0.3)(typescript@5.9.3))(vite@7.2.7(@types/node@24.10.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))
+      '@vitest/mocker': 4.0.16(msw@2.12.4(@types/node@25.0.3)(typescript@5.9.3))(vite@7.2.7(@types/node@25.0.3)(@types/picomatch@4.0.2)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))
       '@vitest/pretty-format': 4.0.16
       '@vitest/runner': 4.0.16
       '@vitest/snapshot': 4.0.16
@@ -11695,6 +11557,43 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.0.3
+    transitivePeerDependencies:
+      - jiti
+      - less
+      - lightningcss
+      - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - terser
+      - tsx
+      - yaml
+
+  vitest@4.0.16(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(tsx@4.21.0):
+    dependencies:
+      '@vitest/expect': 4.0.16
+      '@vitest/mocker': 4.0.16(msw@2.12.4(@types/node@20.19.26)(typescript@5.9.3))(vite@7.2.7(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))
+      '@vitest/pretty-format': 4.0.16
+      '@vitest/runner': 4.0.16
+      '@vitest/snapshot': 4.0.16
+      '@vitest/spy': 4.0.16
+      '@vitest/utils': 4.0.16
+      es-module-lexer: 1.7.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.3
+      std-env: 3.10.0
+      tinybench: 2.9.0
+      tinyexec: 1.0.2
+      tinyglobby: 0.2.15
+      tinyrainbow: 3.0.3
+      vite: 7.2.7(@types/node@20.19.26)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 20.19.26
     transitivePeerDependencies:
       - jiti
       - less

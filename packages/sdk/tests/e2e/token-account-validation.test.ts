@@ -4,6 +4,20 @@
  * Tests that SDK methods validate tokenAccount is a registered SATI agent mint
  * before building/creating attestations.
  *
+ * ## Test Isolation Strategy
+ *
+ * This file uses TWO isolation patterns:
+ *
+ * 1. **Main validation tests** ("E2E: tokenAccount validation"):
+ *    - Share a single `E2ETestContext` (agent, schemas, lookup table)
+ *    - Tests validation across multiple SDK methods (feedback, validation, reputation)
+ *    - Context is expensive to create (~5-10s)
+ *
+ * 2. **SingleSigner mode tests** ("E2E: tokenAccount validation - SingleSigner mode"):
+ *    - Has its own isolated `E2ETestContext`
+ *    - Tests SingleSigner schema registration and validation
+ *    - Complete isolation from main validation tests
+ *
  * Test-first approach:
  * 1. Write tests expecting validation to reject non-registered mints
  * 2. Verify tests fail (validation doesn't exist yet)
@@ -45,6 +59,11 @@ const TEST_TIMEOUT = 60000;
 // tokenAccount Validation Tests
 // =============================================================================
 
+/**
+ * Main E2E validation tests sharing a single context.
+ * Tests tokenAccount validation across multiple SDK methods.
+ * Nested describes share state - they use the same registered agent.
+ */
 describe("E2E: tokenAccount validation", () => {
   let ctx: E2ETestContext;
 
@@ -530,6 +549,11 @@ describe("E2E: tokenAccount validation", () => {
 // SingleSigner Schema Tests (feedbackPublic)
 // =============================================================================
 
+/**
+ * Isolated E2E tests for SingleSigner mode validation.
+ * Has its own `E2ETestContext` - complete isolation from main validation tests.
+ * Tests SingleSigner schema registration and tokenAccount validation.
+ */
 describe("E2E: tokenAccount validation - SingleSigner mode", () => {
   let ctx: E2ETestContext;
   let sati: Sati;
@@ -541,7 +565,7 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
   let feedbackPublicSchema: Address;
 
   beforeAll(async () => {
-    // Use shared test setup
+    // Isolated context: fresh agent, schema, lookup table
     ctx = await setupE2ETest();
 
     sati = ctx.sati;

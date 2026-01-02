@@ -19,18 +19,10 @@
 use solana_sdk::{pubkey::Pubkey, signature::Keypair, signer::Signer};
 
 use crate::common::{
+    accounts::compute_anchor_account_discriminator,
     instructions::{SignatureMode, StorageType},
     setup::derive_schema_config_pda,
 };
-
-/// Compute Anchor account discriminator: sha256("account:AccountName")[..8]
-fn compute_anchor_discriminator(account_name: &str) -> [u8; 8] {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(format!("account:{}", account_name));
-    let result = hasher.finalize();
-    result[..8].try_into().unwrap()
-}
 
 /// SchemaConfig account size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 1 = 44 bytes
 const SCHEMA_CONFIG_SIZE: usize = 44;
@@ -44,7 +36,7 @@ fn build_schema_config_data(
     bump: u8,
 ) -> Vec<u8> {
     let mut data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_discriminator("SchemaConfig");
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
     data[0..8].copy_from_slice(&discriminator);
     data[8..40].copy_from_slice(sas_schema.as_ref());
     data[40] = signature_mode as u8;
