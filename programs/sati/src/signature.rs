@@ -343,8 +343,8 @@ mod tests {
     fn test_interaction_hash_parity_vector3() {
         // Vector 3: incremental bytes
         let mut incremental = [0u8; 32];
-        for i in 0..32 {
-            incremental[i] = i as u8;
+        for (i, byte) in incremental.iter_mut().enumerate() {
+            *byte = i as u8;
         }
         let hash = compute_interaction_hash(&TEST_ADDRESS_3, &incremental, &incremental);
         assert_eq!(hash.len(), 32);
