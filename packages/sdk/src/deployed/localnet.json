@@ -1,15 +1,15 @@
 {
   "network": "localnet",
   "authority": "7NetKx8TuRMBpqYFKZCVetkNuvWCPTrgekmGrsJwTmfN",
-  "deployedAt": "2026-01-02T17:39:16.261Z",
+  "deployedAt": "2026-01-02T19:49:47.393Z",
   "config": {
     "credential": "7HCCiuYUHptR1SXXHBRqkKUPb5G3hPvnKfy5v8n2cFmY",
     "schemas": {
-      "feedback": "ThaSG2CDHu2zoFwwr7ymv4EuJ196GEG7b96hUZUaYau",
-      "feedbackPublic": "J3vVS1LGmPBfZzocAtpXKmN9K62jZJubPPFsCaHLB7t1",
-      "validation": "GBvBb3BbgiK7W8eFkJAmpupsHj72CFKFWD58LZBCYDnj",
-      "reputationScore": "5RBFmktBaqqsdBgkAmdiHag4aPNkPNUhLiF1SXxAScHG"
+      "feedback": "A67hFx6W89Dnj58JzWySVu5wyHxq8tvLDWtUN9tgWsZg",
+      "feedbackPublic": "CT95KC9RomcmndTEBHS6sA7qKPTJJ11xJYVvFHmVeza7",
+      "validation": "E2UC9Bmk9hET4U3KbutUH6PbeDe3dpWeziaUr15X8jrQ",
+      "reputationScore": "FBbRT9ukRwG9F9QLRKkXY4pfiMYryq6eSo82b6uvWMWq"
     },
-    "lookupTable": "HP2Fq67a4f9kAKQvhMxStdihDzppqVWfm7UmrDtxKLCr"
+    "lookupTable": "64YSopTKq9NmkGsKXz4s8bQ3bqfMZFHCV1zwa7u6WeVX"
   }
 }

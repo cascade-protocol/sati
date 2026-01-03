@@ -62,7 +62,7 @@ export const SATI_CREDENTIAL_NAME = "SATI";
 /**
  * Schema name for ReputationScore attestations in SAS
  */
-export const REPUTATION_SCORE_SCHEMA_NAME = "SATIReputationScore";
+export const REPUTATION_SCORE_SCHEMA_NAME = "SATIReputationScoreV1";
 
 /**
  * SAS Schema definition interface
@@ -74,10 +74,10 @@ export interface SASSchemaDefinition {
   fieldNames: string[];
 }
 
-// Schema name constants
-export const FEEDBACK_SCHEMA_NAME = "SATIFeedback";
-export const FEEDBACK_PUBLIC_SCHEMA_NAME = "SATIFeedbackPublic";
-export const VALIDATION_SCHEMA_NAME = "SATIValidation";
+// Schema name constants (V1 - first production version)
+export const FEEDBACK_SCHEMA_NAME = "SATIFeedbackV1";
+export const FEEDBACK_PUBLIC_SCHEMA_NAME = "SATIFeedbackPublicV1";
+export const VALIDATION_SCHEMA_NAME = "SATIValidationV1";
 
 /**
  * Feedback schema definition for SAS

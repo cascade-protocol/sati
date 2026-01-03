@@ -463,32 +463,33 @@ export interface SchemaConfig {
 }
 
 /**
- * Core SATI schema configurations
+ * Core SATI schema configurations (V1 - first production version)
+ * Names are used in SIWS signing messages shown to users.
  */
 export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
   Feedback: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
     closeable: false,
-    name: "Feedback",
+    name: "FeedbackV1",
   },
   FeedbackPublic: {
     signatureMode: SignatureMode.SingleSigner,
     storageType: StorageType.Compressed,
     closeable: false,
-    name: "FeedbackPublic",
+    name: "FeedbackPublicV1",
   },
   Validation: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
     closeable: false,
-    name: "Validation",
+    name: "ValidationV1",
   },
   ReputationScore: {
     signatureMode: SignatureMode.SingleSigner,
     storageType: StorageType.Regular,
     closeable: true,
-    name: "ReputationScore",
+    name: "ReputationScoreV1",
   },
 } as const;
 

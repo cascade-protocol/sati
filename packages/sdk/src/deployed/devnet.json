@@ -1,15 +1,15 @@
 {
   "network": "devnet",
   "authority": "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z",
-  "deployedAt": "2025-12-30T23:03:52.160Z",
+  "deployedAt": "2026-01-02T19:53:29.373Z",
   "config": {
     "credential": "DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1",
     "schemas": {
-      "feedback": "6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB",
-      "feedbackPublic": "HFVmsUxbCjTmDzWKdBcXhqFBGv7dhq9uuPxo9WejDYz3",
-      "validation": "5VBFsqkX6mG2zBhXBpkCnfvPNcc9mY9UQdCHtnTFHQEF",
-      "reputationScore": "7Pm1CmkMfU8XM3ehApgfsMjfGg6A63y9egVfD1VN8EPd"
+      "feedback": "CPSr2kXADrhfAykcLwr7mxaLtuG4EBkzei9xQCaEmRJS",
+      "feedbackPublic": "7SvB6udRrxTsKLYyoMwCvrm2jiNLUCcWBnhzwDVCebss",
+      "validation": "Ho7nAWqwrxi3AzasoVST2FTKfAbVopk9S6G5cb3Z3DMi",
+      "reputationScore": "DeczMmsAwGR81DSrkmMaRWKS2qhqJdW9zCeNVuNKaceh"
     },
-    "lookupTable": "27hguu51oprJeYLuLqhFsNEnmkZ3NEZojCaXw8VEfjik"
+    "lookupTable": "5PLgF3NagDcQqqeCZdHMzpQPBaBH46Dzn4gqukze4zHn"
   }
 }

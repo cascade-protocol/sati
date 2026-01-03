@@ -570,7 +570,7 @@ async function registerSchemaConfigs(
       signatureMode: config.signatureMode,
       storageType: config.storageType,
       closeable: config.closeable,
-      name: configKey, // Schema name for SIWS messages (e.g., "Feedback", "Validation")
+      name: config.name, // Schema name for SIWS messages (e.g., "FeedbackV1", "ValidationV1")
     });
 
     const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
