@@ -55,25 +55,28 @@ import {
   type ValidityProofArgs,
 } from "../types";
 
-export const CREATE_ATTESTATION_DISCRIMINATOR = new Uint8Array([
-  49, 24, 67, 80, 12, 249, 96, 239,
+export const CREATE_COMPRESSED_ATTESTATION_DISCRIMINATOR = new Uint8Array([
+  204, 251, 61, 109, 25, 133, 237, 77,
 ]);
 
-export function getCreateAttestationDiscriminatorBytes() {
+export function getCreateCompressedAttestationDiscriminatorBytes() {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    CREATE_ATTESTATION_DISCRIMINATOR,
+    CREATE_COMPRESSED_ATTESTATION_DISCRIMINATOR,
   );
 }
 
-export type CreateAttestationInstruction<
+export type CreateCompressedAttestationInstruction<
   TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountPayer extends string | AccountMeta<string> = string,
   TAccountSchemaConfig extends string | AccountMeta<string> = string,
   TAccountInstructionsSysvar extends string | AccountMeta<string> =
     "Sysvar1nstructions1111111111111111111111111",
   TAccountAgentAta extends string | AccountMeta<string> = string,
-  TAccountTokenProgram extends string | AccountMeta<string> =
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  TAccountTokenProgram extends string | AccountMeta<string> = string,
+  TAccountDelegationAttestation extends string | AccountMeta<string> = string,
+  TAccountSatiCredential extends string | AccountMeta<string> = string,
+  TAccountClock extends string | AccountMeta<string> =
+    "SysvarC1ock11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -97,6 +100,15 @@ export type CreateAttestationInstruction<
       TAccountTokenProgram extends string
         ? ReadonlyAccount<TAccountTokenProgram>
         : TAccountTokenProgram,
+      TAccountDelegationAttestation extends string
+        ? ReadonlyAccount<TAccountDelegationAttestation>
+        : TAccountDelegationAttestation,
+      TAccountSatiCredential extends string
+        ? ReadonlyAccount<TAccountSatiCredential>
+        : TAccountSatiCredential,
+      TAccountClock extends string
+        ? ReadonlyAccount<TAccountClock>
+        : TAccountClock,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -107,13 +119,11 @@ export type CreateAttestationInstruction<
     ]
   >;
 
-export type CreateAttestationInstructionData = {
+export type CreateCompressedAttestationInstructionData = {
   discriminator: ReadonlyUint8Array;
-  /** Data type: 0=Feedback, 1=Validation */
-  dataType: number;
-  /** Schema-conformant data bytes (130+ bytes, universal layout) */
+  /** Schema-conformant data bytes (130+ bytes, universal base layout) */
   data: ReadonlyUint8Array;
-  /** Ed25519 signatures with public keys */
+  /** Ed25519 signatures with public keys (1 or 2 depending on SignatureMode) */
   signatures: Array<SignatureData>;
   /** Output state tree index for the new compressed account */
   outputStateTreeIndex: number;
@@ -123,12 +133,10 @@ export type CreateAttestationInstructionData = {
   addressTreeInfo: PackedAddressTreeInfo;
 };
 
-export type CreateAttestationInstructionDataArgs = {
-  /** Data type: 0=Feedback, 1=Validation */
-  dataType: number;
-  /** Schema-conformant data bytes (130+ bytes, universal layout) */
+export type CreateCompressedAttestationInstructionDataArgs = {
+  /** Schema-conformant data bytes (130+ bytes, universal base layout) */
   data: ReadonlyUint8Array;
-  /** Ed25519 signatures with public keys */
+  /** Ed25519 signatures with public keys (1 or 2 depending on SignatureMode) */
   signatures: Array<SignatureDataArgs>;
   /** Output state tree index for the new compressed account */
   outputStateTreeIndex: number;
@@ -138,25 +146,26 @@ export type CreateAttestationInstructionDataArgs = {
   addressTreeInfo: PackedAddressTreeInfoArgs;
 };
 
-export function getCreateAttestationInstructionDataEncoder(): Encoder<CreateAttestationInstructionDataArgs> {
+export function getCreateCompressedAttestationInstructionDataEncoder(): Encoder<CreateCompressedAttestationInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["dataType", getU8Encoder()],
       ["data", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
       ["signatures", getArrayEncoder(getSignatureDataEncoder())],
       ["outputStateTreeIndex", getU8Encoder()],
       ["proof", getValidityProofEncoder()],
       ["addressTreeInfo", getPackedAddressTreeInfoEncoder()],
     ]),
-    (value) => ({ ...value, discriminator: CREATE_ATTESTATION_DISCRIMINATOR }),
+    (value) => ({
+      ...value,
+      discriminator: CREATE_COMPRESSED_ATTESTATION_DISCRIMINATOR,
+    }),
   );
 }
 
-export function getCreateAttestationInstructionDataDecoder(): Decoder<CreateAttestationInstructionData> {
+export function getCreateCompressedAttestationInstructionDataDecoder(): Decoder<CreateCompressedAttestationInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["dataType", getU8Decoder()],
     ["data", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
     ["signatures", getArrayDecoder(getSignatureDataDecoder())],
     ["outputStateTreeIndex", getU8Decoder()],
@@ -165,22 +174,25 @@ export function getCreateAttestationInstructionDataDecoder(): Decoder<CreateAtte
   ]);
 }
 
-export function getCreateAttestationInstructionDataCodec(): Codec<
-  CreateAttestationInstructionDataArgs,
-  CreateAttestationInstructionData
+export function getCreateCompressedAttestationInstructionDataCodec(): Codec<
+  CreateCompressedAttestationInstructionDataArgs,
+  CreateCompressedAttestationInstructionData
 > {
   return combineCodec(
-    getCreateAttestationInstructionDataEncoder(),
-    getCreateAttestationInstructionDataDecoder(),
+    getCreateCompressedAttestationInstructionDataEncoder(),
+    getCreateCompressedAttestationInstructionDataDecoder(),
   );
 }
 
-export type CreateAttestationAsyncInput<
+export type CreateCompressedAttestationAsyncInput<
   TAccountPayer extends string = string,
   TAccountSchemaConfig extends string = string,
   TAccountInstructionsSysvar extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountDelegationAttestation extends string = string,
+  TAccountSatiCredential extends string = string,
+  TAccountClock extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -192,51 +204,81 @@ export type CreateAttestationAsyncInput<
   instructionsSysvar?: Address<TAccountInstructionsSysvar>;
   /**
    * Agent's ATA that holds the NFT - proves signer owns the agent identity.
+   * Required for DualSignature and AgentOwnerSigned modes.
+   * Optional for CounterpartySigned mode (not validated).
+   *
    * The mint must match token_account from attestation data (the agent's MINT address),
    * amount must be >= 1, and owner must match signatures[0].pubkey.
    * Note: token_account in data is the MINT address; this is the holder's ATA.
    */
-  agentAta: Address<TAccountAgentAta>;
-  /** Token-2022 program for ATA verification */
+  agentAta?: Address<TAccountAgentAta>;
+  /**
+   * Token-2022 program for ATA verification.
+   * Required when agent_ata is provided.
+   */
   tokenProgram?: Address<TAccountTokenProgram>;
+  /**
+   * Delegation attestation (optional).
+   * Required when signer != agent ATA owner for AgentOwnerSigned mode.
+   * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
+   */
+  delegationAttestation?: Address<TAccountDelegationAttestation>;
+  /**
+   * SATI SAS credential for delegation PDA derivation.
+   * Required when delegation_attestation is provided.
+   */
+  satiCredential?: Address<TAccountSatiCredential>;
+  /**
+   * Clock sysvar for delegation expiry verification.
+   * Required when delegation_attestation is provided.
+   */
+  clock?: Address<TAccountClock>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
-  dataType: CreateAttestationInstructionDataArgs["dataType"];
-  data: CreateAttestationInstructionDataArgs["data"];
-  signatures: CreateAttestationInstructionDataArgs["signatures"];
-  outputStateTreeIndex: CreateAttestationInstructionDataArgs["outputStateTreeIndex"];
-  proof: CreateAttestationInstructionDataArgs["proof"];
-  addressTreeInfo: CreateAttestationInstructionDataArgs["addressTreeInfo"];
+  data: CreateCompressedAttestationInstructionDataArgs["data"];
+  signatures: CreateCompressedAttestationInstructionDataArgs["signatures"];
+  outputStateTreeIndex: CreateCompressedAttestationInstructionDataArgs["outputStateTreeIndex"];
+  proof: CreateCompressedAttestationInstructionDataArgs["proof"];
+  addressTreeInfo: CreateCompressedAttestationInstructionDataArgs["addressTreeInfo"];
 };
 
-export async function getCreateAttestationInstructionAsync<
+export async function getCreateCompressedAttestationInstructionAsync<
   TAccountPayer extends string,
   TAccountSchemaConfig extends string,
   TAccountInstructionsSysvar extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountDelegationAttestation extends string,
+  TAccountSatiCredential extends string,
+  TAccountClock extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
-  input: CreateAttestationAsyncInput<
+  input: CreateCompressedAttestationAsyncInput<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountDelegationAttestation,
+    TAccountSatiCredential,
+    TAccountClock,
     TAccountEventAuthority,
     TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  CreateAttestationInstruction<
+  CreateCompressedAttestationInstruction<
     TProgramAddress,
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountDelegationAttestation,
+    TAccountSatiCredential,
+    TAccountClock,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -254,6 +296,12 @@ export async function getCreateAttestationInstructionAsync<
     },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    delegationAttestation: {
+      value: input.delegationAttestation ?? null,
+      isWritable: false,
+    },
+    satiCredential: { value: input.satiCredential ?? null, isWritable: false },
+    clock: { value: input.clock ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -270,9 +318,9 @@ export async function getCreateAttestationInstructionAsync<
     accounts.instructionsSysvar.value =
       "Sysvar1nstructions1111111111111111111111111" as Address<"Sysvar1nstructions1111111111111111111111111">;
   }
-  if (!accounts.tokenProgram.value) {
-    accounts.tokenProgram.value =
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
+  if (!accounts.clock.value) {
+    accounts.clock.value =
+      "SysvarC1ock11111111111111111111111111111111" as Address<"SysvarC1ock11111111111111111111111111111111">;
   }
   if (!accounts.eventAuthority.value) {
     accounts.eventAuthority.value = await getProgramDerivedAddress({
@@ -296,31 +344,40 @@ export async function getCreateAttestationInstructionAsync<
       getAccountMeta(accounts.instructionsSysvar),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.delegationAttestation),
+      getAccountMeta(accounts.satiCredential),
+      getAccountMeta(accounts.clock),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
-    data: getCreateAttestationInstructionDataEncoder().encode(
-      args as CreateAttestationInstructionDataArgs,
+    data: getCreateCompressedAttestationInstructionDataEncoder().encode(
+      args as CreateCompressedAttestationInstructionDataArgs,
     ),
     programAddress,
-  } as CreateAttestationInstruction<
+  } as CreateCompressedAttestationInstruction<
     TProgramAddress,
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountDelegationAttestation,
+    TAccountSatiCredential,
+    TAccountClock,
     TAccountEventAuthority,
     TAccountProgram
   >);
 }
 
-export type CreateAttestationInput<
+export type CreateCompressedAttestationInput<
   TAccountPayer extends string = string,
   TAccountSchemaConfig extends string = string,
   TAccountInstructionsSysvar extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountDelegationAttestation extends string = string,
+  TAccountSatiCredential extends string = string,
+  TAccountClock extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -332,50 +389,80 @@ export type CreateAttestationInput<
   instructionsSysvar?: Address<TAccountInstructionsSysvar>;
   /**
    * Agent's ATA that holds the NFT - proves signer owns the agent identity.
+   * Required for DualSignature and AgentOwnerSigned modes.
+   * Optional for CounterpartySigned mode (not validated).
+   *
    * The mint must match token_account from attestation data (the agent's MINT address),
    * amount must be >= 1, and owner must match signatures[0].pubkey.
    * Note: token_account in data is the MINT address; this is the holder's ATA.
    */
-  agentAta: Address<TAccountAgentAta>;
-  /** Token-2022 program for ATA verification */
+  agentAta?: Address<TAccountAgentAta>;
+  /**
+   * Token-2022 program for ATA verification.
+   * Required when agent_ata is provided.
+   */
   tokenProgram?: Address<TAccountTokenProgram>;
+  /**
+   * Delegation attestation (optional).
+   * Required when signer != agent ATA owner for AgentOwnerSigned mode.
+   * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
+   */
+  delegationAttestation?: Address<TAccountDelegationAttestation>;
+  /**
+   * SATI SAS credential for delegation PDA derivation.
+   * Required when delegation_attestation is provided.
+   */
+  satiCredential?: Address<TAccountSatiCredential>;
+  /**
+   * Clock sysvar for delegation expiry verification.
+   * Required when delegation_attestation is provided.
+   */
+  clock?: Address<TAccountClock>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
-  dataType: CreateAttestationInstructionDataArgs["dataType"];
-  data: CreateAttestationInstructionDataArgs["data"];
-  signatures: CreateAttestationInstructionDataArgs["signatures"];
-  outputStateTreeIndex: CreateAttestationInstructionDataArgs["outputStateTreeIndex"];
-  proof: CreateAttestationInstructionDataArgs["proof"];
-  addressTreeInfo: CreateAttestationInstructionDataArgs["addressTreeInfo"];
+  data: CreateCompressedAttestationInstructionDataArgs["data"];
+  signatures: CreateCompressedAttestationInstructionDataArgs["signatures"];
+  outputStateTreeIndex: CreateCompressedAttestationInstructionDataArgs["outputStateTreeIndex"];
+  proof: CreateCompressedAttestationInstructionDataArgs["proof"];
+  addressTreeInfo: CreateCompressedAttestationInstructionDataArgs["addressTreeInfo"];
 };
 
-export function getCreateAttestationInstruction<
+export function getCreateCompressedAttestationInstruction<
   TAccountPayer extends string,
   TAccountSchemaConfig extends string,
   TAccountInstructionsSysvar extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountDelegationAttestation extends string,
+  TAccountSatiCredential extends string,
+  TAccountClock extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
-  input: CreateAttestationInput<
+  input: CreateCompressedAttestationInput<
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountDelegationAttestation,
+    TAccountSatiCredential,
+    TAccountClock,
     TAccountEventAuthority,
     TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress },
-): CreateAttestationInstruction<
+): CreateCompressedAttestationInstruction<
   TProgramAddress,
   TAccountPayer,
   TAccountSchemaConfig,
   TAccountInstructionsSysvar,
   TAccountAgentAta,
   TAccountTokenProgram,
+  TAccountDelegationAttestation,
+  TAccountSatiCredential,
+  TAccountClock,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -392,6 +479,12 @@ export function getCreateAttestationInstruction<
     },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    delegationAttestation: {
+      value: input.delegationAttestation ?? null,
+      isWritable: false,
+    },
+    satiCredential: { value: input.satiCredential ?? null, isWritable: false },
+    clock: { value: input.clock ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -408,9 +501,9 @@ export function getCreateAttestationInstruction<
     accounts.instructionsSysvar.value =
       "Sysvar1nstructions1111111111111111111111111" as Address<"Sysvar1nstructions1111111111111111111111111">;
   }
-  if (!accounts.tokenProgram.value) {
-    accounts.tokenProgram.value =
-      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" as Address<"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA">;
+  if (!accounts.clock.value) {
+    accounts.clock.value =
+      "SysvarC1ock11111111111111111111111111111111" as Address<"SysvarC1ock11111111111111111111111111111111">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -421,26 +514,32 @@ export function getCreateAttestationInstruction<
       getAccountMeta(accounts.instructionsSysvar),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.delegationAttestation),
+      getAccountMeta(accounts.satiCredential),
+      getAccountMeta(accounts.clock),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
-    data: getCreateAttestationInstructionDataEncoder().encode(
-      args as CreateAttestationInstructionDataArgs,
+    data: getCreateCompressedAttestationInstructionDataEncoder().encode(
+      args as CreateCompressedAttestationInstructionDataArgs,
     ),
     programAddress,
-  } as CreateAttestationInstruction<
+  } as CreateCompressedAttestationInstruction<
     TProgramAddress,
     TAccountPayer,
     TAccountSchemaConfig,
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountDelegationAttestation,
+    TAccountSatiCredential,
+    TAccountClock,
     TAccountEventAuthority,
     TAccountProgram
   >);
 }
 
-export type ParsedCreateAttestationInstruction<
+export type ParsedCreateCompressedAttestationInstruction<
   TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
@@ -454,28 +553,50 @@ export type ParsedCreateAttestationInstruction<
     instructionsSysvar: TAccountMetas[2];
     /**
      * Agent's ATA that holds the NFT - proves signer owns the agent identity.
+     * Required for DualSignature and AgentOwnerSigned modes.
+     * Optional for CounterpartySigned mode (not validated).
+     *
      * The mint must match token_account from attestation data (the agent's MINT address),
      * amount must be >= 1, and owner must match signatures[0].pubkey.
      * Note: token_account in data is the MINT address; this is the holder's ATA.
      */
-    agentAta: TAccountMetas[3];
-    /** Token-2022 program for ATA verification */
-    tokenProgram: TAccountMetas[4];
-    eventAuthority: TAccountMetas[5];
-    program: TAccountMetas[6];
+    agentAta?: TAccountMetas[3] | undefined;
+    /**
+     * Token-2022 program for ATA verification.
+     * Required when agent_ata is provided.
+     */
+    tokenProgram?: TAccountMetas[4] | undefined;
+    /**
+     * Delegation attestation (optional).
+     * Required when signer != agent ATA owner for AgentOwnerSigned mode.
+     * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
+     */
+    delegationAttestation?: TAccountMetas[5] | undefined;
+    /**
+     * SATI SAS credential for delegation PDA derivation.
+     * Required when delegation_attestation is provided.
+     */
+    satiCredential?: TAccountMetas[6] | undefined;
+    /**
+     * Clock sysvar for delegation expiry verification.
+     * Required when delegation_attestation is provided.
+     */
+    clock?: TAccountMetas[7] | undefined;
+    eventAuthority: TAccountMetas[8];
+    program: TAccountMetas[9];
   };
-  data: CreateAttestationInstructionData;
+  data: CreateCompressedAttestationInstructionData;
 };
 
-export function parseCreateAttestationInstruction<
+export function parseCreateCompressedAttestationInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
-): ParsedCreateAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 7) {
+): ParsedCreateCompressedAttestationInstruction<TProgram, TAccountMetas> {
+  if (instruction.accounts.length < 10) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -485,17 +606,28 @@ export function parseCreateAttestationInstruction<
     accountIndex += 1;
     return accountMeta;
   };
+  const getNextOptionalAccount = () => {
+    const accountMeta = getNextAccount();
+    return accountMeta.address === SATI_PROGRAM_ADDRESS
+      ? undefined
+      : accountMeta;
+  };
   return {
     programAddress: instruction.programAddress,
     accounts: {
       payer: getNextAccount(),
       schemaConfig: getNextAccount(),
       instructionsSysvar: getNextAccount(),
-      agentAta: getNextAccount(),
-      tokenProgram: getNextAccount(),
+      agentAta: getNextOptionalAccount(),
+      tokenProgram: getNextOptionalAccount(),
+      delegationAttestation: getNextOptionalAccount(),
+      satiCredential: getNextOptionalAccount(),
+      clock: getNextOptionalAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },
-    data: getCreateAttestationInstructionDataDecoder().decode(instruction.data),
+    data: getCreateCompressedAttestationInstructionDataDecoder().decode(
+      instruction.data,
+    ),
   };
 }

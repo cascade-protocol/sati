@@ -18,8 +18,13 @@ use crate::common::setup::{ATA_PROGRAM_ID, SATI_PROGRAM_ID, TOKEN_2022_PROGRAM_I
 /// RegistryConfig account size (matches Rust struct)
 pub const REGISTRY_CONFIG_SIZE: usize = 8 + 32 + 32 + 8 + 1; // 81 bytes
 
-/// SchemaConfig account size (matches Rust struct)
-pub const SCHEMA_CONFIG_SIZE: usize = 8 + 32 + 1 + 1 + 1 + 1; // 44 bytes
+/// Maximum SchemaConfig account size (delegation_schema = Some, name = 32 chars).
+///
+/// Fields: discriminator(8) + sas_schema(32) + signature_mode(1) + storage_type(1)
+/// + delegation_schema(33) + closeable(1) + name(36) + bump(1) = 113 bytes.
+///
+/// For tests with "Feedback" (8 chars) and None delegation, actual size = 57 bytes.
+pub const SCHEMA_CONFIG_SIZE: usize = 8 + 32 + 1 + 1 + 1 + 32 + 1 + 4 + 32 + 1; // 113 bytes max
 
 /// Airdrop SOL to an account
 pub fn airdrop(svm: &mut LiteSVM, pubkey: &Pubkey, lamports: u64) {

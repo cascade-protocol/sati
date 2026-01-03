@@ -12,8 +12,6 @@ import {
   getAddressEncoder,
   getStructDecoder,
   getStructEncoder,
-  getU8Decoder,
-  getU8Encoder,
   type Address,
   type FixedSizeCodec,
   type FixedSizeDecoder,
@@ -34,8 +32,6 @@ export type AttestationCreated = {
   tokenAccount: Address;
   /** Counterparty (client for Feedback, validator for Validation, provider for ReputationScore) */
   counterparty: Address;
-  /** Schema data type (0=Feedback, 1=Validation, 2=ReputationScore) */
-  dataType: number;
   /** Storage type used */
   storageType: StorageType;
   /** Attestation address (Light address for compressed, PDA for regular) */
@@ -49,8 +45,6 @@ export type AttestationCreatedArgs = {
   tokenAccount: Address;
   /** Counterparty (client for Feedback, validator for Validation, provider for ReputationScore) */
   counterparty: Address;
-  /** Schema data type (0=Feedback, 1=Validation, 2=ReputationScore) */
-  dataType: number;
   /** Storage type used */
   storageType: StorageTypeArgs;
   /** Attestation address (Light address for compressed, PDA for regular) */
@@ -62,7 +56,6 @@ export function getAttestationCreatedEncoder(): FixedSizeEncoder<AttestationCrea
     ["sasSchema", getAddressEncoder()],
     ["tokenAccount", getAddressEncoder()],
     ["counterparty", getAddressEncoder()],
-    ["dataType", getU8Encoder()],
     ["storageType", getStorageTypeEncoder()],
     ["address", getAddressEncoder()],
   ]);
@@ -73,7 +66,6 @@ export function getAttestationCreatedDecoder(): FixedSizeDecoder<AttestationCrea
     ["sasSchema", getAddressDecoder()],
     ["tokenAccount", getAddressDecoder()],
     ["counterparty", getAddressDecoder()],
-    ["dataType", getU8Decoder()],
     ["storageType", getStorageTypeDecoder()],
     ["address", getAddressDecoder()],
   ]);

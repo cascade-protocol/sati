@@ -24,8 +24,13 @@ use crate::common::{
     setup::derive_schema_config_pda,
 };
 
-/// SchemaConfig account size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 1 = 44 bytes
-const SCHEMA_CONFIG_SIZE: usize = 44;
+/// Schema name for layout calculation
+const SCHEMA_NAME: &str = "Feedback";
+
+/// SchemaConfig account size with "Feedback" name and delegation_schema = None:
+/// 8 (discriminator) + 32 (sas_schema) + 1 (signature_mode) + 1 (storage_type)
+/// + 1 (delegation_schema=None) + 1 (closeable) + 4 (name_len) + 8 (name) + 1 (bump) = 57 bytes
+const SCHEMA_CONFIG_SIZE: usize = 57;
 
 /// Build mock SchemaConfig account data
 fn build_schema_config_data(
@@ -41,8 +46,11 @@ fn build_schema_config_data(
     data[8..40].copy_from_slice(sas_schema.as_ref());
     data[40] = signature_mode as u8;
     data[41] = storage_type as u8;
-    data[42] = if closeable { 1 } else { 0 };
-    data[43] = bump;
+    data[42] = 0; // delegation_schema = None
+    data[43] = closeable as u8;
+    data[44..48].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
+    data[48..48 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
+    data[48 + SCHEMA_NAME.len()] = bump;
     data
 }
 
@@ -81,7 +89,7 @@ async fn test_close_attestation_by_counterparty() {
 
     // Verify schema data structure
     assert_eq!(schema_data.len(), SCHEMA_CONFIG_SIZE);
-    assert_eq!(schema_data[42], 1, "closeable should be true");
+    assert_eq!(schema_data[43], 1, "closeable should be true");
     assert_eq!(
         schema_data[41],
         StorageType::Compressed as u8,
@@ -125,7 +133,7 @@ async fn test_close_attestation_by_agent() {
         bump,
     );
 
-    assert_eq!(schema_data[42], 1, "closeable should be true");
+    assert_eq!(schema_data[43], 1, "closeable should be true");
 
     println!(
         "Test setup complete. Full integration test requires localnet with Light Protocol prover."
@@ -161,7 +169,7 @@ async fn test_close_attestation_unauthorized() {
 
     let unauthorized = Keypair::new();
 
-    assert_eq!(schema_data[42], 1, "closeable should be true");
+    assert_eq!(schema_data[43], 1, "closeable should be true");
     println!("Unauthorized signer: {}", unauthorized.pubkey());
     println!("Expected error: UnauthorizedClose (6040)");
 }
@@ -193,7 +201,7 @@ async fn test_close_attestation_not_closeable() {
         bump,
     );
 
-    assert_eq!(schema_data[42], 0, "closeable should be false");
+    assert_eq!(schema_data[43], 0, "closeable should be false");
     println!("Schema config PDA: {}", schema_config_pda);
     println!("Expected error: AttestationNotCloseable (6041)");
 }

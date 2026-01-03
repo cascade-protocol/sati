@@ -4,15 +4,16 @@
  * Data layouts for SATI attestations with fixed offsets for memcmp filtering.
  * These schemas must match the on-chain program's expectations.
  *
- * ## Universal Base Layout (130 bytes)
- * All schemas share identical first 130 bytes:
- *   - task_ref: 0-31 (32 bytes) - CAIP-220 tx hash or task ID
- *   - token_account: 32-63 (32 bytes) - agent's MINT ADDRESS
- *   - counterparty: 64-95 (32 bytes) - counterparty address
- *   - outcome: 96 (1 byte) - 0=Negative, 1=Neutral, 2=Positive
- *   - data_hash: 97-128 (32 bytes) - blind commitment (zeros for SingleSigner)
- *   - content_type: 129 (1 byte) - format: 0=None, 1=JSON, 2=UTF-8, etc.
- *   - content: 130+ (variable) - up to 512 bytes
+ * ## Universal Base Layout (131 bytes)
+ * All schemas share identical first 131 bytes:
+ *   - layout_version: 0 (1 byte) - version of the universal base layout
+ *   - task_ref: 1-32 (32 bytes) - CAIP-220 tx hash or task ID
+ *   - token_account: 33-64 (32 bytes) - agent's MINT ADDRESS
+ *   - counterparty: 65-96 (32 bytes) - counterparty address
+ *   - outcome: 97 (1 byte) - 0=Negative, 1=Neutral, 2=Positive
+ *   - data_hash: 98-129 (32 bytes) - blind commitment (zeros for CounterpartySigned)
+ *   - content_type: 130 (1 byte) - format: 0=None, 1=JSON, 2=UTF-8, etc.
+ *   - content: 131+ (variable) - up to 512 bytes
  *
  * ## Identity Model
  * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
@@ -53,12 +54,18 @@ export const MAX_SINGLE_SIGNATURE_CONTENT_SIZE = 240;
 
 /**
  * Minimum universal base layout size.
- * All schemas share: task_ref(32) + token_account(32) + counterparty(32) +
- * outcome(1) + data_hash(32) + content_type(1) = 130 bytes.
+ * All schemas share: layout_version(1) + task_ref(32) + token_account(32) + counterparty(32) +
+ * outcome(1) + data_hash(32) + content_type(1) = 131 bytes.
  *
  * Note: token_account stores the agent's mint address (named for SAS compatibility).
  */
-export const MIN_BASE_LAYOUT_SIZE = 130;
+export const MIN_BASE_LAYOUT_SIZE = 131;
+
+/**
+ * Current layout version for universal base layout.
+ * Increment when making breaking changes to the layout structure.
+ */
+export const CURRENT_LAYOUT_VERSION = 1;
 
 /**
  * SAS attestation header size in bytes.
@@ -79,20 +86,22 @@ export const SAS_HEADER_SIZE = 101;
  * Must match programs/sati/src/constants.rs offsets module.
  */
 export const OFFSETS = {
+  /** Layout version (1 byte) - version of the universal base layout */
+  LAYOUT_VERSION: 0,
   /** CAIP-220 tx hash or task identifier (32 bytes) */
-  TASK_REF: 0,
+  TASK_REF: 1,
   /** Agent's mint address (32 bytes) */
-  TOKEN_ACCOUNT: 32,
+  TOKEN_ACCOUNT: 33,
   /** Counterparty address (32 bytes) */
-  COUNTERPARTY: 64,
+  COUNTERPARTY: 65,
   /** Outcome: 0=Negative, 1=Neutral, 2=Positive */
-  OUTCOME: 96,
-  /** Blind commitment hash (32 bytes, zeros for SingleSigner) */
-  DATA_HASH: 97,
+  OUTCOME: 97,
+  /** Blind commitment hash (32 bytes, zeros for CounterpartySigned) */
+  DATA_HASH: 98,
   /** Content format: 0=None, 1=JSON, 2=UTF-8, etc. */
-  CONTENT_TYPE: 129,
+  CONTENT_TYPE: 130,
   /** Variable-length content (up to 512 bytes) */
-  CONTENT: 130,
+  CONTENT: 131,
 } as const;
 
 /** Alias for backward compatibility */
@@ -166,25 +175,10 @@ export enum ValidationType {
   Consensus = 3,
 }
 
-/**
- * Signature mode for schema configuration
- */
-export enum SignatureMode {
-  /** Two signatures: agent + counterparty (blind feedback model) */
-  DualSignature = 0,
-  /** Single signature: provider signs (ReputationScore) */
-  SingleSigner = 1,
-}
-
-/**
- * Storage type for attestations
- */
-export enum StorageType {
-  /** Light Protocol compressed accounts */
-  Compressed = 0,
-  /** Regular SAS accounts */
-  Regular = 1,
-}
+// Import from generated (Codama is the source of truth)
+// Already exported via "export * from ./generated" in index.ts
+import { SignatureMode } from "./generated/types/signatureMode";
+import { StorageType } from "./generated/types/storageType";
 
 // ============================================================================
 // Base Layout
@@ -410,15 +404,13 @@ export interface CompressedAttestation {
   sasSchema: Address;
   /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
   tokenAccount: Address;
-  /** Data type discriminator: 0=Feedback, 1=Validation */
-  dataType: DataType;
   /** Schema-conformant data bytes */
   data: Uint8Array;
   /** Number of signatures stored (1 or 2) */
   numSignatures: number;
-  /** First signature (agent for DualSignature) */
+  /** First signature (agent for DualSignature, counterparty for CounterpartySigned) */
   signature1: Uint8Array;
-  /** Second signature (counterparty for DualSignature, zeroed for SingleSigner) */
+  /** Second signature (counterparty for DualSignature, zeroed for CounterpartySigned/AgentOwnerSigned) */
   signature2: Uint8Array;
 }
 
@@ -430,16 +422,13 @@ export interface CompressedAttestation {
  * with the attestation fields:
  *   - bytes 0-31:  sasSchema (Pubkey)
  *   - bytes 32-63: tokenAccount (Pubkey)
- *   - byte 64:     dataType (u8)
- *   - bytes 65+:   schemaData (Vec<u8>)
+ *   - bytes 64+:   schemaData (Vec<u8>)
  */
 export const COMPRESSED_OFFSETS = {
   /** SAS schema pubkey offset for memcmp */
   SAS_SCHEMA: 0,
   /** Agent mint address offset for memcmp (named tokenAccount for SAS compatibility) */
   TOKEN_ACCOUNT: 32,
-  /** Data type byte offset */
-  DATA_TYPE: 64,
 } as const;
 
 // ============================================================================
@@ -456,6 +445,12 @@ export interface SchemaConfig {
   signatureMode: SignatureMode;
   /** Storage backend type */
   storageType: StorageType;
+  /**
+   * Schema for delegation verification (only for AgentOwnerSigned mode).
+   * If set, allows delegates (via DelegateV1 attestations) to sign on behalf of agent owner.
+   * If null, only the agent owner can sign.
+   */
+  delegationSchema: Address | null;
   /** Whether attestations can be closed/nullified */
   closeable: boolean;
   /** Human-readable schema name (max 32 chars) */
@@ -465,31 +460,46 @@ export interface SchemaConfig {
 /**
  * Core SATI schema configurations (V1 - first production version)
  * Names are used in SIWS signing messages shown to users.
+ *
+ * Note: delegationSchema is null here and set at deployment time for schemas
+ * that support delegation (Feedback, Validation). The DelegateV1 schema address
+ * is used to verify delegation attestations at runtime.
  */
 export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
   Feedback: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
+    delegationSchema: null, // Set at deployment to DelegateV1 schema address
     closeable: false,
     name: "FeedbackV1",
   },
   FeedbackPublic: {
-    signatureMode: SignatureMode.SingleSigner,
+    signatureMode: SignatureMode.CounterpartySigned,
     storageType: StorageType.Compressed,
+    delegationSchema: null, // No delegation for CounterpartySigned
     closeable: false,
     name: "FeedbackPublicV1",
   },
   Validation: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
+    delegationSchema: null, // Set at deployment to DelegateV1 schema address
     closeable: false,
     name: "ValidationV1",
   },
   ReputationScore: {
-    signatureMode: SignatureMode.SingleSigner,
+    signatureMode: SignatureMode.CounterpartySigned,
     storageType: StorageType.Regular,
+    delegationSchema: null, // Provider controls, no delegation
     closeable: true,
     name: "ReputationScoreV1",
+  },
+  Delegate: {
+    signatureMode: SignatureMode.AgentOwnerSigned,
+    storageType: StorageType.Regular,
+    delegationSchema: null, // No delegation for delegation itself (no recursive delegation)
+    closeable: true,
+    name: "DelegateV1",
   },
 } as const;
 
@@ -521,10 +531,13 @@ export function bytesToAddress(bytes: Uint8Array): Address {
 export function serializeUniversalLayout(data: BaseLayout): Uint8Array {
   const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
 
-  // Total size: 130 (base) + content
+  // Total size: 131 (base) + content
   const totalSize = MIN_BASE_LAYOUT_SIZE + contentBytes.length;
   const buffer = new Uint8Array(totalSize);
   let offset = 0;
+
+  // layoutVersion (1 byte)
+  buffer[offset++] = CURRENT_LAYOUT_VERSION;
 
   // taskRef (32 bytes)
   buffer.set(data.taskRef, offset);
@@ -563,6 +576,9 @@ export function deserializeUniversalLayout(bytes: Uint8Array): BaseLayout {
   }
 
   let offset = 0;
+
+  // Skip layoutVersion (1 byte) - already validated on-chain
+  offset += 1;
 
   // taskRef (32 bytes)
   const taskRef = bytes.slice(offset, offset + 32);
@@ -682,7 +698,7 @@ export function createJsonContent<T>(content: T): Uint8Array {
 }
 
 /**
- * Create zero-filled data hash (for SingleSigner schemas)
+ * Create zero-filled data hash (for CounterpartySigned/AgentOwnerSigned schemas)
  */
 export function zeroDataHash(): Uint8Array {
   return new Uint8Array(32);
@@ -694,6 +710,11 @@ export function zeroDataHash(): Uint8Array {
 export function validateBaseLayout(data: Uint8Array): void {
   if (data.length < MIN_BASE_LAYOUT_SIZE) {
     throw new Error(`Data too small (minimum ${MIN_BASE_LAYOUT_SIZE} bytes)`);
+  }
+
+  const version = data[OFFSETS.LAYOUT_VERSION];
+  if (version !== CURRENT_LAYOUT_VERSION) {
+    throw new Error(`Unsupported layout version: ${version} (expected ${CURRENT_LAYOUT_VERSION})`);
   }
 
   const outcome = data[OFFSETS.OUTCOME];
@@ -741,7 +762,7 @@ export interface ContentSizeValidationResult {
 /**
  * Get maximum content size for a signature mode.
  *
- * @param signatureMode - DualSignature (0) or SingleSigner (1)
+ * @param signatureMode - DualSignature, CounterpartySigned, or AgentOwnerSigned
  * @returns Maximum content size in bytes
  *
  * @example
@@ -753,14 +774,14 @@ export interface ContentSizeValidationResult {
 export function getMaxContentSize(signatureMode: SignatureMode): number {
   return signatureMode === SignatureMode.DualSignature
     ? MAX_DUAL_SIGNATURE_CONTENT_SIZE
-    : MAX_SINGLE_SIGNATURE_CONTENT_SIZE;
+    : MAX_SINGLE_SIGNATURE_CONTENT_SIZE; // CounterpartySigned and AgentOwnerSigned both use single signature
 }
 
 /**
  * Validate content size for a given signature mode.
  *
  * @param content - Content bytes to validate
- * @param signatureMode - DualSignature (0) or SingleSigner (1)
+ * @param signatureMode - DualSignature, CounterpartySigned, or AgentOwnerSigned
  * @param options - Validation options
  * @returns Validation result
  * @throws Error if content exceeds limit and throwOnError is true (default)

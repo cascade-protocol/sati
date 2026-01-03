@@ -2,10 +2,38 @@
  * SATI Type Definitions
  *
  * Core types for agent identity, reputation, and validation.
+ *
+ * ## Naming Convention: tokenAccount vs agentMint
+ *
+ * The on-chain program and SAS wire format use `tokenAccount` to store the
+ * agent's **mint address** (not an ATA). This naming is inherited from SAS
+ * for wire format efficiency.
+ *
+ * In the SDK, we use two conventions:
+ * - `tokenAccount` - For wire format compatibility (internal/low-level)
+ * - `agentMint` - For public API clarity (preferred in user-facing code)
+ *
+ * Both refer to the same thing: the agent's NFT mint address (stable identity).
  */
 
 import type { Address, KeyPairSigner } from "@solana/kit";
 import type { ParsedAttestation } from "./compression";
+
+/**
+ * Agent mint address type alias for clarity.
+ *
+ * This is the agent's NFT mint address (stable identity), NOT an Associated
+ * Token Account. Named `tokenAccount` in on-chain code and wire format for
+ * SAS compatibility, but `agentMint` in SDK public APIs for clarity.
+ *
+ * @example
+ * ```typescript
+ * const agentMint: AgentMint = "SATIAgent1111...";
+ * // Same as:
+ * const tokenAccount: Address = "SATIAgent1111...";
+ * ```
+ */
+export type AgentMint = Address;
 
 /**
  * Agent identity information retrieved from Token-2022 NFT
@@ -49,7 +77,7 @@ export interface SATIClientOptions {
   rpcUrl?: string;
   /** Custom WebSocket URL for subscriptions (overrides network default) */
   wsUrl?: string;
-  /** Photon RPC URL for Light Protocol queries (required for compressed attestations) */
+  /** Photon RPC URL for Light Protocol queries (defaults to rpcUrl, works with Helius) */
   photonRpcUrl?: string;
 }
 
@@ -71,6 +99,8 @@ export interface SATISASConfig {
     validation: Address;
     /** ReputationScore schema (regular SAS, single signer) */
     reputationScore: Address;
+    /** Delegate schema (regular SAS, agent owner signed) */
+    delegate: Address;
   };
   /** Address Lookup Table for transaction compression (optional, created after schemas) */
   lookupTable?: Address;
@@ -177,8 +207,8 @@ export interface CloseAttestationResult {
 export interface SignatureVerificationResult {
   /** Whether all signatures are valid */
   valid: boolean;
-  /** Whether agent signature is valid */
-  agentValid: boolean;
+  /** Whether agent signature is valid. Undefined for CounterpartySigned/AgentOwnerSigned schemas where agent doesn't sign. */
+  agentValid?: boolean;
   /** Whether counterparty signature is valid (client/validator/provider). Undefined if schema name not provided. */
   counterpartyValid?: boolean;
 }

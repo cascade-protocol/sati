@@ -77,6 +77,9 @@ pub enum SatiError {
     #[msg("Agent ATA is empty - signer does not own the agent NFT")]
     AgentAtaEmpty,
 
+    #[msg("Agent ATA required for this signature mode")]
+    AgentAtaRequired,
+
     #[msg("Unauthorized to close attestation")]
     UnauthorizedClose,
 
@@ -88,6 +91,9 @@ pub enum SatiError {
 
     #[msg("Invalid content type (must be 0-15)")]
     InvalidContentType,
+
+    #[msg("Unsupported layout version")]
+    UnsupportedLayoutVersion,
 
     #[msg("Light Protocol CPI invocation failed")]
     LightCpiInvocationFailed,
@@ -106,6 +112,39 @@ pub enum SatiError {
 
     #[msg("Duplicate signers not allowed for dual signature mode")]
     DuplicateSigners,
+
+    #[msg("No Ed25519 instruction found in transaction")]
+    Ed25519InstructionNotFound,
+
+    #[msg("Agent's Ed25519 signature not found (message content mismatch)")]
+    AgentSignatureNotFound,
+
+    #[msg("Counterparty's Ed25519 signature not found (message content mismatch)")]
+    CounterpartySignatureNotFound,
+
+    // ========================================================================
+    // Delegation Errors
+    // ========================================================================
+    #[msg("Schema requires owner signature but delegate attempted")]
+    OwnerOnly,
+
+    #[msg("Delegate signed but no delegation attestation provided")]
+    DelegationAttestationRequired,
+
+    #[msg("Delegation attestation PDA doesn't match expected derivation")]
+    InvalidDelegationPDA,
+
+    #[msg("Delegation attestation delegate doesn't match signer")]
+    DelegateMismatch,
+
+    #[msg("Delegation attestation agent doesn't match target agent")]
+    AgentMintMismatch,
+
+    #[msg("Delegation was created by different owner (NFT was transferred)")]
+    DelegationOwnerMismatch,
+
+    #[msg("Delegation attestation has expired")]
+    DelegationExpired,
 
     // ========================================================================
     // EVM Linking Errors

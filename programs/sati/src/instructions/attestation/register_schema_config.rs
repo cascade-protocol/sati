@@ -42,6 +42,7 @@ pub fn handler(
     sas_schema: Pubkey,
     signature_mode: SignatureMode,
     storage_type: StorageType,
+    delegation_schema: Option<Pubkey>,
     closeable: bool,
     name: String,
 ) -> Result<()> {
@@ -50,6 +51,7 @@ pub fn handler(
     schema_config.sas_schema = sas_schema;
     schema_config.signature_mode = signature_mode;
     schema_config.storage_type = storage_type;
+    schema_config.delegation_schema = delegation_schema;
     schema_config.closeable = closeable;
     schema_config.name = name.clone();
     schema_config.bump = ctx.bumps.schema_config;
@@ -58,6 +60,7 @@ pub fn handler(
         schema: sas_schema,
         signature_mode,
         storage_type,
+        delegation_schema,
         closeable,
         name,
     });

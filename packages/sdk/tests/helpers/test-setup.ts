@@ -32,7 +32,7 @@ import {
   type Address,
 } from "@solana/kit";
 import { Sati } from "../../src";
-import { SignatureMode, StorageType } from "../../src/schemas";
+import { SignatureMode, StorageType } from "../../src/generated";
 import { createTestKeypair, type TestKeypair } from "./signatures";
 import { createSatiLookupTable } from "./lookup-table";
 

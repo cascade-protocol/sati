@@ -53,6 +53,7 @@ pub fn build_register_schema_config_ix(
     sas_schema: &Pubkey,
     signature_mode: SignatureMode,
     storage_type: StorageType,
+    delegation_schema: Option<Pubkey>,
     closeable: bool,
     name: String,
 ) -> Instruction {
@@ -60,6 +61,7 @@ pub fn build_register_schema_config_ix(
         sas_schema: *sas_schema,
         signature_mode,
         storage_type,
+        delegation_schema,
         closeable,
         name,
     };
@@ -151,20 +153,23 @@ const TOKEN_2022_PROGRAM_ID: Pubkey =
 ///
 /// The agent_ata must hold the agent NFT (mint == token_account from data).
 /// Authorization is verified via ATA ownership, not by pubkey == mint.
-pub fn build_create_attestation_ix(
+pub fn build_create_compressed_attestation_ix(
     payer: &Pubkey,
     schema_config: &Pubkey,
-    agent_ata: &Pubkey,
+    agent_ata: Option<&Pubkey>,
     params: CreateParams,
     remaining_accounts: Vec<AccountMeta>,
 ) -> Instruction {
-    let instruction_data = instruction::CreateAttestation { params };
-    let mut account_metas = accounts::CreateAttestation {
+    let instruction_data = instruction::CreateCompressedAttestation { params };
+    let mut account_metas = accounts::CreateCompressedAttestation {
         payer: *payer,
         schema_config: *schema_config,
         instructions_sysvar: solana_sdk::sysvar::instructions::ID,
-        agent_ata: *agent_ata,
-        token_program: TOKEN_2022_PROGRAM_ID,
+        agent_ata: agent_ata.copied(),
+        token_program: agent_ata.map(|_| TOKEN_2022_PROGRAM_ID),
+        delegation_attestation: None,
+        sati_credential: None,
+        clock: None,
         event_authority: derive_event_authority(),
         program: SATI_PROGRAM_ID,
     }
@@ -180,19 +185,19 @@ pub fn build_create_attestation_ix(
     }
 }
 
-/// Build close_attestation instruction for compressed storage
+/// Build close_compressed_attestation instruction for compressed storage
 ///
 /// If the signer is the counterparty, agent_ata can be None.
 /// If the signer is the NFT owner, agent_ata must be Some(ata) to prove ownership.
-pub fn build_close_attestation_ix(
+pub fn build_close_compressed_attestation_ix(
     signer: &Pubkey,
     schema_config: &Pubkey,
     agent_ata: Option<&Pubkey>,
     params: CloseParams,
     remaining_accounts: Vec<AccountMeta>,
 ) -> Instruction {
-    let instruction_data = instruction::CloseAttestation { params };
-    let mut account_metas = accounts::CloseAttestation {
+    let instruction_data = instruction::CloseCompressedAttestation { params };
+    let mut account_metas = accounts::CloseCompressedAttestation {
         signer: *signer,
         schema_config: *schema_config,
         agent_ata: agent_ata.copied(),

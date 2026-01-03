@@ -13,9 +13,9 @@
  *    - Tests validation across multiple SDK methods (feedback, validation, reputation)
  *    - Context is expensive to create (~5-10s)
  *
- * 2. **SingleSigner mode tests** ("E2E: tokenAccount validation - SingleSigner mode"):
+ * 2. **CounterpartySigned mode tests** ("E2E: tokenAccount validation - CounterpartySigned mode"):
  *    - Has its own isolated `E2ETestContext`
- *    - Tests SingleSigner schema registration and validation
+ *    - Tests CounterpartySigned schema registration and validation
  *    - Complete isolation from main validation tests
  *
  * Test-first approach:
@@ -31,7 +31,8 @@ import { describe, test, expect, beforeAll } from "vitest";
 import { address, type KeyPairSigner, type Address } from "@solana/kit";
 import type { Sati } from "../../src";
 import { Outcome } from "../../src/hashes";
-import { ContentType, SignatureMode, StorageType } from "../../src/schemas";
+import { ContentType } from "../../src/schemas";
+import { SignatureMode, StorageType } from "../../src/generated";
 
 // Import test helpers
 import {
@@ -527,13 +528,13 @@ describe("E2E: tokenAccount validation", () => {
       "created feedbacks can be queried by registered agent mint",
       async () => {
         // Query feedbacks for the registered agent
-        const feedbacks = await sati.listFeedbacks({ tokenAccount: registeredAgentMint });
+        const result = await sati.listFeedbacks({ tokenAccount: registeredAgentMint });
 
-        expect(Array.isArray(feedbacks)).toBe(true);
+        expect(Array.isArray(result.items)).toBe(true);
 
         // We created at least one feedback in the "accepts registered agent" test
-        if (feedbacks.length > 0) {
-          const feedback = feedbacks[0];
+        if (result.items.length > 0) {
+          const feedback = result.items[0];
           expect(feedback.data).toHaveProperty("outcome");
           expect(feedback.data).toHaveProperty("tokenAccount");
           // The tokenAccount in the data should match the registered agent mint
@@ -546,15 +547,15 @@ describe("E2E: tokenAccount validation", () => {
 });
 
 // =============================================================================
-// SingleSigner Schema Tests (feedbackPublic)
+// CounterpartySigned Schema Tests (feedbackPublic)
 // =============================================================================
 
 /**
- * Isolated E2E tests for SingleSigner mode validation.
+ * Isolated E2E tests for CounterpartySigned mode validation.
  * Has its own `E2ETestContext` - complete isolation from main validation tests.
- * Tests SingleSigner schema registration and tokenAccount validation.
+ * Tests CounterpartySigned schema registration and tokenAccount validation.
  */
-describe("E2E: tokenAccount validation - SingleSigner mode", () => {
+describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
   let ctx: E2ETestContext;
   let sati: Sati;
   let payer: KeyPairSigner;
@@ -575,22 +576,23 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
     agentOwnerKeypair = ctx.agentOwnerKeypair;
     registeredAgentMint = ctx.agentMint;
 
-    // Register SingleSigner schema for this test
+    // Register CounterpartySigned schema for this test
     const schemaKeypair = await createTestKeypair();
     feedbackPublicSchema = schemaKeypair.address;
     await sati.registerSchemaConfig({
       payer,
       authority,
       sasSchema: feedbackPublicSchema,
-      signatureMode: SignatureMode.SingleSigner,
+      signatureMode: SignatureMode.CounterpartySigned,
       storageType: StorageType.Compressed,
+      delegationSchema: null,
       closeable: false,
       name: "FeedbackPublic",
     });
   }, TEST_TIMEOUT * 2);
 
   test(
-    "createFeedback (SingleSigner) rejects non-registered mint",
+    "createFeedback (CounterpartySigned) rejects non-registered mint",
     async () => {
       const nonRegisteredKeypair = await createTestKeypair();
       const nonRegisteredMint = nonRegisteredKeypair.address;
@@ -598,12 +600,12 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();
 
-      // SingleSigner mode - only agent signature required
+      // CounterpartySigned mode - only agent signature required
       const signatures = await createFeedbackSignatures(
         feedbackPublicSchema,
         taskRef,
         agentOwnerKeypair,
-        agentOwnerKeypair, // counterparty doesn't matter for SingleSigner
+        agentOwnerKeypair, // counterparty doesn't matter for CounterpartySigned
         dataHash,
         Outcome.Positive,
       );
@@ -621,7 +623,7 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
             pubkey: signatures.signatures[0].pubkey,
             signature: signatures.signatures[0].sig,
           },
-          // No counterparty signature for SingleSigner
+          // No counterparty signature for CounterpartySigned
           lookupTableAddress,
         }),
       ).rejects.toThrow(/not a registered.*agent|agent.*not found/i);
@@ -630,7 +632,7 @@ describe("E2E: tokenAccount validation - SingleSigner mode", () => {
   );
 
   test(
-    "createFeedback (SingleSigner) accepts registered agent mint",
+    "createFeedback (CounterpartySigned) accepts registered agent mint",
     async () => {
       const taskRef = randomBytes32();
       const dataHash = randomBytes32();

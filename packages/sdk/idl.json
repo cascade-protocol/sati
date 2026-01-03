@@ -1,28 +1,28 @@
 {
-  "address": "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
+  "address": "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe",
   "metadata": {
     "name": "sati",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "spec": "0.1.0",
     "description": "SATI - Solana Agent Trust Infrastructure",
     "repository": "https://github.com/cascade-protocol/sati"
   },
   "instructions": [
     {
-      "name": "close_attestation",
+      "name": "close_compressed_attestation",
       "docs": [
         "Close a compressed attestation.",
         "Only allowed if schema config has closeable=true."
       ],
       "discriminator": [
-        249,
-        84,
-        133,
-        23,
-        48,
-        175,
-        252,
-        221
+        80,
+        7,
+        19,
+        206,
+        138,
+        158,
+        92,
+        24
       ],
       "accounts": [
         {
@@ -294,20 +294,20 @@
       "args": []
     },
     {
-      "name": "create_attestation",
+      "name": "create_compressed_attestation",
       "docs": [
         "Create a compressed attestation via Light Protocol.",
         "Verifies Ed25519 signatures via instruction introspection."
       ],
       "discriminator": [
-        49,
-        24,
-        67,
-        80,
-        12,
-        249,
-        96,
-        239
+        204,
+        251,
+        61,
+        109,
+        25,
+        133,
+        237,
+        77
       ],
       "accounts": [
         {
@@ -362,16 +362,48 @@
           "name": "agent_ata",
           "docs": [
             "Agent's ATA that holds the NFT - proves signer owns the agent identity.",
+            "Required for DualSignature and AgentOwnerSigned modes.",
+            "Optional for CounterpartySigned mode (not validated).",
+            "",
             "The mint must match token_account from attestation data (the agent's MINT address),",
             "amount must be >= 1, and owner must match signatures[0].pubkey.",
             "Note: token_account in data is the MINT address; this is the holder's ATA."
-          ]
+          ],
+          "optional": true
         },
         {
           "name": "token_program",
           "docs": [
-            "Token-2022 program for ATA verification"
-          ]
+            "Token-2022 program for ATA verification.",
+            "Required when agent_ata is provided."
+          ],
+          "optional": true
+        },
+        {
+          "name": "delegation_attestation",
+          "docs": [
+            "Delegation attestation (optional).",
+            "Required when signer != agent ATA owner for AgentOwnerSigned mode.",
+            "Must be a valid DelegateV1 SAS attestation proving the signer's delegation."
+          ],
+          "optional": true
+        },
+        {
+          "name": "sati_credential",
+          "docs": [
+            "SATI SAS credential for delegation PDA derivation.",
+            "Required when delegation_attestation is provided."
+          ],
+          "optional": true
+        },
+        {
+          "name": "clock",
+          "docs": [
+            "Clock sysvar for delegation expiry verification.",
+            "Required when delegation_attestation is provided."
+          ],
+          "optional": true,
+          "address": "SysvarC1ock11111111111111111111111111111111"
         },
         {
           "name": "event_authority",
@@ -531,6 +563,41 @@
             "Instructions sysvar for Ed25519 signature verification"
           ],
           "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "agent_ata",
+          "docs": [
+            "Agent's ATA that holds the NFT - proves signer owns the agent identity.",
+            "Required for AgentOwnerSigned mode (DelegateV1).",
+            "Optional for CounterpartySigned mode (ReputationScore)."
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Token-2022 program for ATA verification.",
+            "Required when agent_ata is provided."
+          ],
+          "optional": true
+        },
+        {
+          "name": "delegation_attestation",
+          "docs": [
+            "Delegation attestation (optional).",
+            "Required when signer != agent ATA owner for AgentOwnerSigned mode.",
+            "Must be a valid DelegateV1 SAS attestation proving the signer's delegation."
+          ],
+          "optional": true
+        },
+        {
+          "name": "clock",
+          "docs": [
+            "Clock sysvar for delegation expiry verification.",
+            "Required when delegation_attestation is provided."
+          ],
+          "optional": true,
+          "address": "SysvarC1ock11111111111111111111111111111111"
         },
         {
           "name": "sas_program",
@@ -840,6 +907,14 @@
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
+          "name": "agent_index",
+          "docs": [
+            "Agent index PDA for enumeration by member_number",
+            "NOTE: Uses (current_count + 1) which equals the new total_agents after increment"
+          ],
+          "writable": true
+        },
+        {
           "name": "associated_token_program",
           "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         },
@@ -997,6 +1072,12 @@
           }
         },
         {
+          "name": "delegation_schema",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
           "name": "closeable",
           "type": "bool"
         },
@@ -1069,6 +1150,19 @@
     }
   ],
   "accounts": [
+    {
+      "name": "AgentIndex",
+      "discriminator": [
+        241,
+        154,
+        35,
+        103,
+        180,
+        141,
+        49,
+        179
+      ]
+    },
     {
       "name": "RegistryConfig",
       "discriminator": [
@@ -1307,76 +1401,148 @@
     },
     {
       "code": 6023,
+      "name": "AgentAtaRequired",
+      "msg": "Agent ATA required for this signature mode"
+    },
+    {
+      "code": 6024,
       "name": "UnauthorizedClose",
       "msg": "Unauthorized to close attestation"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "AttestationNotCloseable",
       "msg": "Attestation cannot be closed for this schema"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "InvalidOutcome",
       "msg": "Invalid outcome value (must be 0, 1, or 2)"
     },
     {
-      "code": 6026,
+      "code": 6027,
       "name": "InvalidContentType",
       "msg": "Invalid content type (must be 0-15)"
     },
     {
-      "code": 6027,
+      "code": 6028,
+      "name": "UnsupportedLayoutVersion",
+      "msg": "Unsupported layout version"
+    },
+    {
+      "code": 6029,
       "name": "LightCpiInvocationFailed",
       "msg": "Light Protocol CPI invocation failed"
     },
     {
-      "code": 6028,
+      "code": 6030,
       "name": "InvalidEd25519Instruction",
       "msg": "Invalid Ed25519 instruction format"
     },
     {
-      "code": 6029,
+      "code": 6031,
       "name": "MissingSignatures",
       "msg": "Missing required Ed25519 signatures in transaction"
     },
     {
-      "code": 6030,
+      "code": 6032,
       "name": "MessageMismatch",
       "msg": "Message hash mismatch - signature was for different data"
     },
     {
-      "code": 6031,
+      "code": 6033,
       "name": "InvalidInstructionsSysvar",
       "msg": "Invalid instructions sysvar"
     },
     {
-      "code": 6032,
+      "code": 6034,
       "name": "DuplicateSigners",
       "msg": "Duplicate signers not allowed for dual signature mode"
     },
     {
-      "code": 6033,
+      "code": 6035,
+      "name": "OwnerOnly",
+      "msg": "Schema requires owner signature but delegate attempted"
+    },
+    {
+      "code": 6036,
+      "name": "DelegationAttestationRequired",
+      "msg": "Delegate signed but no delegation attestation provided"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidDelegationPDA",
+      "msg": "Delegation attestation PDA doesn't match expected derivation"
+    },
+    {
+      "code": 6038,
+      "name": "DelegateMismatch",
+      "msg": "Delegation attestation delegate doesn't match signer"
+    },
+    {
+      "code": 6039,
+      "name": "AgentMintMismatch",
+      "msg": "Delegation attestation agent doesn't match target agent"
+    },
+    {
+      "code": 6040,
+      "name": "DelegationOwnerMismatch",
+      "msg": "Delegation was created by different owner (NFT was transferred)"
+    },
+    {
+      "code": 6041,
+      "name": "DelegationExpired",
+      "msg": "Delegation attestation has expired"
+    },
+    {
+      "code": 6042,
       "name": "InvalidSecp256k1Signature",
       "msg": "Invalid secp256k1 signature"
     },
     {
-      "code": 6034,
+      "code": 6043,
       "name": "Secp256k1RecoveryFailed",
       "msg": "Secp256k1 recovery failed"
     },
     {
-      "code": 6035,
+      "code": 6044,
       "name": "EvmAddressMismatch",
       "msg": "EVM address mismatch - recovered address does not match expected"
     },
     {
-      "code": 6036,
+      "code": 6045,
       "name": "InvalidEvmAddressRecovery",
       "msg": "Failed to extract EVM address from secp256k1 key recovery"
     }
   ],
   "types": [
+    {
+      "name": "AgentIndex",
+      "docs": [
+        "Agent index for enumeration via member_number.",
+        "Enables listing all agents without external indexing.",
+        "PDA seeds: [b\"agent_index\", member_number.to_le_bytes()]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "Agent mint address"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
     {
       "name": "AgentRegistered",
       "type": {
@@ -1471,13 +1637,6 @@
             "type": "pubkey"
           },
           {
-            "name": "data_type",
-            "docs": [
-              "Schema data type (0=Feedback, 1=Validation, 2=ReputationScore)"
-            ],
-            "type": "u8"
-          },
-          {
             "name": "storage_type",
             "docs": [
               "Storage type used"
@@ -1510,13 +1669,6 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "data_type",
-            "docs": [
-              "Data type of the attestation being closed"
-            ],
-            "type": "u8"
-          },
-          {
             "name": "current_data",
             "docs": [
               "Current attestation data (for hash verification)"
@@ -1545,7 +1697,7 @@
           {
             "name": "signature2",
             "docs": [
-              "Second signature (zeroed for SingleSigner mode)"
+              "Second signature (zeroed for single-signature modes)"
             ],
             "type": {
               "array": [
@@ -1674,23 +1826,16 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "data_type",
-            "docs": [
-              "Data type: 0=Feedback, 1=Validation"
-            ],
-            "type": "u8"
-          },
-          {
             "name": "data",
             "docs": [
-              "Schema-conformant data bytes (130+ bytes, universal layout)"
+              "Schema-conformant data bytes (130+ bytes, universal base layout)"
             ],
             "type": "bytes"
           },
           {
             "name": "signatures",
             "docs": [
-              "Ed25519 signatures with public keys"
+              "Ed25519 signatures with public keys (1 or 2 depending on SignatureMode)"
             ],
             "type": {
               "vec": {
@@ -1735,29 +1880,23 @@
     {
       "name": "CreateRegularParams",
       "docs": [
-        "Parameters for creating a regular (SAS) attestation"
+        "Parameters for creating a regular (SAS) attestation",
+        "Used for Delegation schemas (AgentOwnerSigned mode)"
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "data_type",
-            "docs": [
-              "Data type: 2=ReputationScore"
-            ],
-            "type": "u8"
-          },
-          {
             "name": "data",
             "docs": [
-              "Schema-conformant data bytes"
+              "Schema-conformant data bytes (130+ bytes, universal base layout)"
             ],
             "type": "bytes"
           },
           {
             "name": "signatures",
             "docs": [
-              "Single signature (provider)"
+              "Single signature (owner or delegate for AgentOwnerSigned mode)"
             ],
             "type": {
               "vec": {
@@ -2052,6 +2191,17 @@
             }
           },
           {
+            "name": "delegation_schema",
+            "docs": [
+              "Schema for delegation verification.",
+              "If Some: owner OR valid delegate can sign (AgentOwnerSigned mode).",
+              "If None: only owner can sign (or anyone for CounterpartySigned mode)."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
             "name": "closeable",
             "docs": [
               "Whether attestations can be closed/nullified"
@@ -2093,7 +2243,7 @@
           {
             "name": "signature_mode",
             "docs": [
-              "Signature mode (DualSignature or SingleSigner)"
+              "Signature mode (DualSignature, CounterpartySigned, or AgentOwnerSigned)"
             ],
             "type": {
               "defined": {
@@ -2110,6 +2260,15 @@
               "defined": {
                 "name": "StorageType"
               }
+            }
+          },
+          {
+            "name": "delegation_schema",
+            "docs": [
+              "Schema for delegation verification (None = owner only)"
+            ],
+            "type": {
+              "option": "pubkey"
             }
           },
           {
@@ -2162,7 +2321,7 @@
     {
       "name": "SignatureMode",
       "docs": [
-        "Signature mode determines how many signatures are required"
+        "Signature mode determines how many signatures are required and who signs"
       ],
       "type": {
         "kind": "enum",
@@ -2171,7 +2330,10 @@
             "name": "DualSignature"
           },
           {
-            "name": "SingleSigner"
+            "name": "CounterpartySigned"
+          },
+          {
+            "name": "AgentOwnerSigned"
           }
         ]
       }

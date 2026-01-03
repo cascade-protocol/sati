@@ -78,6 +78,7 @@ export interface SASSchemaDefinition {
 export const FEEDBACK_SCHEMA_NAME = "SATIFeedbackV1";
 export const FEEDBACK_PUBLIC_SCHEMA_NAME = "SATIFeedbackPublicV1";
 export const VALIDATION_SCHEMA_NAME = "SATIValidationV1";
+export const DELEGATE_SCHEMA_NAME = "SATIDelegateV1";
 
 /**
  * Feedback schema definition for SAS
@@ -108,9 +109,9 @@ export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
 /**
  * FeedbackPublic schema definition for SAS
  *
- * Same data layout as Feedback but uses SingleSigner mode.
- * Only agent signature is verified on-chain; counterparty is recorded but not
- * cryptographically verified. Useful when wallet signing restrictions apply.
+ * Same data layout as Feedback but uses CounterpartySigned mode.
+ * Only counterparty signature is verified on-chain; anyone can submit feedback
+ * about any agent without requiring the agent's signature.
  */
 export const FEEDBACK_PUBLIC_SAS_SCHEMA: SASSchemaDefinition = {
   name: FEEDBACK_PUBLIC_SCHEMA_NAME,
@@ -168,6 +169,39 @@ export const REPUTATION_SCORE_SAS_SCHEMA: SASSchemaDefinition = {
 };
 
 /**
+ * Delegate schema definition for SAS
+ *
+ * Uses universal base layout for hot/cold wallet delegation.
+ * - task_ref: zero-filled (delegations are not task-bound)
+ * - token_account: agent's mint address
+ * - counterparty: delegate's public key
+ * - outcome: 2 (Positive) for active delegation
+ * - data_hash: NFT owner pubkey at delegation time (for ownership binding)
+ * - content_type: 0 (None) or 1 (JSON) for expiry metadata
+ * - content: optional expiry timestamp or metadata
+ *
+ * Uses AgentOwnerSigned mode - only agent owner can create delegations.
+ * Stored as Regular (SAS) for efficient lookup and revocation.
+ */
+export const DELEGATE_SAS_SCHEMA: SASSchemaDefinition = {
+  name: DELEGATE_SCHEMA_NAME,
+  description: "Delegation authorization for hot wallet signing on behalf of agent",
+  // Same universal layout as other schemas
+  layout: [7, 7, 7, 7, 0, 0, 9, 9, 9],
+  fieldNames: [
+    "task_ref",
+    "token_account",
+    "counterparty",
+    "data_hash",
+    "content_type",
+    "outcome",
+    "tag1",
+    "tag2",
+    "content",
+  ],
+};
+
+/**
  * All SATI schemas for deployment
  */
 export const SATI_SCHEMAS = {
@@ -175,6 +209,7 @@ export const SATI_SCHEMAS = {
   feedbackPublic: FEEDBACK_PUBLIC_SAS_SCHEMA,
   validation: VALIDATION_SAS_SCHEMA,
   reputationScore: REPUTATION_SCORE_SAS_SCHEMA,
+  delegate: DELEGATE_SAS_SCHEMA,
 } as const;
 
 /**

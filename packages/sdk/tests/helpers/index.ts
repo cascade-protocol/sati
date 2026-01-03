@@ -31,15 +31,17 @@ export {
   type TestKeypair,
 } from "./signatures";
 
-// Account builders and constants
+// Account builders and constants (re-exported from SDK source)
 export {
-  // Constants
+  // Layout constants
   MAX_NAME_LENGTH,
   MAX_SYMBOL_LENGTH,
   MAX_URI_LENGTH,
   MAX_TAG_LENGTH,
   MAX_CONTENT_SIZE,
   MIN_BASE_LAYOUT_SIZE,
+  CURRENT_LAYOUT_VERSION,
+  OFFSETS,
   // Enums
   Outcome,
   ContentType,
@@ -50,6 +52,7 @@ export {
   // PDA derivation
   findRegistryConfigPda,
   findSchemaConfigPda,
+  findAgentIndexPda,
   // Data builders
   buildFeedbackData,
   buildValidationData,

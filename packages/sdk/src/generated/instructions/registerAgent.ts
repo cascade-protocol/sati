@@ -74,6 +74,7 @@ export type RegisterAgentInstruction<
   TAccountAgentTokenAccount extends string | AccountMeta<string> = string,
   TAccountToken2022Program extends string | AccountMeta<string> =
     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+  TAccountAgentIndex extends string | AccountMeta<string> = string,
   TAccountAssociatedTokenProgram extends string | AccountMeta<string> =
     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
   TAccountSystemProgram extends string | AccountMeta<string> =
@@ -106,6 +107,9 @@ export type RegisterAgentInstruction<
       TAccountToken2022Program extends string
         ? ReadonlyAccount<TAccountToken2022Program>
         : TAccountToken2022Program,
+      TAccountAgentIndex extends string
+        ? WritableAccount<TAccountAgentIndex>
+        : TAccountAgentIndex,
       TAccountAssociatedTokenProgram extends string
         ? ReadonlyAccount<TAccountAssociatedTokenProgram>
         : TAccountAssociatedTokenProgram,
@@ -182,6 +186,7 @@ export type RegisterAgentAsyncInput<
   TAccountAgentMint extends string = string,
   TAccountAgentTokenAccount extends string = string,
   TAccountToken2022Program extends string = string,
+  TAccountAgentIndex extends string = string,
   TAccountAssociatedTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
@@ -198,6 +203,11 @@ export type RegisterAgentAsyncInput<
   /** Owner's ATA for agent NFT */
   agentTokenAccount: Address<TAccountAgentTokenAccount>;
   token2022Program?: Address<TAccountToken2022Program>;
+  /**
+   * Agent index PDA for enumeration by member_number
+   * NOTE: Uses (current_count + 1) which equals the new total_agents after increment
+   */
+  agentIndex: Address<TAccountAgentIndex>;
   associatedTokenProgram?: Address<TAccountAssociatedTokenProgram>;
   systemProgram?: Address<TAccountSystemProgram>;
   name: RegisterAgentInstructionDataArgs["name"];
@@ -215,6 +225,7 @@ export async function getRegisterAgentInstructionAsync<
   TAccountAgentMint extends string,
   TAccountAgentTokenAccount extends string,
   TAccountToken2022Program extends string,
+  TAccountAgentIndex extends string,
   TAccountAssociatedTokenProgram extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -227,6 +238,7 @@ export async function getRegisterAgentInstructionAsync<
     TAccountAgentMint,
     TAccountAgentTokenAccount,
     TAccountToken2022Program,
+    TAccountAgentIndex,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >,
@@ -241,6 +253,7 @@ export async function getRegisterAgentInstructionAsync<
     TAccountAgentMint,
     TAccountAgentTokenAccount,
     TAccountToken2022Program,
+    TAccountAgentIndex,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >
@@ -263,6 +276,7 @@ export async function getRegisterAgentInstructionAsync<
       value: input.token2022Program ?? null,
       isWritable: false,
     },
+    agentIndex: { value: input.agentIndex ?? null, isWritable: true },
     associatedTokenProgram: {
       value: input.associatedTokenProgram ?? null,
       isWritable: false,
@@ -311,6 +325,7 @@ export async function getRegisterAgentInstructionAsync<
       getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.agentTokenAccount),
       getAccountMeta(accounts.token2022Program),
+      getAccountMeta(accounts.agentIndex),
       getAccountMeta(accounts.associatedTokenProgram),
       getAccountMeta(accounts.systemProgram),
     ],
@@ -327,6 +342,7 @@ export async function getRegisterAgentInstructionAsync<
     TAccountAgentMint,
     TAccountAgentTokenAccount,
     TAccountToken2022Program,
+    TAccountAgentIndex,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >);
@@ -340,6 +356,7 @@ export type RegisterAgentInput<
   TAccountAgentMint extends string = string,
   TAccountAgentTokenAccount extends string = string,
   TAccountToken2022Program extends string = string,
+  TAccountAgentIndex extends string = string,
   TAccountAssociatedTokenProgram extends string = string,
   TAccountSystemProgram extends string = string,
 > = {
@@ -356,6 +373,11 @@ export type RegisterAgentInput<
   /** Owner's ATA for agent NFT */
   agentTokenAccount: Address<TAccountAgentTokenAccount>;
   token2022Program?: Address<TAccountToken2022Program>;
+  /**
+   * Agent index PDA for enumeration by member_number
+   * NOTE: Uses (current_count + 1) which equals the new total_agents after increment
+   */
+  agentIndex: Address<TAccountAgentIndex>;
   associatedTokenProgram?: Address<TAccountAssociatedTokenProgram>;
   systemProgram?: Address<TAccountSystemProgram>;
   name: RegisterAgentInstructionDataArgs["name"];
@@ -373,6 +395,7 @@ export function getRegisterAgentInstruction<
   TAccountAgentMint extends string,
   TAccountAgentTokenAccount extends string,
   TAccountToken2022Program extends string,
+  TAccountAgentIndex extends string,
   TAccountAssociatedTokenProgram extends string,
   TAccountSystemProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -385,6 +408,7 @@ export function getRegisterAgentInstruction<
     TAccountAgentMint,
     TAccountAgentTokenAccount,
     TAccountToken2022Program,
+    TAccountAgentIndex,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >,
@@ -398,6 +422,7 @@ export function getRegisterAgentInstruction<
   TAccountAgentMint,
   TAccountAgentTokenAccount,
   TAccountToken2022Program,
+  TAccountAgentIndex,
   TAccountAssociatedTokenProgram,
   TAccountSystemProgram
 > {
@@ -419,6 +444,7 @@ export function getRegisterAgentInstruction<
       value: input.token2022Program ?? null,
       isWritable: false,
     },
+    agentIndex: { value: input.agentIndex ?? null, isWritable: true },
     associatedTokenProgram: {
       value: input.associatedTokenProgram ?? null,
       isWritable: false,
@@ -457,6 +483,7 @@ export function getRegisterAgentInstruction<
       getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.agentTokenAccount),
       getAccountMeta(accounts.token2022Program),
+      getAccountMeta(accounts.agentIndex),
       getAccountMeta(accounts.associatedTokenProgram),
       getAccountMeta(accounts.systemProgram),
     ],
@@ -473,6 +500,7 @@ export function getRegisterAgentInstruction<
     TAccountAgentMint,
     TAccountAgentTokenAccount,
     TAccountToken2022Program,
+    TAccountAgentIndex,
     TAccountAssociatedTokenProgram,
     TAccountSystemProgram
   >);
@@ -497,8 +525,13 @@ export type ParsedRegisterAgentInstruction<
     /** Owner's ATA for agent NFT */
     agentTokenAccount: TAccountMetas[5];
     token2022Program: TAccountMetas[6];
-    associatedTokenProgram: TAccountMetas[7];
-    systemProgram: TAccountMetas[8];
+    /**
+     * Agent index PDA for enumeration by member_number
+     * NOTE: Uses (current_count + 1) which equals the new total_agents after increment
+     */
+    agentIndex: TAccountMetas[7];
+    associatedTokenProgram: TAccountMetas[8];
+    systemProgram: TAccountMetas[9];
   };
   data: RegisterAgentInstructionData;
 };
@@ -511,7 +544,7 @@ export function parseRegisterAgentInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedRegisterAgentInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 9) {
+  if (instruction.accounts.length < 10) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -531,6 +564,7 @@ export function parseRegisterAgentInstruction<
       agentMint: getNextAccount(),
       agentTokenAccount: getNextAccount(),
       token2022Program: getNextAccount(),
+      agentIndex: getNextAccount(),
       associatedTokenProgram: getNextAccount(),
       systemProgram: getNextAccount(),
     },

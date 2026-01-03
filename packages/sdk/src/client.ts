@@ -55,13 +55,15 @@ import { getSetComputeUnitLimitInstruction } from "@solana-program/compute-budge
 import {
   getRegisterAgentInstructionAsync,
   getRegisterSchemaConfigInstructionAsync,
-  getCreateAttestationInstructionAsync,
-  getCloseAttestationInstructionAsync,
+  getCreateCompressedAttestationInstructionAsync,
+  getCloseCompressedAttestationInstructionAsync,
   getCloseRegularAttestationInstructionAsync,
   getCreateRegularAttestationInstructionAsync,
   getLinkEvmAddressInstruction,
   fetchRegistryConfig,
   fetchSchemaConfig,
+  fetchMaybeAgentIndex,
+  fetchAllMaybeAgentIndex,
   SATI_PROGRAM_ADDRESS,
   type SignatureData as GeneratedSignatureData,
   type ValidityProofArgs,
@@ -73,6 +75,7 @@ import {
   findAssociatedTokenAddress,
   findRegistryConfigPda,
   findSchemaConfigPda,
+  findAgentIndexPda,
   TOKEN_2022_PROGRAM_ADDRESS,
 } from "./helpers";
 
@@ -87,10 +90,7 @@ import {
 import { buildCounterpartyMessage } from "./offchain-signing";
 
 import {
-  DataType,
   ContentType,
-  SignatureMode,
-  type StorageType,
   serializeFeedback,
   serializeValidation,
   serializeReputationScore,
@@ -102,6 +102,8 @@ import {
   type ReputationScoreData,
 } from "./schemas";
 
+import { SignatureMode, type StorageType } from "./generated";
+
 import {
   type SATILightClient as LightClient,
   createSATILightClient,
@@ -109,6 +111,7 @@ import {
   type ParsedFeedbackAttestation,
   type ParsedValidationAttestation,
   type AttestationFilter,
+  type PaginatedAttestations,
 } from "./compression";
 
 import { importEd25519PublicKey } from "@cascade-fyi/compression-kit";
@@ -134,13 +137,8 @@ import type {
 
 // Re-export enums and types
 export { Outcome } from "./hashes";
-export {
-  DataType,
-  ContentType,
-  ValidationType,
-  SignatureMode,
-  StorageType,
-} from "./schemas";
+export { DataType, ContentType, ValidationType } from "./schemas";
+export { SignatureMode, StorageType } from "./generated";
 
 // Default RPC URLs
 const RPC_URLS = {
@@ -255,7 +253,7 @@ export interface CreateFeedbackParams {
   content?: Uint8Array;
   /** Agent's signature (signs interaction_hash) */
   agentSignature: SignatureInput;
-  /** Counterparty's signature (signs SIWS message) - optional for SingleSigner schemas */
+  /** Counterparty's signature (signs SIWS message) - optional for CounterpartySigned schemas */
   counterpartySignature?: SignatureInput;
   /** SIWS message bytes that counterparty signed - required for DualSignature schemas */
   counterpartyMessage?: Uint8Array;
@@ -300,7 +298,7 @@ export interface BuildFeedbackParams {
   content?: Uint8Array;
   /** Agent's signature (signs interaction_hash) */
   agentSignature: SignatureInput;
-  /** Counterparty's signature (signs SIWS message) - optional for SingleSigner schemas */
+  /** Counterparty's signature (signs SIWS message) - optional for CounterpartySigned schemas */
   counterpartySignature?: SignatureInput;
   /** SIWS message bytes that counterparty signed - required for DualSignature schemas */
   counterpartyMessage?: Uint8Array;
@@ -462,8 +460,7 @@ export class Sati {
   private rpc: ReturnType<typeof createSolanaRpc>;
   private rpcSubscriptions: ReturnType<typeof createSolanaRpcSubscriptions>;
   private sendAndConfirm: ReturnType<typeof sendAndConfirmTransactionFactory>;
-  private lightClient: LightClient | null = null;
-  private photonRpcUrl?: string;
+  private lightClient: LightClient;
 
   /** Network configuration */
   readonly network: "mainnet" | "devnet" | "localnet";
@@ -480,8 +477,10 @@ export class Sati {
       rpcSubscriptions: this.rpcSubscriptions,
     });
 
-    // Store Photon URL for lazy initialization
-    this.photonRpcUrl = options.photonRpcUrl;
+    // Default Photon URL to RPC URL (works with Helius and other providers)
+    // Override with photonRpcUrl if indexer is on a different endpoint
+    const photonUrl = options.photonRpcUrl ?? rpcUrl;
+    this.lightClient = createSATILightClient(photonUrl);
   }
 
   // ============================================================
@@ -499,20 +498,8 @@ export class Sati {
   }
 
   /** @internal */
-  async getLightClient(): Promise<LightClient> {
-    if (this.lightClient) {
-      return this.lightClient;
-    }
-    if (!this.photonRpcUrl) {
-      throw new Error("Photon RPC URL is required for Light Protocol operations");
-    }
-    this.lightClient = createSATILightClient(this.photonRpcUrl);
+  getLightClient(): LightClient {
     return this.lightClient;
-  }
-
-  /** @internal */
-  setLightClient(client: LightClient): void {
-    this.lightClient = client;
   }
 
   // ============================================================
@@ -543,12 +530,16 @@ export class Sati {
     // Generate new mint keypair
     const agentMint = await generateKeyPairSigner();
 
-    // Fetch registry config to get the actual group mint
+    // Fetch registry config to get the actual group mint and agent count
     const [registryConfigAddress] = await findRegistryConfigPda();
     const registryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
     const groupMint = registryConfig.data.groupMint;
     const ownerAddress = owner ?? payer.address;
     const [agentTokenAccount] = await findAssociatedTokenAddress(agentMint.address, ownerAddress);
+
+    // Derive agent index PDA (member_number = totalAgents + 1)
+    const memberNumber = registryConfig.data.totalAgents + 1n;
+    const [agentIndex] = await findAgentIndexPda(memberNumber);
 
     // Build instruction
     const registerIx = await getRegisterAgentInstructionAsync({
@@ -557,6 +548,7 @@ export class Sati {
       groupMint,
       agentMint,
       agentTokenAccount,
+      agentIndex,
       name,
       symbol: "", // Empty - vestigial field from fungible tokens
       uri,
@@ -579,15 +571,15 @@ export class Sati {
       commitment: "confirmed",
     });
 
-    // Re-fetch registry config to get the updated member number
+    // Re-fetch registry config to verify the updated member number
     const updatedRegistryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
-    const memberNumber = updatedRegistryConfig.data.totalAgents;
+    const finalMemberNumber = updatedRegistryConfig.data.totalAgents;
 
     const signature = getSignatureFromTransaction(signedTx);
 
     return {
       mint: agentMint.address,
-      memberNumber,
+      memberNumber: finalMemberNumber,
       signature: signature.toString(),
     };
   }
@@ -646,6 +638,103 @@ export class Sati {
       }
       throw error;
     }
+  }
+
+  /**
+   * Load multiple agent identities by mint addresses (batch operation).
+   *
+   * More efficient than calling loadAgent() multiple times as it batches
+   * RPC calls where possible.
+   *
+   * @param mints - Array of agent NFT mint addresses
+   * @returns Array of AgentIdentity or null for each mint (preserves order)
+   *
+   * @example
+   * ```typescript
+   * const agents = await sati.loadAgents([mint1, mint2, mint3]);
+   * // agents[0] corresponds to mint1, etc.
+   * ```
+   */
+  async loadAgents(mints: Address[]): Promise<(AgentIdentity | null)[]> {
+    if (mints.length === 0) {
+      return [];
+    }
+
+    // Batch fetch all mint accounts using getMultipleAccounts
+    const mintAccountsResult = await this.rpc.getMultipleAccounts(mints, { encoding: "jsonParsed" }).send();
+
+    // Process each mint account
+    const results: (AgentIdentity | null)[] = [];
+
+    for (let i = 0; i < mints.length; i++) {
+      const mint = mints[i];
+      const mintAccount = mintAccountsResult.value[i];
+
+      if (!mintAccount) {
+        results.push(null);
+        continue;
+      }
+
+      try {
+        const parsed = mintAccount.data as {
+          parsed?: {
+            info?: {
+              extensions?: Array<{
+                extension: string;
+                state: Record<string, unknown>;
+              }>;
+            };
+          };
+        };
+
+        const extensions = parsed.parsed?.info?.extensions;
+        if (!extensions) {
+          results.push(null);
+          continue;
+        }
+
+        const metadataExt = extensions.find((ext) => ext.extension === "tokenMetadata");
+        if (!metadataExt) {
+          results.push(null);
+          continue;
+        }
+
+        const metadata = metadataExt.state as {
+          name?: string;
+          uri?: string;
+          additionalMetadata?: Array<[string, string]>;
+        };
+
+        const groupMemberExt = extensions.find((ext) => ext.extension === "tokenGroupMember");
+        const memberState = groupMemberExt?.state as { memberNumber?: number } | undefined;
+
+        const nonTransferableExt = extensions.find((ext) => ext.extension === "nonTransferable");
+
+        // Get owner (still needs individual call due to ATA lookup)
+        const owner = await this.getAgentOwner(mint);
+
+        const additionalMetadata: Record<string, string> = {};
+        if (metadata.additionalMetadata) {
+          for (const [key, value] of metadata.additionalMetadata) {
+            additionalMetadata[key] = value;
+          }
+        }
+
+        results.push({
+          mint,
+          owner,
+          name: metadata.name ?? "",
+          uri: metadata.uri ?? "",
+          memberNumber: BigInt(memberState?.memberNumber ?? 0),
+          additionalMetadata,
+          nonTransferable: !!nonTransferableExt,
+        });
+      } catch {
+        results.push(null);
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -777,6 +866,99 @@ export class Sati {
       totalAgents: registryConfig.data.totalAgents,
       isImmutable,
     };
+  }
+
+  /**
+   * Get an agent by its member number (1-indexed).
+   *
+   * Uses the AgentIndex PDA which maps member numbers to agent mints,
+   * enabling enumeration without external indexing.
+   *
+   * @param memberNumber - The agent's member number (1 to totalAgents)
+   * @returns AgentIdentity or null if member number doesn't exist
+   *
+   * @example
+   * ```typescript
+   * const agent = await sati.getAgentByMemberNumber(1n);
+   * if (agent) {
+   *   console.log(`First agent: ${agent.name}`);
+   * }
+   * ```
+   */
+  async getAgentByMemberNumber(memberNumber: bigint): Promise<AgentIdentity | null> {
+    if (memberNumber < 1n) {
+      return null;
+    }
+
+    const [indexPda] = await findAgentIndexPda(memberNumber);
+    const maybeIndex = await fetchMaybeAgentIndex(this.rpc, indexPda);
+
+    if (!maybeIndex.exists) {
+      return null;
+    }
+
+    return this.loadAgent(maybeIndex.data.mint);
+  }
+
+  /**
+   * List all registered agents with pagination.
+   *
+   * Uses AgentIndex PDAs for efficient enumeration without external indexing.
+   * Member numbers are 1-indexed and sequential.
+   *
+   * @param options.limit - Maximum agents to return (default: 100)
+   * @param options.offset - Starting member number, 1-indexed (default: 1)
+   * @returns Array of AgentIdentity objects
+   *
+   * @example
+   * ```typescript
+   * // Get first 10 agents
+   * const agents = await sati.listAllAgents({ limit: 10 });
+   *
+   * // Get next page
+   * const page2 = await sati.listAllAgents({ limit: 10, offset: 11n });
+   * ```
+   */
+  async listAllAgents(options?: { limit?: number; offset?: bigint }): Promise<AgentIdentity[]> {
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 1n;
+
+    if (offset < 1n) {
+      return [];
+    }
+
+    const stats = await this.getRegistryStats();
+    const totalAgents = stats.totalAgents;
+
+    if (totalAgents === 0n || offset > totalAgents) {
+      return [];
+    }
+
+    // Calculate end member number (inclusive)
+    const end = offset + BigInt(limit) - 1n > totalAgents ? totalAgents : offset + BigInt(limit) - 1n;
+
+    // Derive all AgentIndex PDAs for the range
+    const pdas: Address[] = [];
+    for (let i = offset; i <= end; i++) {
+      const [pda] = await findAgentIndexPda(i);
+      pdas.push(pda);
+    }
+
+    // Batch fetch all AgentIndex accounts
+    const indexes = await fetchAllMaybeAgentIndex(this.rpc, pdas);
+
+    // Load agent identities for existing indexes
+    const agents: AgentIdentity[] = [];
+    for (const index of indexes) {
+      if (index.exists) {
+        const agent = await this.loadAgent(index.data.mint);
+        if (agent) {
+          agents.push(agent);
+        }
+      }
+    }
+
+    return agents;
   }
 
   /**
@@ -1053,8 +1235,10 @@ export class Sati {
     closeable: boolean;
     /** Schema name for SIWS messages (e.g., "Feedback", "Validation") */
     name: string;
+    /** Schema for delegation verification (null = owner only) */
+    delegationSchema?: Address | null;
   }): Promise<{ signature: string }> {
-    const { payer, authority, sasSchema, signatureMode, storageType, closeable, name } = params;
+    const { payer, authority, sasSchema, signatureMode, storageType, closeable, name, delegationSchema } = params;
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
@@ -1065,6 +1249,7 @@ export class Sati {
       schemaConfig: schemaConfigPda,
       signatureMode,
       storageType,
+      delegationSchema: delegationSchema ?? null,
       closeable,
       name,
     });
@@ -1159,7 +1344,7 @@ export class Sati {
 
     // Validate content size based on signature mode
     // If counterpartySignature is provided, it's DualSignature mode
-    const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.SingleSigner;
+    const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.CounterpartySigned;
     validateContentSize(content, signatureMode);
 
     // Validate tokenAccount is a registered agent mint
@@ -1199,7 +1384,7 @@ export class Sati {
       agentSignature.pubkey, // owner who signed
     );
 
-    const light = await this.getLightClient();
+    const light = this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
     const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
@@ -1231,13 +1416,12 @@ export class Sati {
       rootIndex: packedAddressTreeInfo.rootIndex,
     };
 
-    const baseCreateIx = await getCreateAttestationInstructionAsync({
+    const baseCreateIx = await getCreateCompressedAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
       agentAta, // Proves signer owns the agent NFT
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
-      dataType: DataType.Feedback,
       data,
       signatures,
       outputStateTreeIndex,
@@ -1324,7 +1508,7 @@ export class Sati {
 
     // Validate content size based on signature mode
     // If counterpartySignature is provided, it's DualSignature mode
-    const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.SingleSigner;
+    const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.CounterpartySigned;
     validateContentSize(content, signatureMode);
 
     // Validate tokenAccount is a registered agent mint
@@ -1364,7 +1548,7 @@ export class Sati {
       agentSignature.pubkey, // owner who signed
     );
 
-    const light = await this.getLightClient();
+    const light = this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
     const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
@@ -1396,13 +1580,12 @@ export class Sati {
       rootIndex: packedAddressTreeInfo.rootIndex,
     };
 
-    const baseCreateIx = await getCreateAttestationInstructionAsync({
+    const baseCreateIx = await getCreateCompressedAttestationInstructionAsync({
       payer: { address: payer } as KeyPairSigner,
       schemaConfig: schemaConfigPda,
       agentAta, // Proves signer owns the agent NFT
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
-      dataType: DataType.Feedback,
       data,
       signatures,
       outputStateTreeIndex,
@@ -1557,7 +1740,7 @@ export class Sati {
       agentSignature.pubkey, // owner who signed
     );
 
-    const light = await this.getLightClient();
+    const light = this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
     const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
@@ -1592,13 +1775,12 @@ export class Sati {
       rootIndex: packedAddressTreeInfo.rootIndex,
     };
 
-    const baseCreateIx = await getCreateAttestationInstructionAsync({
+    const baseCreateIx = await getCreateCompressedAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
       agentAta, // Proves signer owns the agent NFT
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
-      dataType: DataType.Validation,
       data,
       signatures,
       outputStateTreeIndex,
@@ -1653,7 +1835,7 @@ export class Sati {
   async closeCompressedAttestation(params: CloseCompressedAttestationParams): Promise<CloseAttestationResult> {
     const { payer, counterparty, sasSchema, attestationAddress, lookupTableAddress } = params;
 
-    const light = await this.getLightClient();
+    const light = this.getLightClient();
     const parsedAttestation = await light.getAttestationByAddress(attestationAddress);
 
     if (!parsedAttestation) {
@@ -1698,11 +1880,10 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    const baseCloseIx = await getCloseAttestationInstructionAsync({
+    const baseCloseIx = await getCloseCompressedAttestationInstructionAsync({
       signer: counterparty,
       schemaConfig: schemaConfigPda,
       program: SATI_PROGRAM_ADDRESS,
-      dataType: parsedAttestation.attestation.dataType,
       currentData: parsedAttestation.attestation.data,
       numSignatures: parsedAttestation.attestation.numSignatures,
       signature1: parsedAttestation.attestation.signature1,
@@ -1796,7 +1977,6 @@ export class Sati {
       sasSchema,
       attestation: attestationPda,
       program: SATI_PROGRAM_ADDRESS,
-      dataType: DataType.ReputationScore,
       data,
       signatures: [
         {
@@ -1842,18 +2022,20 @@ export class Sati {
   // ============================================================
 
   /**
-   * List Feedback attestations
+   * List Feedback attestations with pagination
    */
-  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedFeedbackAttestation[]> {
-    const light = await this.getLightClient();
+  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedFeedbackAttestation>> {
+    const light = this.getLightClient();
     return light.listFeedbacks(filter);
   }
 
   /**
-   * List Validation attestations
+   * List Validation attestations with pagination
    */
-  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedValidationAttestation[]> {
-    const light = await this.getLightClient();
+  async listValidations(
+    filter: Partial<AttestationFilter>,
+  ): Promise<PaginatedAttestations<ParsedValidationAttestation>> {
+    const light = this.getLightClient();
     return light.listValidations(filter);
   }
 
@@ -1976,16 +2158,22 @@ export class Sati {
     const signature1 = compressed.signature1;
     const signature2 = compressed.signature2;
 
-    if (compressed.dataType === DataType.Feedback) {
-      const feedbackData = data as FeedbackData;
+    // All schemas share the same base layout, so we can use FeedbackData for common fields
+    const baseData = data as FeedbackData;
+
+    // Determine signature mode from numSignatures
+    const isDualSignature = compressed.numSignatures === 2;
+
+    if (isDualSignature) {
+      // DualSignature mode (Feedback, Validation): agent + counterparty
 
       // Agent signs interaction hash (blind commitment to task + data)
-      const interactionHash = computeInteractionHash(sasSchema, feedbackData.taskRef, feedbackData.dataHash);
+      const interactionHash = computeInteractionHash(sasSchema, baseData.taskRef, baseData.dataHash);
 
       // For counterparty verification, we need the schema name to build the SIWS message
       if (!schemaName) {
         // Without schema name, we can only verify agent signature
-        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.tokenAccount));
+        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.tokenAccount));
         const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
         const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
 
@@ -1997,13 +2185,13 @@ export class Sati {
       }
 
       // Serialize the data to build counterparty message
-      const serializedData = serializeFeedback(feedbackData);
-      const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: serializedData });
+      // Use the raw compressed data directly since it's already in universal layout
+      const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: compressed.data });
 
-      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.tokenAccount));
+      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.tokenAccount));
       const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
 
-      const counterpartyPubkeyBytes = new Uint8Array(addressEncoder.encode(feedbackData.counterparty));
+      const counterpartyPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.counterparty));
       const counterpartyKey = await importEd25519PublicKey(counterpartyPubkeyBytes);
 
       const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
@@ -2018,54 +2206,23 @@ export class Sati {
         agentValid,
         counterpartyValid,
       };
-    } else if (compressed.dataType === DataType.Validation) {
-      const validationData = data as ValidationData;
+    } else {
+      // Single signature mode (CounterpartySigned or AgentOwnerSigned)
+      const interactionHash = computeInteractionHash(sasSchema, baseData.taskRef, baseData.dataHash);
 
-      // Agent signs interaction hash
-      const interactionHash = computeInteractionHash(sasSchema, validationData.taskRef, validationData.dataHash);
-
-      // For counterparty verification, we need the schema name
-      if (!schemaName) {
-        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.tokenAccount));
-        const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
-        const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
-
-        return {
-          valid: agentValid,
-          agentValid,
-          counterpartyValid: undefined,
-        };
-      }
-
-      // Serialize the data to build counterparty message
-      const serializedData = serializeValidation(validationData);
-      const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: serializedData });
-
-      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.tokenAccount));
-      const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
-
-      const validatorPubkeyBytes = new Uint8Array(addressEncoder.encode(validationData.counterparty));
-      const validatorKey = await importEd25519PublicKey(validatorPubkeyBytes);
-
-      const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
-      const counterpartyValid = await verifySignature(
-        validatorKey,
-        signatureBytes(signature2),
-        counterpartyMessageObj.messageBytes,
-      );
+      // For single signature, signature1 is the only signature
+      // The signer could be either the agent owner or the counterparty depending on the schema
+      // We verify that signature1 is valid for the interaction hash
+      const signerPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.counterparty));
+      const signerKey = await importEd25519PublicKey(signerPubkeyBytes);
+      const signerValid = await verifySignature(signerKey, signatureBytes(signature1), interactionHash);
 
       return {
-        valid: agentValid && counterpartyValid,
-        agentValid,
-        counterpartyValid,
+        valid: signerValid,
+        agentValid: undefined,
+        counterpartyValid: signerValid,
       };
     }
-
-    return {
-      valid: false,
-      agentValid: false,
-      counterpartyValid: false,
-    };
   }
 
   // ============================================================

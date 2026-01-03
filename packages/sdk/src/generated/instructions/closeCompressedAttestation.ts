@@ -51,17 +51,17 @@ import {
   type ValidityProofArgs,
 } from "../types";
 
-export const CLOSE_ATTESTATION_DISCRIMINATOR = new Uint8Array([
-  249, 84, 133, 23, 48, 175, 252, 221,
+export const CLOSE_COMPRESSED_ATTESTATION_DISCRIMINATOR = new Uint8Array([
+  80, 7, 19, 206, 138, 158, 92, 24,
 ]);
 
-export function getCloseAttestationDiscriminatorBytes() {
+export function getCloseCompressedAttestationDiscriminatorBytes() {
   return fixEncoderSize(getBytesEncoder(), 8).encode(
-    CLOSE_ATTESTATION_DISCRIMINATOR,
+    CLOSE_COMPRESSED_ATTESTATION_DISCRIMINATOR,
   );
 }
 
-export type CloseAttestationInstruction<
+export type CloseCompressedAttestationInstruction<
   TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountSigner extends string | AccountMeta<string> = string,
   TAccountSchemaConfig extends string | AccountMeta<string> = string,
@@ -97,17 +97,15 @@ export type CloseAttestationInstruction<
     ]
   >;
 
-export type CloseAttestationInstructionData = {
+export type CloseCompressedAttestationInstructionData = {
   discriminator: ReadonlyUint8Array;
-  /** Data type of the attestation being closed */
-  dataType: number;
   /** Current attestation data (for hash verification) */
   currentData: ReadonlyUint8Array;
   /** Number of signatures in the attestation */
   numSignatures: number;
   /** First signature (required) */
   signature1: ReadonlyUint8Array;
-  /** Second signature (zeroed for SingleSigner mode) */
+  /** Second signature (zeroed for single-signature modes) */
   signature2: ReadonlyUint8Array;
   /** The compressed account address being closed (for event emission) */
   address: Address;
@@ -117,16 +115,14 @@ export type CloseAttestationInstructionData = {
   accountMeta: CompressedAccountMeta;
 };
 
-export type CloseAttestationInstructionDataArgs = {
-  /** Data type of the attestation being closed */
-  dataType: number;
+export type CloseCompressedAttestationInstructionDataArgs = {
   /** Current attestation data (for hash verification) */
   currentData: ReadonlyUint8Array;
   /** Number of signatures in the attestation */
   numSignatures: number;
   /** First signature (required) */
   signature1: ReadonlyUint8Array;
-  /** Second signature (zeroed for SingleSigner mode) */
+  /** Second signature (zeroed for single-signature modes) */
   signature2: ReadonlyUint8Array;
   /** The compressed account address being closed (for event emission) */
   address: Address;
@@ -136,11 +132,10 @@ export type CloseAttestationInstructionDataArgs = {
   accountMeta: CompressedAccountMetaArgs;
 };
 
-export function getCloseAttestationInstructionDataEncoder(): Encoder<CloseAttestationInstructionDataArgs> {
+export function getCloseCompressedAttestationInstructionDataEncoder(): Encoder<CloseCompressedAttestationInstructionDataArgs> {
   return transformEncoder(
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
-      ["dataType", getU8Encoder()],
       ["currentData", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
       ["numSignatures", getU8Encoder()],
       ["signature1", fixEncoderSize(getBytesEncoder(), 64)],
@@ -149,14 +144,16 @@ export function getCloseAttestationInstructionDataEncoder(): Encoder<CloseAttest
       ["proof", getValidityProofEncoder()],
       ["accountMeta", getCompressedAccountMetaEncoder()],
     ]),
-    (value) => ({ ...value, discriminator: CLOSE_ATTESTATION_DISCRIMINATOR }),
+    (value) => ({
+      ...value,
+      discriminator: CLOSE_COMPRESSED_ATTESTATION_DISCRIMINATOR,
+    }),
   );
 }
 
-export function getCloseAttestationInstructionDataDecoder(): Decoder<CloseAttestationInstructionData> {
+export function getCloseCompressedAttestationInstructionDataDecoder(): Decoder<CloseCompressedAttestationInstructionData> {
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
-    ["dataType", getU8Decoder()],
     ["currentData", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
     ["numSignatures", getU8Decoder()],
     ["signature1", fixDecoderSize(getBytesDecoder(), 64)],
@@ -167,17 +164,17 @@ export function getCloseAttestationInstructionDataDecoder(): Decoder<CloseAttest
   ]);
 }
 
-export function getCloseAttestationInstructionDataCodec(): Codec<
-  CloseAttestationInstructionDataArgs,
-  CloseAttestationInstructionData
+export function getCloseCompressedAttestationInstructionDataCodec(): Codec<
+  CloseCompressedAttestationInstructionDataArgs,
+  CloseCompressedAttestationInstructionData
 > {
   return combineCodec(
-    getCloseAttestationInstructionDataEncoder(),
-    getCloseAttestationInstructionDataDecoder(),
+    getCloseCompressedAttestationInstructionDataEncoder(),
+    getCloseCompressedAttestationInstructionDataDecoder(),
   );
 }
 
-export type CloseAttestationAsyncInput<
+export type CloseCompressedAttestationAsyncInput<
   TAccountSigner extends string = string,
   TAccountSchemaConfig extends string = string,
   TAccountAgentAta extends string = string,
@@ -199,17 +196,16 @@ export type CloseAttestationAsyncInput<
   tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
-  dataType: CloseAttestationInstructionDataArgs["dataType"];
-  currentData: CloseAttestationInstructionDataArgs["currentData"];
-  numSignatures: CloseAttestationInstructionDataArgs["numSignatures"];
-  signature1: CloseAttestationInstructionDataArgs["signature1"];
-  signature2: CloseAttestationInstructionDataArgs["signature2"];
-  address: CloseAttestationInstructionDataArgs["address"];
-  proof: CloseAttestationInstructionDataArgs["proof"];
-  accountMeta: CloseAttestationInstructionDataArgs["accountMeta"];
+  currentData: CloseCompressedAttestationInstructionDataArgs["currentData"];
+  numSignatures: CloseCompressedAttestationInstructionDataArgs["numSignatures"];
+  signature1: CloseCompressedAttestationInstructionDataArgs["signature1"];
+  signature2: CloseCompressedAttestationInstructionDataArgs["signature2"];
+  address: CloseCompressedAttestationInstructionDataArgs["address"];
+  proof: CloseCompressedAttestationInstructionDataArgs["proof"];
+  accountMeta: CloseCompressedAttestationInstructionDataArgs["accountMeta"];
 };
 
-export async function getCloseAttestationInstructionAsync<
+export async function getCloseCompressedAttestationInstructionAsync<
   TAccountSigner extends string,
   TAccountSchemaConfig extends string,
   TAccountAgentAta extends string,
@@ -218,7 +214,7 @@ export async function getCloseAttestationInstructionAsync<
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
-  input: CloseAttestationAsyncInput<
+  input: CloseCompressedAttestationAsyncInput<
     TAccountSigner,
     TAccountSchemaConfig,
     TAccountAgentAta,
@@ -228,7 +224,7 @@ export async function getCloseAttestationInstructionAsync<
   >,
   config?: { programAddress?: TProgramAddress },
 ): Promise<
-  CloseAttestationInstruction<
+  CloseCompressedAttestationInstruction<
     TProgramAddress,
     TAccountSigner,
     TAccountSchemaConfig,
@@ -283,11 +279,11 @@ export async function getCloseAttestationInstructionAsync<
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
-    data: getCloseAttestationInstructionDataEncoder().encode(
-      args as CloseAttestationInstructionDataArgs,
+    data: getCloseCompressedAttestationInstructionDataEncoder().encode(
+      args as CloseCompressedAttestationInstructionDataArgs,
     ),
     programAddress,
-  } as CloseAttestationInstruction<
+  } as CloseCompressedAttestationInstruction<
     TProgramAddress,
     TAccountSigner,
     TAccountSchemaConfig,
@@ -298,7 +294,7 @@ export async function getCloseAttestationInstructionAsync<
   >);
 }
 
-export type CloseAttestationInput<
+export type CloseCompressedAttestationInput<
   TAccountSigner extends string = string,
   TAccountSchemaConfig extends string = string,
   TAccountAgentAta extends string = string,
@@ -320,17 +316,16 @@ export type CloseAttestationInput<
   tokenProgram?: Address<TAccountTokenProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
-  dataType: CloseAttestationInstructionDataArgs["dataType"];
-  currentData: CloseAttestationInstructionDataArgs["currentData"];
-  numSignatures: CloseAttestationInstructionDataArgs["numSignatures"];
-  signature1: CloseAttestationInstructionDataArgs["signature1"];
-  signature2: CloseAttestationInstructionDataArgs["signature2"];
-  address: CloseAttestationInstructionDataArgs["address"];
-  proof: CloseAttestationInstructionDataArgs["proof"];
-  accountMeta: CloseAttestationInstructionDataArgs["accountMeta"];
+  currentData: CloseCompressedAttestationInstructionDataArgs["currentData"];
+  numSignatures: CloseCompressedAttestationInstructionDataArgs["numSignatures"];
+  signature1: CloseCompressedAttestationInstructionDataArgs["signature1"];
+  signature2: CloseCompressedAttestationInstructionDataArgs["signature2"];
+  address: CloseCompressedAttestationInstructionDataArgs["address"];
+  proof: CloseCompressedAttestationInstructionDataArgs["proof"];
+  accountMeta: CloseCompressedAttestationInstructionDataArgs["accountMeta"];
 };
 
-export function getCloseAttestationInstruction<
+export function getCloseCompressedAttestationInstruction<
   TAccountSigner extends string,
   TAccountSchemaConfig extends string,
   TAccountAgentAta extends string,
@@ -339,7 +334,7 @@ export function getCloseAttestationInstruction<
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
 >(
-  input: CloseAttestationInput<
+  input: CloseCompressedAttestationInput<
     TAccountSigner,
     TAccountSchemaConfig,
     TAccountAgentAta,
@@ -348,7 +343,7 @@ export function getCloseAttestationInstruction<
     TAccountProgram
   >,
   config?: { programAddress?: TProgramAddress },
-): CloseAttestationInstruction<
+): CloseCompressedAttestationInstruction<
   TProgramAddress,
   TAccountSigner,
   TAccountSchemaConfig,
@@ -387,11 +382,11 @@ export function getCloseAttestationInstruction<
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
-    data: getCloseAttestationInstructionDataEncoder().encode(
-      args as CloseAttestationInstructionDataArgs,
+    data: getCloseCompressedAttestationInstructionDataEncoder().encode(
+      args as CloseCompressedAttestationInstructionDataArgs,
     ),
     programAddress,
-  } as CloseAttestationInstruction<
+  } as CloseCompressedAttestationInstruction<
     TProgramAddress,
     TAccountSigner,
     TAccountSchemaConfig,
@@ -402,7 +397,7 @@ export function getCloseAttestationInstruction<
   >);
 }
 
-export type ParsedCloseAttestationInstruction<
+export type ParsedCloseCompressedAttestationInstruction<
   TProgram extends string = typeof SATI_PROGRAM_ADDRESS,
   TAccountMetas extends readonly AccountMeta[] = readonly AccountMeta[],
 > = {
@@ -423,17 +418,17 @@ export type ParsedCloseAttestationInstruction<
     eventAuthority: TAccountMetas[4];
     program: TAccountMetas[5];
   };
-  data: CloseAttestationInstructionData;
+  data: CloseCompressedAttestationInstructionData;
 };
 
-export function parseCloseAttestationInstruction<
+export function parseCloseCompressedAttestationInstruction<
   TProgram extends string,
   TAccountMetas extends readonly AccountMeta[],
 >(
   instruction: Instruction<TProgram> &
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
-): ParsedCloseAttestationInstruction<TProgram, TAccountMetas> {
+): ParsedCloseCompressedAttestationInstruction<TProgram, TAccountMetas> {
   if (instruction.accounts.length < 6) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
@@ -460,6 +455,8 @@ export function parseCloseAttestationInstruction<
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },
-    data: getCloseAttestationInstructionDataDecoder().decode(instruction.data),
+    data: getCloseCompressedAttestationInstructionDataDecoder().decode(
+      instruction.data,
+    ),
   };
 }

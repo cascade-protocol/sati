@@ -19,7 +19,7 @@ import { renderVisitor as renderJavaScriptVisitor } from "@codama/renderers-js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Canonical program address (must match declare_id! in lib.rs and Anchor.toml)
-const SATI_PROGRAM_ADDRESS = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz";
+const SATI_PROGRAM_ADDRESS = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe";
 
 // Load Anchor IDL
 const idlPath = path.join(__dirname, "..", "idl.json");

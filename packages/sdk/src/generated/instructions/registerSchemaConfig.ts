@@ -18,6 +18,8 @@ import {
   getBooleanEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getOptionDecoder,
+  getOptionEncoder,
   getProgramDerivedAddress,
   getStructDecoder,
   getStructEncoder,
@@ -35,6 +37,8 @@ import {
   type Instruction,
   type InstructionWithAccounts,
   type InstructionWithData,
+  type Option,
+  type OptionOrNullable,
   type ReadonlyAccount,
   type ReadonlySignerAccount,
   type ReadonlyUint8Array,
@@ -108,6 +112,7 @@ export type RegisterSchemaConfigInstructionData = {
   sasSchema: Address;
   signatureMode: SignatureMode;
   storageType: StorageType;
+  delegationSchema: Option<Address>;
   closeable: boolean;
   name: string;
 };
@@ -116,6 +121,7 @@ export type RegisterSchemaConfigInstructionDataArgs = {
   sasSchema: Address;
   signatureMode: SignatureModeArgs;
   storageType: StorageTypeArgs;
+  delegationSchema: OptionOrNullable<Address>;
   closeable: boolean;
   name: string;
 };
@@ -127,6 +133,7 @@ export function getRegisterSchemaConfigInstructionDataEncoder(): Encoder<Registe
       ["sasSchema", getAddressEncoder()],
       ["signatureMode", getSignatureModeEncoder()],
       ["storageType", getStorageTypeEncoder()],
+      ["delegationSchema", getOptionEncoder(getAddressEncoder())],
       ["closeable", getBooleanEncoder()],
       ["name", addEncoderSizePrefix(getUtf8Encoder(), getU32Encoder())],
     ]),
@@ -143,6 +150,7 @@ export function getRegisterSchemaConfigInstructionDataDecoder(): Decoder<Registe
     ["sasSchema", getAddressDecoder()],
     ["signatureMode", getSignatureModeDecoder()],
     ["storageType", getStorageTypeDecoder()],
+    ["delegationSchema", getOptionDecoder(getAddressDecoder())],
     ["closeable", getBooleanDecoder()],
     ["name", addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
   ]);
@@ -177,6 +185,7 @@ export type RegisterSchemaConfigAsyncInput<
   sasSchema: RegisterSchemaConfigInstructionDataArgs["sasSchema"];
   signatureMode: RegisterSchemaConfigInstructionDataArgs["signatureMode"];
   storageType: RegisterSchemaConfigInstructionDataArgs["storageType"];
+  delegationSchema: RegisterSchemaConfigInstructionDataArgs["delegationSchema"];
   closeable: RegisterSchemaConfigInstructionDataArgs["closeable"];
   name: RegisterSchemaConfigInstructionDataArgs["name"];
 };
@@ -297,6 +306,7 @@ export type RegisterSchemaConfigInput<
   sasSchema: RegisterSchemaConfigInstructionDataArgs["sasSchema"];
   signatureMode: RegisterSchemaConfigInstructionDataArgs["signatureMode"];
   storageType: RegisterSchemaConfigInstructionDataArgs["storageType"];
+  delegationSchema: RegisterSchemaConfigInstructionDataArgs["delegationSchema"];
   closeable: RegisterSchemaConfigInstructionDataArgs["closeable"];
   name: RegisterSchemaConfigInstructionDataArgs["name"];
 };

@@ -24,6 +24,7 @@ import {
   findRegistryConfigPda,
   fetchRegistryConfig,
   findAssociatedTokenAddress, // Still needed for registerAgent
+  findAgentIndexPda,
   loadDeployedConfig,
   type ParsedAttestation,
   type FeedbackData,
@@ -207,6 +208,10 @@ export function useRegisterAgent(): {
         const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
         const groupMint = registryConfig.data.groupMint;
 
+        // Derive agent index PDA for enumeration (uses next member number)
+        const nextMemberNumber = registryConfig.data.totalAgents + 1n;
+        const [agentIndex] = await findAgentIndexPda(nextMemberNumber);
+
         const ownerAddress = session.account.address;
         const [agentTokenAccount] = await findAssociatedTokenAddress(agentMint.address, ownerAddress);
 
@@ -216,6 +221,7 @@ export function useRegisterAgent(): {
           groupMint,
           agentMint,
           agentTokenAccount,
+          agentIndex,
           name: params.name,
           symbol: "", // Empty - vestigial field from fungible tokens
           uri: params.uri,

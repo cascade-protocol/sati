@@ -10,20 +10,23 @@ use light_sdk::{
 };
 use solana_program::sysvar::instructions as instructions_sysvar;
 
+use std::ops::Deref;
+
 use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
 use crate::signature::{
-    compute_attestation_nonce, compute_interaction_hash, verify_ed25519_signatures,
+    compute_attestation_nonce, compute_interaction_hash, extract_ed25519_signatures,
+    verify_agent_authorization, ExtractedSignature,
 };
 use crate::state::{CompressedAttestation, CreateParams, SchemaConfig, SignatureMode, StorageType};
 use crate::ID;
 use crate::LIGHT_CPI_SIGNER;
 
-/// Accounts for create_attestation instruction (compressed storage)
+/// Accounts for create_compressed_attestation instruction (compressed storage)
 #[event_cpi]
 #[derive(Accounts)]
-pub struct CreateAttestation<'info> {
+pub struct CreateCompressedAttestation<'info> {
     /// Payer for transaction fees
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -42,40 +45,43 @@ pub struct CreateAttestation<'info> {
     pub instructions_sysvar: AccountInfo<'info>,
 
     /// Agent's ATA that holds the NFT - proves signer owns the agent identity.
+    /// Required for DualSignature and AgentOwnerSigned modes.
+    /// Optional for CounterpartySigned mode (not validated).
+    ///
     /// The mint must match token_account from attestation data (the agent's MINT address),
     /// amount must be >= 1, and owner must match signatures[0].pubkey.
     /// Note: token_account in data is the MINT address; this is the holder's ATA.
-    pub agent_ata: InterfaceAccount<'info, TokenAccount>,
+    pub agent_ata: Option<InterfaceAccount<'info, TokenAccount>>,
 
-    /// Token-2022 program for ATA verification
-    pub token_program: Interface<'info, TokenInterface>,
+    /// Token-2022 program for ATA verification.
+    /// Required when agent_ata is provided.
+    pub token_program: Option<Interface<'info, TokenInterface>>,
+
+    /// Delegation attestation (optional).
+    /// Required when signer != agent ATA owner for AgentOwnerSigned mode.
+    /// Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
+    /// CHECK: Validated in verify_agent_authorization
+    pub delegation_attestation: Option<AccountInfo<'info>>,
+
+    /// SATI SAS credential for delegation PDA derivation.
+    /// Required when delegation_attestation is provided.
+    /// CHECK: Used for PDA derivation
+    pub sati_credential: Option<AccountInfo<'info>>,
+
+    /// Clock sysvar for delegation expiry verification.
+    /// Required when delegation_attestation is provided.
+    pub clock: Option<Sysvar<'info, Clock>>,
     // Light Protocol accounts are passed via remaining_accounts
     // and parsed by CpiAccounts::new()
 }
 
 pub fn handler<'info>(
-    ctx: Context<'_, '_, '_, 'info, CreateAttestation<'info>>,
+    ctx: Context<'_, '_, '_, 'info, CreateCompressedAttestation<'info>>,
     params: CreateParams,
 ) -> Result<()> {
     let schema_config = &ctx.accounts.schema_config;
 
-    // 1. Verify signature count matches signature mode
-    match schema_config.signature_mode {
-        SignatureMode::DualSignature => {
-            require!(
-                params.signatures.len() == 2,
-                SatiError::InvalidSignatureCount
-            );
-        }
-        SignatureMode::SingleSigner => {
-            require!(
-                params.signatures.len() == 1,
-                SatiError::InvalidSignatureCount
-            );
-        }
-    }
-
-    // 2. Verify data length
+    // 1. Verify data length
     require!(
         params.data.len() >= MIN_BASE_LAYOUT_SIZE,
         SatiError::AttestationDataTooSmall
@@ -85,16 +91,23 @@ pub fn handler<'info>(
         SatiError::AttestationDataTooLarge
     );
 
+    // 2b. Verify layout version
+    let layout_version = params.data[offsets::LAYOUT_VERSION];
+    require!(
+        layout_version == CURRENT_LAYOUT_VERSION,
+        SatiError::UnsupportedLayoutVersion
+    );
+
     // 3. Parse base layout for signature binding
     // token_account stores the agent's MINT ADDRESS (stable identity),
     // NOT a wallet address. Authorization is verified via agent_ata account.
-    let task_ref: [u8; 32] = params.data[0..32]
+    let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let token_account_bytes: [u8; 32] = params.data[32..64]
+    let token_account_bytes: [u8; 32] = params.data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let counterparty_bytes: [u8; 32] = params.data[64..96]
+    let counterparty_bytes: [u8; 32] = params.data[offsets::COUNTERPARTY..offsets::OUTCOME]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
@@ -107,45 +120,73 @@ pub fn handler<'info>(
         SatiError::SelfAttestationNotAllowed
     );
 
-    // 5. Verify signature authorization via NFT ownership
-    // token_account_pubkey is the MINT address (agent identity).
-    // signatures[0].pubkey must be the NFT OWNER (verified via ATA).
-    if !params.signatures.is_empty() {
-        // Verify ATA holds the correct agent NFT
-        require!(
-            ctx.accounts.agent_ata.mint == token_account_pubkey,
-            SatiError::AgentAtaMintMismatch
-        );
-        require!(ctx.accounts.agent_ata.amount >= 1, SatiError::AgentAtaEmpty);
-        // Verify signer owns the NFT
-        require!(
-            params.signatures[0].pubkey == ctx.accounts.agent_ata.owner,
-            SatiError::SignatureMismatch
-        );
-    }
-
-    // For DualSignature mode, also verify counterparty binding
-    if params.signatures.len() == 2 {
-        require!(
-            params.signatures[1].pubkey == counterparty_pubkey,
-            SatiError::SignatureMismatch
-        );
-    }
+    // 5. Determine expected pubkeys for signature extraction
+    let expected_agent_pubkey = match schema_config.signature_mode {
+        SignatureMode::DualSignature | SignatureMode::AgentOwnerSigned => {
+            let agent_ata = ctx
+                .accounts
+                .agent_ata
+                .as_ref()
+                .ok_or(SatiError::AgentAtaRequired)?;
+            require!(
+                agent_ata.mint == token_account_pubkey,
+                SatiError::AgentAtaMintMismatch
+            );
+            require!(agent_ata.amount >= 1, SatiError::AgentAtaEmpty);
+            Some(agent_ata.owner)
+        }
+        SignatureMode::CounterpartySigned => None,
+    };
 
     // 6. Validate universal base layout fields
-    // All schemas use the same 130-byte universal layout
     validate_universal_base(&params.data)?;
 
     // 7. Construct expected message hashes for signature verification
-    // Agent must sign the interaction_hash; counterparty's message is verified by Ed25519 precompile
     let expected_messages = build_expected_messages(&params, schema_config, &task_ref)?;
 
-    // 9. Verify Ed25519 signatures via instruction introspection
-    verify_ed25519_signatures(
+    // 8. Extract and verify Ed25519 signatures
+    let extracted_signatures = extract_ed25519_signatures(
         &ctx.accounts.instructions_sysvar,
-        &params.signatures,
+        expected_agent_pubkey.as_ref(),
+        &counterparty_pubkey,
+        schema_config.signature_mode,
         &expected_messages,
     )?;
+
+    // 9. Additional authorization for delegation (AgentOwnerSigned only)
+    if schema_config.signature_mode == SignatureMode::AgentOwnerSigned {
+        let agent_ata = ctx.accounts.agent_ata.as_ref().unwrap(); // Already validated above
+        let signer_pubkey = &extracted_signatures[0].pubkey;
+
+        // Get clock for delegation verification (only if not owner)
+        let clock = if signer_pubkey != &agent_ata.owner {
+            ctx.accounts
+                .clock
+                .as_ref()
+                .ok_or(SatiError::DelegationAttestationRequired)?
+                .deref()
+        } else {
+            &Clock::default()
+        };
+
+        let sati_credential = ctx
+            .accounts
+            .sati_credential
+            .as_ref()
+            .map(|c| c.key())
+            .unwrap_or_default();
+
+        // Verify agent authorization (owner fast path or delegation)
+        verify_agent_authorization(
+            signer_pubkey,
+            &token_account_pubkey,
+            &agent_ata.owner,
+            schema_config.delegation_schema.as_ref(),
+            ctx.accounts.delegation_attestation.as_ref(),
+            &sati_credential,
+            clock,
+        )?;
+    }
 
     // 10. Derive deterministic address
     let nonce = compute_attestation_nonce(
@@ -188,15 +229,16 @@ pub fn handler<'info>(
 
     attestation.sas_schema = schema_config.sas_schema.to_bytes();
     attestation.token_account = token_account_bytes;
-    attestation.data_type = params.data_type;
     attestation.data = params.data.clone();
-    attestation.num_signatures = params.signatures.len() as u8;
-    attestation.signature1 = params
-        .signatures
+    attestation.num_signatures = extracted_signatures.len() as u8;
+    attestation.signature1 = extracted_signatures
         .first()
         .map(|s| s.sig)
         .unwrap_or([0u8; 64]);
-    attestation.signature2 = params.signatures.get(1).map(|s| s.sig).unwrap_or([0u8; 64]);
+    attestation.signature2 = extracted_signatures
+        .get(1)
+        .map(|s| s.sig)
+        .unwrap_or([0u8; 64]);
 
     // 14. Compute new address params from params
     let new_address_params = params
@@ -216,7 +258,6 @@ pub fn handler<'info>(
         sas_schema: schema_config.sas_schema,
         token_account: token_account_pubkey,
         counterparty: counterparty_pubkey,
-        data_type: params.data_type,
         storage_type: StorageType::Compressed,
         address: Pubkey::new_from_array(address),
     });
@@ -249,35 +290,41 @@ fn validate_universal_base(data: &[u8]) -> Result<()> {
 /// - Agent always signs interaction_hash (verified against expected)
 /// - Counterparty (DualSignature) signs SIWS message (built on-chain and verified)
 ///
-/// Returns Option<Vec<u8>> for each signature:
-/// - Some(msg) = verify the signed message matches this value
+/// Returns Vec<Vec<u8>> with the expected messages for each signature role.
 fn build_expected_messages(
     params: &CreateParams,
     schema_config: &SchemaConfig,
     task_ref: &[u8; 32],
-) -> Result<Vec<Option<Vec<u8>>>> {
+) -> Result<Vec<Vec<u8>>> {
     // data_hash is at offset 97-129 in universal layout
     let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
-    // Compute interaction hash (agent's signature)
+    // Compute interaction hash (agent/owner's signature)
     let interaction_hash =
         compute_interaction_hash(&schema_config.sas_schema, task_ref, &data_hash).to_vec();
 
-    // For SingleSigner mode, only the interaction hash is verified
-    if schema_config.signature_mode == SignatureMode::SingleSigner {
-        return Ok(vec![Some(interaction_hash)]);
+    match schema_config.signature_mode {
+        SignatureMode::DualSignature => {
+            // - Agent (signatures[0]): verify they signed the interaction_hash
+            // - Counterparty (signatures[1]): verify they signed the expected SIWS message
+            //
+            // SECURITY: We must verify the counterparty's message content matches the data.
+            // Otherwise an attacker could sign "Positive" but submit "Negative" data.
+            let siws_message = build_siws_message(&schema_config.name, &params.data)?;
+            Ok(vec![interaction_hash, siws_message])
+        }
+        SignatureMode::CounterpartySigned => {
+            // Counterparty signs the SIWS message (no agent signature)
+            let siws_message = build_siws_message(&schema_config.name, &params.data)?;
+            Ok(vec![siws_message])
+        }
+        SignatureMode::AgentOwnerSigned => {
+            // Agent owner/delegate signs the interaction_hash
+            Ok(vec![interaction_hash])
+        }
     }
-
-    // DualSignature mode:
-    // - Agent (signatures[0]): verify they signed the interaction_hash
-    // - Counterparty (signatures[1]): verify they signed the expected SIWS message
-    //
-    // SECURITY: We must verify the counterparty's message content matches the data.
-    // Otherwise an attacker could sign "Positive" but submit "Negative" data.
-    let siws_message = build_siws_message(&schema_config.name, &params.data)?;
-    Ok(vec![Some(interaction_hash), Some(siws_message)])
 }
 
 /// Build the expected SIWS message that counterparty should have signed.
@@ -353,21 +400,22 @@ mod tests {
     use super::*;
     use light_sdk::instruction::PackedAddressTreeInfo;
 
-    /// Create minimal test CreateParams with universal layout (130 bytes)
-    /// Layout: task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1)
-    fn make_test_params(data_type: u8, outcome: u8) -> CreateParams {
-        let mut data = vec![0u8; 140]; // 130 min + some content
+    /// Create minimal test CreateParams with universal layout (131 bytes)
+    /// Layout: layout_version(1) + task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1)
+    fn make_test_params(outcome: u8) -> CreateParams {
+        let mut data = vec![0u8; 141]; // 131 min + some content
 
-        // Set outcome at offset 96
+        // Set layout version at offset 0
+        data[offsets::LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
+
+        // Set outcome at offset 97
         data[offsets::OUTCOME] = outcome;
 
-        // Set content_type at offset 129
+        // Set content_type at offset 130
         data[offsets::CONTENT_TYPE] = 1; // JSON
 
         CreateParams {
-            data_type,
             data,
-            signatures: vec![],
             proof: Default::default(),
             address_tree_info: PackedAddressTreeInfo::default(),
             output_state_tree_index: 0,
@@ -379,6 +427,7 @@ mod tests {
             sas_schema: Pubkey::new_unique(),
             signature_mode,
             storage_type: StorageType::Compressed,
+            delegation_schema: None,
             closeable: false,
             name: "test".to_string(),
             bump: 255,
@@ -386,9 +435,9 @@ mod tests {
     }
 
     #[test]
-    fn test_build_expected_messages_single_signer_returns_one_hash() {
-        let params = make_test_params(0, 2); // Feedback with Positive outcome
-        let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
+    fn test_build_expected_messages_agent_owner_signed_returns_one_hash() {
+        let params = make_test_params(2); // Positive outcome
+        let schema_config = make_test_schema_config(SignatureMode::AgentOwnerSigned);
         let task_ref = [1u8; 32];
 
         let result = build_expected_messages(&params, &schema_config, &task_ref);
@@ -398,17 +447,45 @@ mod tests {
         assert_eq!(
             messages.len(),
             1,
-            "SingleSigner mode should return exactly 1 message (Some(interaction_hash))"
+            "AgentOwnerSigned mode should return exactly 1 message (Some(interaction_hash))"
         );
         assert!(
             messages[0].is_some(),
-            "SingleSigner should have Some(interaction_hash)"
+            "AgentOwnerSigned should have Some(interaction_hash)"
+        );
+    }
+
+    #[test]
+    fn test_build_expected_messages_counterparty_signed_returns_one_siws() {
+        let params = make_test_params(2); // Positive outcome
+        let schema_config = make_test_schema_config(SignatureMode::CounterpartySigned);
+        let task_ref = [1u8; 32];
+
+        let result = build_expected_messages(&params, &schema_config, &task_ref);
+        assert!(result.is_ok());
+
+        let messages = result.unwrap();
+        assert_eq!(
+            messages.len(),
+            1,
+            "CounterpartySigned mode should return exactly 1 message (Some(siws_message))"
+        );
+        assert!(
+            messages[0].is_some(),
+            "CounterpartySigned should have Some(siws_message)"
+        );
+        // Verify it's a SIWS message (contains the expected format)
+        let siws_msg = messages[0].as_ref().unwrap();
+        let siws_str = std::str::from_utf8(siws_msg).unwrap();
+        assert!(
+            siws_str.contains("SATI"),
+            "CounterpartySigned message should be a SIWS message"
         );
     }
 
     #[test]
     fn test_build_expected_messages_dual_signature_returns_two_entries() {
-        let params = make_test_params(0, 2); // Feedback with Positive outcome
+        let params = make_test_params(2); // Positive outcome
         let schema_config = make_test_schema_config(SignatureMode::DualSignature);
         let task_ref = [1u8; 32];
 
@@ -442,9 +519,9 @@ mod tests {
     }
 
     #[test]
-    fn test_build_expected_messages_single_signer_returns_interaction_hash() {
-        let params = make_test_params(0, 2);
-        let schema_config = make_test_schema_config(SignatureMode::SingleSigner);
+    fn test_build_expected_messages_agent_owner_signed_returns_interaction_hash() {
+        let params = make_test_params(2);
+        let schema_config = make_test_schema_config(SignatureMode::AgentOwnerSigned);
         let task_ref = [1u8; 32];
 
         // Extract data_hash from params.data at universal offset
@@ -462,7 +539,7 @@ mod tests {
         assert_eq!(
             messages[0].as_ref().unwrap(),
             &expected_hash.to_vec(),
-            "SingleSigner should return Some(interaction_hash)"
+            "AgentOwnerSigned should return Some(interaction_hash)"
         );
     }
 
@@ -478,11 +555,13 @@ mod tests {
         let outcome: u8 = 2; // Positive
         let content_type: u8 = 0; // None
 
-        // Build data array matching test setup
-        let mut data = vec![0u8; 130];
-        data[0..32].copy_from_slice(&task_ref);
-        data[32..64].copy_from_slice(token_account.as_ref());
-        data[64..96].copy_from_slice(Pubkey::new_unique().as_ref()); // counterparty
+        // Build data array matching test setup (131 bytes minimum)
+        let mut data = vec![0u8; 131];
+        data[offsets::LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
+        data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT].copy_from_slice(&task_ref);
+        data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY].copy_from_slice(token_account.as_ref());
+        data[offsets::COUNTERPARTY..offsets::OUTCOME]
+            .copy_from_slice(Pubkey::new_unique().as_ref()); // counterparty
         data[offsets::OUTCOME] = outcome;
         data[offsets::CONTENT_TYPE] = content_type;
 

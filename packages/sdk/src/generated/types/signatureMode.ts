@@ -15,10 +15,11 @@ import {
   type FixedSizeEncoder,
 } from "@solana/kit";
 
-/** Signature mode determines how many signatures are required */
+/** Signature mode determines how many signatures are required and who signs */
 export enum SignatureMode {
   DualSignature,
-  SingleSigner,
+  CounterpartySigned,
+  AgentOwnerSigned,
 }
 
 export type SignatureModeArgs = SignatureMode;

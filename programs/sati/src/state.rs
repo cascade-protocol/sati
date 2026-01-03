@@ -45,17 +45,38 @@ impl RegistryConfig {
     }
 }
 
+/// Agent index for enumeration via member_number.
+/// Enables listing all agents without external indexing.
+/// PDA seeds: [b"agent_index", member_number.to_le_bytes()]
+#[account]
+pub struct AgentIndex {
+    /// Agent mint address
+    pub mint: Pubkey,
+    /// PDA bump seed
+    pub bump: u8,
+}
+
+impl AgentIndex {
+    /// Account discriminator (8) + mint (32) + bump (1) = 41 bytes
+    pub const SIZE: usize = 8 + 32 + 1;
+}
+
 // ============================================================================
 // Attestation State
 // ============================================================================
 
-/// Signature mode determines how many signatures are required
+/// Signature mode determines how many signatures are required and who signs
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
 pub enum SignatureMode {
     /// Two signatures required: agent + counterparty (blind feedback model)
+    /// Used for: FeedbackV1, ValidationV1
     DualSignature,
-    /// Single signature required: provider signs (ReputationScore)
-    SingleSigner,
+    /// Single signature from counterparty only (no agent authorization required)
+    /// Used for: FeedbackPublicV1, ReputationScoreV1
+    CounterpartySigned,
+    /// Single signature from agent owner or delegate
+    /// Used for: DelegateV1 only
+    AgentOwnerSigned,
 }
 
 /// Storage type determines where attestations are stored
@@ -78,6 +99,10 @@ pub struct SchemaConfig {
     pub signature_mode: SignatureMode,
     /// Storage backend type
     pub storage_type: StorageType,
+    /// Schema for delegation verification.
+    /// If Some: owner OR valid delegate can sign (AgentOwnerSigned mode).
+    /// If None: only owner can sign (or anyone for CounterpartySigned mode).
+    pub delegation_schema: Option<Pubkey>,
     /// Whether attestations can be closed/nullified
     pub closeable: bool,
     /// Schema name for signing messages (max 32 chars)
@@ -87,15 +112,18 @@ pub struct SchemaConfig {
     pub bump: u8,
 }
 
-// Account size: 8 (discriminator) + 32 + 1 + 1 + 1 + 4 + 32 + 1 = 80 bytes
+// Account size: 8 (discriminator) + 32 + 1 + 1 + 1 + 32 + 1 + 4 + 32 + 1 = 113 bytes (with Option overhead)
 
 /// Compressed attestation stored via Light Protocol.
 ///
 /// The account hash is computed by Light SDK using the LightHasher trait.
 /// Fields marked with `#[hash]` are included in the Poseidon hash for account verification.
+///
+/// Schema type is determined solely by `sas_schema` field - no separate data_type discriminator.
 #[derive(Clone, Debug, LightDiscriminator, LightHasher, BorshSerialize, BorshDeserialize)]
 pub struct CompressedAttestation {
-    /// SAS schema address (indexed via memcmp at offset 8)
+    /// SAS schema address (indexed via memcmp at offset 8).
+    /// Determines attestation type (Feedback, Validation, etc.)
     #[hash]
     pub sas_schema: [u8; 32],
     /// Agent's MINT ADDRESS (stable identity). Indexed via memcmp at offset 40.
@@ -107,23 +135,16 @@ pub struct CompressedAttestation {
     /// checking `signature.pubkey == token_account`. The NFT owner signs.
     #[hash]
     pub token_account: [u8; 32],
-    /// Attestation data type discriminator:
-    /// - 0: Feedback (agent-counterparty blind feedback)
-    /// - 1: Validation (third-party validation request/response)
-    ///
-    /// Note: ReputationScore (type 2) uses Regular storage, not Compressed
-    #[hash]
-    pub data_type: u8,
-    /// Schema-conformant data bytes (96+ bytes, includes base layout)
+    /// Schema-conformant data bytes (130+ bytes, universal base layout)
     #[hash]
     pub data: Vec<u8>,
-    /// Number of signatures stored
+    /// Number of signatures stored (1 or 2 depending on SignatureMode)
     #[hash]
     pub num_signatures: u8,
-    /// First signature (agent for DualSignature, provider for SingleSigner)
+    /// First signature (agent for DualSignature, counterparty for CounterpartySigned, owner for AgentOwnerSigned)
     #[hash]
     pub signature1: [u8; 64],
-    /// Second signature (counterparty for DualSignature, zeroed for SingleSigner)
+    /// Second signature (counterparty for DualSignature, zeroed for single-signature modes)
     #[hash]
     pub signature2: [u8; 64],
 }
@@ -133,7 +154,6 @@ impl Default for CompressedAttestation {
         Self {
             sas_schema: [0u8; 32],
             token_account: [0u8; 32],
-            data_type: 0,
             data: Vec::new(),
             num_signatures: 0,
             signature1: [0u8; 64],
@@ -142,27 +162,14 @@ impl Default for CompressedAttestation {
     }
 }
 
-/// Ed25519 signature with associated public key
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct SignatureData {
-    /// Public key that signed
-    pub pubkey: Pubkey,
-    /// 64-byte Ed25519 signature
-    pub sig: [u8; 64],
-}
-
 /// Parameters for creating a compressed attestation
 ///
 /// Uses Light Protocol types directly for proof and address tree info,
 /// following the recommended pattern from Light SDK.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CreateParams {
-    /// Data type: 0=Feedback, 1=Validation
-    pub data_type: u8,
-    /// Schema-conformant data bytes (130+ bytes, universal layout)
+    /// Schema-conformant data bytes (130+ bytes, universal base layout)
     pub data: Vec<u8>,
-    /// Ed25519 signatures with public keys
-    pub signatures: Vec<SignatureData>,
     /// Output state tree index for the new compressed account
     pub output_state_tree_index: u8,
     /// Light Protocol validity proof (None for new address creation)
@@ -172,14 +179,11 @@ pub struct CreateParams {
 }
 
 /// Parameters for creating a regular (SAS) attestation
+/// Used for Delegation schemas (AgentOwnerSigned mode)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CreateRegularParams {
-    /// Data type: 2=ReputationScore
-    pub data_type: u8,
-    /// Schema-conformant data bytes
+    /// Schema-conformant data bytes (130+ bytes, universal base layout)
     pub data: Vec<u8>,
-    /// Single signature (provider)
-    pub signatures: Vec<SignatureData>,
     /// Expiry timestamp (0 = never expires)
     pub expiry: i64,
 }
@@ -190,15 +194,13 @@ pub struct CreateRegularParams {
 /// following the recommended pattern from Light SDK.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CloseParams {
-    /// Data type of the attestation being closed
-    pub data_type: u8,
     /// Current attestation data (for hash verification)
     pub current_data: Vec<u8>,
     /// Number of signatures in the attestation
     pub num_signatures: u8,
     /// First signature (required)
     pub signature1: [u8; 64],
-    /// Second signature (zeroed for SingleSigner mode)
+    /// Second signature (zeroed for single-signature modes)
     pub signature2: [u8; 64],
     /// The compressed account address being closed (for event emission)
     pub address: Pubkey,
@@ -242,20 +244,40 @@ mod tests {
 
     #[test]
     fn test_signature_mode_values() {
-        // Verify enum variants are distinct and serializable
-        assert_ne!(SignatureMode::DualSignature, SignatureMode::SingleSigner);
+        // Verify all three enum variants are distinct
+        assert_ne!(
+            SignatureMode::DualSignature,
+            SignatureMode::CounterpartySigned
+        );
+        assert_ne!(
+            SignatureMode::DualSignature,
+            SignatureMode::AgentOwnerSigned
+        );
+        assert_ne!(
+            SignatureMode::CounterpartySigned,
+            SignatureMode::AgentOwnerSigned
+        );
 
-        // Verify DualSignature requires 2 signatures conceptually
+        // Verify Copy trait
         let dual = SignatureMode::DualSignature;
-        let single = SignatureMode::SingleSigner;
+        let counterparty = SignatureMode::CounterpartySigned;
+        let agent_owner = SignatureMode::AgentOwnerSigned;
 
-        // These should be Copy
         let _dual_copy = dual;
-        let _single_copy = single;
+        let _counterparty_copy = counterparty;
+        let _agent_owner_copy = agent_owner;
 
         // Verify Debug trait works
         assert!(format!("{:?}", dual).contains("DualSignature"));
-        assert!(format!("{:?}", single).contains("SingleSigner"));
+        assert!(format!("{:?}", counterparty).contains("CounterpartySigned"));
+        assert!(format!("{:?}", agent_owner).contains("AgentOwnerSigned"));
+    }
+
+    #[test]
+    fn test_agent_index_size() {
+        // Verify SIZE constant matches actual serialized size
+        // 8 (discriminator) + 32 (mint) + 1 (bump) = 41
+        assert_eq!(AgentIndex::SIZE, 41);
     }
 
     #[test]
@@ -280,40 +302,10 @@ mod tests {
 
         assert_eq!(attestation.sas_schema, [0u8; 32]);
         assert_eq!(attestation.token_account, [0u8; 32]);
-        assert_eq!(attestation.data_type, 0);
         assert!(attestation.data.is_empty());
         assert_eq!(attestation.num_signatures, 0);
         assert_eq!(attestation.signature1, [0u8; 64]);
         assert_eq!(attestation.signature2, [0u8; 64]);
-    }
-
-    #[test]
-    fn test_data_type_constants() {
-        // Document expected data_type values
-        // 0 = Feedback (agent-counterparty blind feedback)
-        // 1 = Validation (third-party validation request/response)
-        // 2 = ReputationScore (uses Regular storage, not Compressed)
-
-        let feedback_type: u8 = 0;
-        let validation_type: u8 = 1;
-        let reputation_type: u8 = 2;
-
-        assert!(feedback_type < validation_type);
-        assert!(validation_type < reputation_type);
-    }
-
-    #[test]
-    fn test_signature_data_structure() {
-        let sig_data = SignatureData {
-            pubkey: Pubkey::new_unique(),
-            sig: [0xAB; 64],
-        };
-
-        // Verify signature is 64 bytes
-        assert_eq!(sig_data.sig.len(), 64);
-
-        // Verify pubkey is set
-        assert_ne!(sig_data.pubkey, Pubkey::default());
     }
 
     #[test]

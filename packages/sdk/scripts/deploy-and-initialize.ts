@@ -82,9 +82,11 @@ import {
   fetchRegistryConfig,
   getRegisterSchemaConfigInstructionAsync,
   fetchMaybeSchemaConfig,
+  SignatureMode,
+  StorageType,
 } from "../src/generated";
 import { findSchemaConfigPda } from "../src/helpers";
-import { SCHEMA_CONFIGS, SignatureMode, StorageType } from "../src/schemas";
+import { SCHEMA_CONFIGS } from "../src/schemas";
 import {
   findAddressLookupTablePda,
   getCreateLookupTableInstruction,
@@ -118,13 +120,13 @@ type SendAndConfirmConfig = Parameters<typeof sendAndConfirmTransactionFactory>[
 type SendAndConfirmTx = Parameters<ReturnType<typeof sendAndConfirmTransactionFactory>>[0];
 
 // Production program ID (used for devnet/mainnet)
-const PRODUCTION_PROGRAM_ID = address("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
+const PRODUCTION_PROGRAM_ID = address("satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe");
 
 // Production authority - only this keypair can deploy to devnet/mainnet
 const PRODUCTION_AUTHORITY = "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z";
 
 // REQUIRED keypair filenames - NEVER use sati-keypair.json for production!
-const PROGRAM_KEYPAIR_FILENAME = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz.json";
+const PROGRAM_KEYPAIR_FILENAME = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe.json";
 const GROUP_KEYPAIR_FILENAME = "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json";
 
 // Network RPC endpoints
@@ -513,6 +515,7 @@ async function deploySASSchemas(
       feedbackPublic: schemaAddresses.feedbackPublic,
       validation: schemaAddresses.validation,
       reputationScore: schemaAddresses.reputationScore,
+      delegate: schemaAddresses.delegate,
     },
   };
 }
@@ -538,6 +541,7 @@ async function registerSchemaConfigs(
     feedbackPublic: "FeedbackPublic",
     validation: "Validation",
     reputationScore: "ReputationScore",
+    delegate: "Delegate",
   };
 
   for (const [key, sasSchema] of Object.entries(sasSchemas)) {
@@ -558,8 +562,13 @@ async function registerSchemaConfigs(
       continue;
     }
 
+    // Determine delegationSchema: DualSignature schemas can use delegation
+    // For DualSignature, set delegationSchema to the delegate SAS schema
+    // For CounterpartySigned/AgentOwnerSigned, set to null (no delegation or delegate signs directly)
+    const delegationSchema = config.signatureMode === SignatureMode.DualSignature ? sasSchemas.delegate : null;
+
     console.log(
-      `  Registering with mode=${SignatureMode[config.signatureMode]}, storage=${StorageType[config.storageType]}, closeable=${config.closeable}...`,
+      `  Registering with mode=${SignatureMode[config.signatureMode]}, storage=${StorageType[config.storageType]}, closeable=${config.closeable}, delegation=${delegationSchema ? "enabled" : "none"}...`,
     );
 
     const registerIx = await getRegisterSchemaConfigInstructionAsync({
@@ -569,6 +578,7 @@ async function registerSchemaConfigs(
       schemaConfig: schemaConfigPda,
       signatureMode: config.signatureMode,
       storageType: config.storageType,
+      delegationSchema,
       closeable: config.closeable,
       name: config.name, // Schema name for SIWS messages (e.g., "FeedbackV1", "ValidationV1")
     });

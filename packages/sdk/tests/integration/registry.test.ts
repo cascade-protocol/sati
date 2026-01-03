@@ -9,7 +9,7 @@ import { describe, test, expect, beforeEach } from "vitest";
 import { LiteSVM } from "litesvm";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { MintLayout } from "@solana/spl-token";
-import { address } from "@solana/kit";
+import { address, type Address } from "@solana/kit";
 
 // Import Codama-generated code
 import {
@@ -131,6 +131,7 @@ function setupSchemaConfig(
   storageType: GeneratedStorageType = GeneratedStorageType.Compressed,
   closeable: boolean = false,
   name: string = "TestSchema",
+  delegationSchema: Address | null = null,
 ): PublicKey {
   const [schemaConfigPda, bump] = deriveSchemaConfigPda(sasSchema);
 
@@ -139,6 +140,7 @@ function setupSchemaConfig(
     sasSchema: address(sasSchema.toBase58()),
     signatureMode,
     storageType,
+    delegationSchema,
     closeable,
     name,
     bump,
@@ -421,14 +423,14 @@ describe("Schema Config Account", () => {
   test("stores signatureMode correctly", () => {
     const sasSchema = Keypair.generate().publicKey;
 
-    setupSchemaConfig(svm, sasSchema, GeneratedSignatureMode.SingleSigner, GeneratedStorageType.Regular);
+    setupSchemaConfig(svm, sasSchema, GeneratedSignatureMode.CounterpartySigned, GeneratedStorageType.Regular);
 
     const [schemaConfigPda] = deriveSchemaConfigPda(sasSchema);
     const account = svm.getAccount(schemaConfigPda);
     const decoder = getSchemaConfigDecoder();
     const decoded = decoder.decode(getAccountData(account));
 
-    expect(decoded.signatureMode).toBe(GeneratedSignatureMode.SingleSigner);
+    expect(decoded.signatureMode).toBe(GeneratedSignatureMode.CounterpartySigned);
     expect(decoded.storageType).toBe(GeneratedStorageType.Regular);
   });
 
@@ -511,8 +513,9 @@ describe("Account Data Roundtrip", () => {
 
     const original = {
       sasSchema: address(Keypair.generate().publicKey.toBase58()),
-      signatureMode: GeneratedSignatureMode.SingleSigner,
+      signatureMode: GeneratedSignatureMode.CounterpartySigned,
       storageType: GeneratedStorageType.Regular,
+      delegationSchema: null,
       closeable: true,
       name: "TestSchema",
       bump: 77,
@@ -524,6 +527,8 @@ describe("Account Data Roundtrip", () => {
     expect(decoded.sasSchema).toBe(original.sasSchema);
     expect(decoded.signatureMode).toBe(original.signatureMode);
     expect(decoded.storageType).toBe(original.storageType);
+    // Codama serializes None as { __option: 'None' }, so we check for the absence of a value
+    expect(decoded.delegationSchema.__option).toBe("None");
     expect(decoded.closeable).toBe(original.closeable);
     expect(decoded.name).toBe(original.name);
     expect(decoded.bump).toBe(original.bump);

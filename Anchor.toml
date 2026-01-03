@@ -6,13 +6,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-sati = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz"
+sati = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe"
 
 [programs.devnet]
-sati = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz"
+sati = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe"
 
 [programs.mainnet]
-sati = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz"
+sati = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe"
 
 [registry]
 url = "https://api.apr.dev"

@@ -1,8 +1,8 @@
-# SATI Specification v2.2
+# SATI Specification v1.0
 
 ## Solana Agent Trust Infrastructure
 
-**Version**: 2.2 | **License**: Apache 2.0
+**Version**: 1.0 | **License**: Apache 2.0
 
 ---
 
@@ -13,7 +13,7 @@ SATI is open trust infrastructure for AI agents on Solana solving the economics 
 - **Agent-subsidized feedback** — Agent signs with response (blind to outcome), client feedback is free
 - **x402 native** — Canonical feedback extension; payment tx becomes task reference (CAIP-220)
 - **200x cost reduction** — ZK Compression stores attestations at ~$0.002 each
-- **Schema agnostic** — Program verifies signatures on 130-byte universal base layout; new schemas without upgrades
+- **Schema agnostic** — Program verifies signatures on 131-byte universal base layout; new schemas without upgrades
 - **No reputation monopoly** — Multiple providers compete with different scoring algorithms
 - **Hot/cold wallet separation** — Delegates can sign attestations without full ownership permissions
 - **On-chain agent enumeration** — AgentIndex PDAs enable listing all agents without external indexing
@@ -174,11 +174,13 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 
 #### Errors
 
-`InvalidAuthority` · `ImmutableAuthority` · `NameTooLong` · `SymbolTooLong` · `UriTooLong` · `TooManyMetadataEntries` · `Overflow` · `InvalidEvmSignature` · `EvmAddressMismatch`
+`InvalidGroupMint` · `InvalidAuthority` · `ImmutableAuthority` · `NameTooLong` · `SymbolTooLong` · `UriTooLong` · `TooManyMetadataEntries` · `MetadataKeyTooLong` · `MetadataValueTooLong` · `Overflow` · `MintAuthorityNotRenounced`
 
 **EVM linking errors:**
-- `InvalidEvmSignature` — secp256k1 signature recovery failed
+- `InvalidSecp256k1Signature` — invalid secp256k1 signature format
+- `Secp256k1RecoveryFailed` — secp256k1 public key recovery failed
 - `EvmAddressMismatch` — recovered address doesn't match provided `evm_address`
+- `InvalidEvmAddressRecovery` — failed to extract EVM address from recovered key
 
 ### Attestation
 
@@ -187,7 +189,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Field | Type | Description |
 |-------|------|-------------|
 | `sas_schema` | Pubkey | SAS schema address |
-| `signature_mode` | SignatureMode | DualSignature / CounterpartySigned / OwnerSigned |
+| `signature_mode` | SignatureMode | DualSignature / CounterpartySigned / AgentOwnerSigned |
 | `storage_type` | StorageType | Compressed / Regular |
 | `delegation_schema` | `Option<Pubkey>` | Schema for delegation verification (None = owner only) |
 | `closeable` | bool | Whether attestations can be closed |
@@ -214,30 +216,36 @@ pub struct CompressedAttestation { /* fields below */ }
 | `data` | Vec&lt;u8&gt; | 64+ | Schema-conformant bytes (universal base layout) |
 | `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
 
-#### Universal Base Data Layout (first 130 bytes)
+#### Universal Base Data Layout (first 131 bytes)
 
 All schemas MUST use this universal layout:
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
-| 0 | 32 | `task_ref` | CAIP-220 tx hash or task identifier |
-| 32 | 32 | `token_account` | Agent mint address |
-| 64 | 32 | `counterparty` | Attester pubkey (Ed25519) |
-| 96 | 1 | `outcome` | Universal: 0=Negative, 1=Neutral, 2=Positive |
-| 97 | 32 | `data_hash` | Agent's blind commitment (zeros for OwnerSigned/CounterpartySigned) |
-| 129 | 1 | `content_type` | Format: 0=None, 1=JSON, 2=UTF-8, 3=IPFS, 4=Arweave, 5=Encrypted |
-| 130 | var | `content` | Variable length, up to 512 bytes |
+| 0 | 1 | `layout_version` | Layout version (currently `1`) |
+| 1 | 32 | `task_ref` | CAIP-220 tx hash or task identifier |
+| 33 | 32 | `token_account` | Agent mint address |
+| 65 | 32 | `counterparty` | Attester pubkey (Ed25519) |
+| 97 | 1 | `outcome` | Universal: 0=Negative, 1=Neutral, 2=Positive |
+| 98 | 32 | `data_hash` | Agent's blind commitment (zeros for AgentOwnerSigned/CounterpartySigned) |
+| 130 | 1 | `content_type` | Format: 0=None, 1=JSON, 2=UTF-8, 3=IPFS, 4=Arweave, 5=Encrypted |
+| 131 | var | `content` | Variable length, up to 512 bytes |
 
 **On-chain validation:**
+- `layout_version` == 1 (reject unknown versions for forward compatibility)
 - `outcome` ∈ {0, 1, 2} (0=Negative, 1=Neutral, 2=Positive)
 - `content_type` ≤ 15 (0-5 defined, 6-15 reserved for future)
-- Data length ≥ 130 bytes
+- Data length ≥ 131 bytes
 
-**`data_hash` semantics:** For DualSignature schemas, this is the agent's cryptographic commitment (`keccak256(request || response)`). For OwnerSigned schemas, this field stores schema-specific data (e.g., delegator pubkey for DelegateV1) or zeros if unused. For CounterpartySigned schemas, this field should be zero-filled.
+> **Layout versioning**: The `layout_version` byte enables future layout changes without requiring new schemas. Indexers and SDKs check byte 0 first to determine parsing strategy. Version 0 is reserved (never used). Future versions (2+) may add fields, reorder for alignment, or change semantics.
 
-Program parses offsets 0-129 for signature binding and base validation. Content structure parsed by SDK/indexers.
+**`data_hash` semantics:** For DualSignature schemas, this is the agent's cryptographic commitment (`keccak256(request || response)`). For AgentOwnerSigned schemas, this field stores schema-specific data (e.g., delegator pubkey for DelegateV1) or zeros if unused. For CounterpartySigned schemas, this field should be zero-filled.
 
-> **Note on `token_account` naming**: This field stores the **agent's mint address** (the stable identity), not an Associated Token Account (ATA). The name `token_account` is inherited from the SAS specification for storage efficiency. Throughout SATI documentation and code, `token_account` = agent mint address.
+Program parses offsets 0-130 for signature binding and base validation. Content structure parsed by SDK/indexers.
+
+> **Note on `token_account` naming**: This field stores the **agent's mint address** (the stable identity), not an Associated Token Account (ATA). The name `token_account` is inherited from the SAS specification for wire format efficiency (avoids adding 32 bytes per attestation).
+>
+> **SDK convention**: Use `agentMint` in SDK types and public APIs for clarity. The SDK handles the mapping to `token_account` in wire format internally. On-chain programs and wire format retain `token_account` for SAS compatibility.
 
 **Note on timestamps**: Attestation creation time is tracked via Photon's `slotCreated` field. For interaction time (when the original event occurred), clients can look up the transaction referenced in `task_ref`.
 
@@ -248,21 +256,21 @@ Verification differs by `SignatureMode`:
 **DualSignature** (Feedback, Validation):
 1. Require exactly 2 signatures
 2. **Agent authorization**: `verify_agent_authorization()` for signer of `signatures[0]`
-3. **Counterparty binding**: Verify `signatures[1]` using pubkey from `data[64..96]` (counterparty field)
+3. **Counterparty binding**: Verify `signatures[1]` using pubkey from `data[65..97]` (counterparty field)
 4. **Self-attestation**: `token_account != counterparty`
 
-**OwnerSigned** (ReputationScore, DelegateV1):
+**AgentOwnerSigned** (DelegateV1):
 1. Require exactly 1 signature
 2. **Agent authorization**: `verify_agent_authorization()` for signer
-3. No counterparty binding (signer IS the counterparty/provider)
+3. No counterparty binding (signer IS the agent owner/delegate)
 
-**CounterpartySigned** (FeedbackPublic):
+**CounterpartySigned** (FeedbackPublic, ReputationScore):
 1. Require exactly 1 signature
-2. **No agent authorization** — anyone can submit
-3. **Counterparty binding**: Verify `signatures[0]` using pubkey from `data[64..96]`
+2. **No agent authorization** — anyone can submit about any agent
+3. **Counterparty binding**: Verify `signatures[0]` using pubkey from `data[65..97]`
 4. **Self-attestation**: `token_account != counterparty`
 
-> **Note**: `token_account` is the agent's MINT ADDRESS. For DualSignature/OwnerSigned, the agent OWNER (or delegate) provides `signatures[0]`. For CounterpartySigned, only the counterparty signs.
+> **Note**: `token_account` is the agent's MINT ADDRESS. For DualSignature/AgentOwnerSigned, the agent OWNER (or delegate) provides `signatures[0]`. For CounterpartySigned, only the counterparty signs.
 
 #### verify_agent_authorization()
 
@@ -298,10 +306,10 @@ Sign to create this attestation.
 | Field | Source | Description |
 |-------|--------|-------------|
 | `schema_name` | SchemaConfig.name | Schema identifier (e.g., "feedback") |
-| `Agent` | data[32..64] | Agent mint address as base58 |
-| `Task` | data[0..32] | Task reference as base58 |
-| `Outcome` | data[96] | Mapped: 0→Negative, 1→Neutral, 2→Positive |
-| `Details` | data[130..] | Content as UTF-8, or "[Encrypted]" if content_type=5 |
+| `Agent` | data[33..65] | Agent mint address as base58 |
+| `Task` | data[1..33] | Task reference as base58 |
+| `Outcome` | data[97] | Mapped: 0→Negative, 1→Neutral, 2→Positive |
+| `Details` | data[131..] | Content as UTF-8, or "[Encrypted]" if content_type=5 |
 
 **Example (Feedback):**
 ```
@@ -345,11 +353,22 @@ Sign to create this attestation.
 
 #### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed` · `OwnerOnly` · `DelegationAttestationRequired` · `InvalidDelegationPDA` · `DelegateMismatch` · `AgentMintMismatch` · `DelegationOwnerMismatch` · `DelegationExpired`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `StorageTypeMismatch` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `AgentAtaMintMismatch` · `AgentAtaEmpty` · `AgentAtaRequired` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `UnsupportedLayoutVersion` · `LightCpiInvocationFailed`
+
+**Ed25519 signature verification:**
+- `InvalidEd25519Instruction` — invalid Ed25519 instruction format
+- `MissingSignatures` — required Ed25519 signatures not found in transaction
+- `MessageMismatch` — signature was for different data than expected
+- `InvalidInstructionsSysvar` — invalid instructions sysvar
+- `DuplicateSigners` — duplicate signers not allowed for dual signature mode
+- `Ed25519InstructionNotFound` — no Ed25519 instruction in transaction
+- `AgentSignatureNotFound` — agent's Ed25519 signature not found
+- `CounterpartySignatureNotFound` — counterparty's Ed25519 signature not found
 
 **Universal base layout validation:**
 - `InvalidOutcome` — outcome not in {0, 1, 2}
 - `InvalidContentType` — content_type > 15 (0-5 defined, 6-15 reserved)
+- `UnsupportedLayoutVersion` — layout version not supported
 
 **Delegation validation:**
 - `OwnerOnly` — schema requires owner signature but delegate attempted
@@ -419,32 +438,33 @@ Sign to create this attestation.
 | FeedbackV1 | Compressed | DualSignature | No | DelegateV1 | ✅ MVP |
 | FeedbackPublicV1 | Compressed | CounterpartySigned | No | None | ✅ MVP |
 | ValidationV1 | Compressed | DualSignature | No | DelegateV1 | ✅ MVP |
-| ReputationScoreV1 | Regular | OwnerSigned | Yes | DelegateV1 | ✅ MVP |
-| DelegateV1 | Regular | OwnerSigned | Yes | None | ✅ MVP |
+| ReputationScoreV1 | Regular | CounterpartySigned | Yes | None | ✅ MVP |
+| DelegateV1 | Regular | AgentOwnerSigned | Yes | None | ✅ MVP |
 
 **SignatureMode determines payload signature requirements:**
 
 | Mode | Signatures | Use Case |
 |------|------------|----------|
 | DualSignature | 2 | Feedback, Validation (blind feedback model) |
-| CounterpartySigned | 1 | FeedbackPublic (counterparty signs) |
-| OwnerSigned | 1 | ReputationScore, DelegateV1 (agent owner or delegate signs) |
+| CounterpartySigned | 1 | FeedbackPublic, ReputationScore (counterparty/provider signs) |
+| AgentOwnerSigned | 1 | DelegateV1 (agent owner or delegate signs) |
 
-> **Note**: `SingleSigner` was split into `CounterpartySigned` and `OwnerSigned` to distinguish who must sign. This enables delegation for OwnerSigned schemas while preventing it for CounterpartySigned schemas.
+> **Note**: `SingleSigner` was split into `CounterpartySigned` and `AgentOwnerSigned` to distinguish who must sign. This enables delegation for AgentOwnerSigned schemas while preventing it for CounterpartySigned schemas.
 
 ### FeedbackV1 Schema
 
-Uses universal base layout (130 bytes) + JSON content for extensibility.
+Uses universal base layout (131 bytes) + JSON content for extensibility.
 
 | Field | Offset | Description |
 |-------|--------|-------------|
-| task_ref | 0-31 | CAIP-220 tx hash or task identifier |
-| token_account | 32-63 | Agent mint address |
-| counterparty | 64-95 | Client pubkey |
-| outcome | 96 | 0=Negative, 1=Neutral, 2=Positive |
-| data_hash | 97-128 | Agent's blind commitment (`keccak256(request \|\| response)`) |
-| content_type | 129 | 1=JSON (recommended), 0=None, 2=UTF-8, 5=Encrypted |
-| content | 130+ | JSON with optional fields (see below) |
+| layout_version | 0 | `1` (current layout version) |
+| task_ref | 1-32 | CAIP-220 tx hash or task identifier |
+| token_account | 33-64 | Agent mint address |
+| counterparty | 65-96 | Client pubkey |
+| outcome | 97 | 0=Negative, 1=Neutral, 2=Positive |
+| data_hash | 98-129 | Agent's blind commitment (`keccak256(request \|\| response)`) |
+| content_type | 130 | 1=JSON (recommended), 0=None, 2=UTF-8, 5=Encrypted |
+| content | 131+ | JSON with optional fields (see below) |
 
 **JSON Content Fields** (all optional):
 
@@ -456,25 +476,50 @@ Uses universal base layout (130 bytes) + JSON content for extensibility.
 }
 ```
 
-**Size**: 130 bytes minimum (empty content), typical 180-250 bytes with JSON content.
+**Size**: 131 bytes minimum (empty content), typical 180-250 bytes with JSON content.
 
-**Fixed offset benefit**: `outcome` at offset 96 enables Photon memcmp filtering by feedback sentiment.
+**Fixed offset benefit**: `outcome` at offset 97 enables Photon memcmp filtering by feedback sentiment.
 
 **ERC-8004 compatibility**: Include `score` in JSON content for ERC-8004 interoperability. The `outcome` field provides categorical filtering (Negative/Neutral/Positive) while `score` provides granular 0-100 values.
 
-### ValidationV1 Schema
+### FeedbackPublicV1 Schema
 
-Uses universal base layout (130 bytes) + JSON content for validation details.
+Public feedback that anyone can submit about an agent without agent participation. Uses CounterpartySigned mode (counterparty signature only, no agent signature required).
 
 | Field | Offset | Description |
 |-------|--------|-------------|
-| task_ref | 0-31 | Task reference |
-| token_account | 32-63 | Agent mint address |
-| counterparty | 64-95 | Validator pubkey |
-| outcome | 96 | 0=Fail, 1=Inconclusive, 2=Pass |
-| data_hash | 97-128 | Agent's work commitment |
-| content_type | 129 | 1=JSON (recommended), 0=None, 5=Encrypted |
-| content | 130+ | JSON with validation details (see below) |
+| layout_version | 0 | `1` (current layout version) |
+| task_ref | 1-32 | CAIP-220 tx hash or task identifier |
+| token_account | 33-64 | Agent mint address |
+| counterparty | 65-96 | Feedback author pubkey |
+| outcome | 97 | 0=Negative, 1=Neutral, 2=Positive |
+| data_hash | 98-129 | Zero-filled (CounterpartySigned mode, no blind commitment) |
+| content_type | 130 | 1=JSON (recommended), 0=None, 2=UTF-8, 5=Encrypted |
+| content | 131+ | JSON with optional fields (same as FeedbackV1) |
+
+**Key difference from FeedbackV1**: No agent signature required. Anyone can submit feedback about any agent. The agent does not participate in the blind feedback model.
+
+**Use cases**:
+- Public reviews where agent participation is not required
+- Third-party assessments or ratings
+- Community-sourced feedback
+
+**Trade-off**: Without agent signature, there's no cryptographic proof the agent actually served the referenced task. Trust depends on the `task_ref` being verifiable through other means (e.g., on-chain payment transaction).
+
+### ValidationV1 Schema
+
+Uses universal base layout (131 bytes) + JSON content for validation details.
+
+| Field | Offset | Description |
+|-------|--------|-------------|
+| layout_version | 0 | `1` (current layout version) |
+| task_ref | 1-32 | Task reference |
+| token_account | 33-64 | Agent mint address |
+| counterparty | 65-96 | Validator pubkey |
+| outcome | 97 | 0=Fail, 1=Inconclusive, 2=Pass |
+| data_hash | 98-129 | Agent's work commitment |
+| content_type | 130 | 1=JSON (recommended), 0=None, 5=Encrypted |
+| content | 131+ | JSON with validation details (see below) |
 
 **JSON Content Fields** (all optional):
 
@@ -486,25 +531,26 @@ Uses universal base layout (130 bytes) + JSON content for validation details.
 }
 ```
 
-**Size**: 130 bytes minimum (empty content), typical 150-200 bytes with JSON content.
+**Size**: 131 bytes minimum (empty content), typical 150-200 bytes with JSON content.
 
-**Fixed offset benefit**: `outcome` at offset 96 enables Photon memcmp filtering by validation result.
+**Fixed offset benefit**: `outcome` at offset 97 enables Photon memcmp filtering by validation result.
 
 **Validation types**: `tee` (TEE attestation), `zkml` (ZK-ML proof), `reexecution` (deterministic replay), `consensus` (multi-validator agreement).
 
 ### ReputationScoreV1 Schema
 
-Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses OwnerSigned mode (provider signature only).
+Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses CounterpartySigned mode (provider signature only).
 
 | Field | Offset | Description |
 |-------|--------|-------------|
-| task_ref | 0-31 | Deterministic: `keccak256(counterparty \|\| token_account)` |
-| token_account | 32-63 | Agent mint address being scored |
-| counterparty | 64-95 | Provider (reputation scorer) |
-| outcome | 96 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
-| data_hash | 97-128 | Zero-filled (OwnerSigned mode, no blind commitment) |
-| content_type | 129 | 1=JSON (recommended) |
-| content | 130+ | JSON with score details (see below) |
+| layout_version | 0 | `1` (current layout version) |
+| task_ref | 1-32 | Deterministic: `keccak256(counterparty \|\| token_account)` |
+| token_account | 33-64 | Agent mint address being scored |
+| counterparty | 65-96 | Provider (reputation scorer) |
+| outcome | 97 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
+| data_hash | 98-129 | Zero-filled (CounterpartySigned mode, no blind commitment) |
+| content_type | 130 | 1=JSON (recommended) |
+| content | 131+ | JSON with score details (see below) |
 
 **JSON Content Fields** (all optional):
 
@@ -517,23 +563,24 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 }
 ```
 
-**Size**: 130 bytes minimum (empty content), typical 150-250 bytes with JSON content.
+**Size**: 131 bytes minimum (empty content), typical 150-250 bytes with JSON content.
 
 **Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. On-chain creation time is tracked via SAS attestation metadata.
 
 ### DelegateV1 Schema
 
-Authorization attestation allowing a delegate to sign on behalf of an agent owner. Uses `StorageType::Regular` for on-chain queryability and `SignatureMode::OwnerSigned` with `delegation_schema: None` (owner only, no recursive delegation).
+Authorization attestation allowing a delegate to sign on behalf of an agent owner. Uses `StorageType::Regular` for on-chain queryability and `SignatureMode::AgentOwnerSigned` with `delegation_schema: None` (owner only, no recursive delegation).
 
 | Field | Offset | Description |
 |-------|--------|-------------|
-| task_ref | 0-31 | Reserved (zeros) |
-| token_account | 32-63 | Agent mint address |
-| counterparty | 64-95 | Delegate pubkey (who receives authorization) |
-| outcome | 96 | Reserved (0) |
-| data_hash | 97-128 | Delegator pubkey (owner at delegation time) |
-| content_type | 129 | 0=None |
-| content | 130+ | Empty |
+| layout_version | 0 | `1` (current layout version) |
+| task_ref | 1-32 | Reserved (zeros) |
+| token_account | 33-64 | Agent mint address |
+| counterparty | 65-96 | Delegate pubkey (who receives authorization) |
+| outcome | 97 | Reserved (0) |
+| data_hash | 98-129 | Delegator pubkey (owner at delegation time) |
+| content_type | 130 | 0=None |
+| content | 131+ | Empty |
 
 **SAS Schema Definition:**
 
@@ -541,9 +588,9 @@ Authorization attestation allowing a delegate to sign on behalf of an agent owne
 export const DELEGATE_SAS_SCHEMA: SASSchemaDefinition = {
   name: "DelegateV1",
   description: "Delegation authorization for hot wallet signing",
-  // Layout types: pubkey=7, u8=0, blob=9
-  layout: [7, 7, 7, 0, 7, 0, 9],
-  fieldNames: ["task_ref", "token_account", "counterparty", "outcome", "data_hash", "content_type", "content"],
+  // Layout types: u8=0, pubkey=7, blob=9
+  layout: [0, 7, 7, 7, 0, 7, 0, 9],
+  fieldNames: ["layout_version", "task_ref", "token_account", "counterparty", "outcome", "data_hash", "content_type", "content"],
 };
 ```
 
@@ -559,7 +606,7 @@ let nonce = keccak256(delegate_schema.as_ref(), delegate, agent_mint);
 
 **Revocation**: Owner calls `close_regular_attestation` to revoke.
 
-**Size**: 130 bytes (no content).
+**Size**: 131 bytes (no content).
 
 > **Why SAS for delegation?** Reuses existing infrastructure: built-in expiration, existing close mechanism, existing query patterns. Tradeoff: ~5-10k CU for delegate verification vs ~300 CU for custom PDA, but only applies when delegate signs (owner signing is ~100 CU fast path). Squads doesn't solve this — it requires human approval per action, incompatible with automated attestation signing.
 
@@ -791,7 +838,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 | `getValidityProof` | Get ZK proof for on-chain verification |
 | `getCompressedAccountProof` | Merkle proof for escrow |
 
-**Filters**: `sas_schema` (offset 8), `token_account` (offset 40), `outcome` (offset 96, universal for all schemas)
+**Filters**: `sas_schema` (offset 0), `token_account` (offset 32), `outcome` (offset 68 + 97 = 165, within data field)
 
 ### SAS (Regular Storage)
 
@@ -923,10 +970,11 @@ await sati.createFeedback({
 
 | Property | Enforcement |
 |----------|-------------|
+| Layout version | Verified == 1 (reject unknown versions) |
 | Signature validity | Ed25519 verification (precompile) |
 | Blind feedback | Agent signs before outcome known |
 | Agent authorization | ATA ownership OR valid delegation |
-| Counterparty binding | Verify signature using pubkey from `data[64..96]` |
+| Counterparty binding | Verify signature using pubkey from `data[65..97]` |
 | Self-attestation prevention | `token_account ≠ counterparty` |
 | Duplicate prevention | Deterministic address from task_ref |
 | Outcome range | Verified ∈ {0, 1, 2} before storage |
@@ -935,15 +983,17 @@ await sati.createFeedback({
 
 ### Close Authorization
 
-| Schema | Closeable | Who Can Close |
-|--------|-----------|---------------|
-| FeedbackV1 | No | — |
-| FeedbackPublicV1 | No | — |
-| ValidationV1 | No | — |
-| ReputationScoreV1 | Yes | Agent owner only |
-| DelegateV1 | Yes | Agent owner only |
+Close authorization follows the principle: **the signing party controls closure**.
 
-> **Note**: Closeable schemas require agent owner signature. Delegates cannot close attestations even if they created them.
+| Schema | Closeable | Who Can Close | Rationale |
+|--------|-----------|---------------|-----------|
+| FeedbackV1 | No | — | Permanent record |
+| FeedbackPublicV1 | No | — | Permanent record |
+| ValidationV1 | No | — | Permanent record |
+| ReputationScoreV1 | Yes | Provider (counterparty) only | Provider created it; agent cannot delete unfavorable scores |
+| DelegateV1 | Yes | Agent owner only | Owner controls their own delegations |
+
+> **Note**: For single-signature modes, only the signing party can close. For DualSignature schemas (if closeable in future), either party could close since both consented to creation. Delegates cannot close attestations—only the original signing party (agent owner for DelegateV1, provider for ReputationScoreV1).
 
 ### Delegation Permissions
 
@@ -958,7 +1008,7 @@ await sati.createFeedback({
 - Transfer the agent NFT (Token-2022 requires owner signature)
 - Update agent metadata (Token-2022 requires updateAuthority)
 
-> **Note**: Delegation scope is all-or-nothing for attestation signing. A delegate authorized for one schema can sign for ALL schemas that allow delegation. Granular per-schema delegation is not supported in v2.2.
+> **Note**: Delegation scope is all-or-nothing for attestation signing. A delegate authorized for one schema can sign for ALL schemas that allow delegation. Granular per-schema delegation is not supported in v1.0.
 
 ### Delegation Security
 
@@ -1019,6 +1069,7 @@ await sati.createFeedback({
 | Component | Address |
 |-----------|---------|
 | SATI Program | `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe` |
+| SAS Program | `22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG` |
 | TokenGroup Mint | `satiG7i9iyFxjq23sdyeLB4ibAHf6GXCARuosGeqane` |
 | SAS Credential | Derived at deployment from authority + "SATI" |
 | Lookup Table | Derived at deployment from authority + slot |

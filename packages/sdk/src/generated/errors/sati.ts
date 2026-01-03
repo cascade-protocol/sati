@@ -60,47 +60,72 @@ export const SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED = 0x1784; // 6020
 export const SATI_ERROR__AGENT_ATA_MINT_MISMATCH = 0x1785; // 6021
 /** AgentAtaEmpty: Agent ATA is empty - signer does not own the agent NFT */
 export const SATI_ERROR__AGENT_ATA_EMPTY = 0x1786; // 6022
+/** AgentAtaRequired: Agent ATA required for this signature mode */
+export const SATI_ERROR__AGENT_ATA_REQUIRED = 0x1787; // 6023
 /** UnauthorizedClose: Unauthorized to close attestation */
-export const SATI_ERROR__UNAUTHORIZED_CLOSE = 0x1787; // 6023
+export const SATI_ERROR__UNAUTHORIZED_CLOSE = 0x1788; // 6024
 /** AttestationNotCloseable: Attestation cannot be closed for this schema */
-export const SATI_ERROR__ATTESTATION_NOT_CLOSEABLE = 0x1788; // 6024
+export const SATI_ERROR__ATTESTATION_NOT_CLOSEABLE = 0x1789; // 6025
 /** InvalidOutcome: Invalid outcome value (must be 0, 1, or 2) */
-export const SATI_ERROR__INVALID_OUTCOME = 0x1789; // 6025
+export const SATI_ERROR__INVALID_OUTCOME = 0x178a; // 6026
 /** InvalidContentType: Invalid content type (must be 0-15) */
-export const SATI_ERROR__INVALID_CONTENT_TYPE = 0x178a; // 6026
+export const SATI_ERROR__INVALID_CONTENT_TYPE = 0x178b; // 6027
+/** UnsupportedLayoutVersion: Unsupported layout version */
+export const SATI_ERROR__UNSUPPORTED_LAYOUT_VERSION = 0x178c; // 6028
 /** LightCpiInvocationFailed: Light Protocol CPI invocation failed */
-export const SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED = 0x178b; // 6027
+export const SATI_ERROR__LIGHT_CPI_INVOCATION_FAILED = 0x178d; // 6029
 /** InvalidEd25519Instruction: Invalid Ed25519 instruction format */
-export const SATI_ERROR__INVALID_ED25519_INSTRUCTION = 0x178c; // 6028
+export const SATI_ERROR__INVALID_ED25519_INSTRUCTION = 0x178e; // 6030
 /** MissingSignatures: Missing required Ed25519 signatures in transaction */
-export const SATI_ERROR__MISSING_SIGNATURES = 0x178d; // 6029
+export const SATI_ERROR__MISSING_SIGNATURES = 0x178f; // 6031
 /** MessageMismatch: Message hash mismatch - signature was for different data */
-export const SATI_ERROR__MESSAGE_MISMATCH = 0x178e; // 6030
+export const SATI_ERROR__MESSAGE_MISMATCH = 0x1790; // 6032
 /** InvalidInstructionsSysvar: Invalid instructions sysvar */
-export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x178f; // 6031
+export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x1791; // 6033
 /** DuplicateSigners: Duplicate signers not allowed for dual signature mode */
-export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1790; // 6032
+export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1792; // 6034
+/** OwnerOnly: Schema requires owner signature but delegate attempted */
+export const SATI_ERROR__OWNER_ONLY = 0x1793; // 6035
+/** DelegationAttestationRequired: Delegate signed but no delegation attestation provided */
+export const SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED = 0x1794; // 6036
+/** InvalidDelegationPDA: Delegation attestation PDA doesn't match expected derivation */
+export const SATI_ERROR__INVALID_DELEGATION_P_D_A = 0x1795; // 6037
+/** DelegateMismatch: Delegation attestation delegate doesn't match signer */
+export const SATI_ERROR__DELEGATE_MISMATCH = 0x1796; // 6038
+/** AgentMintMismatch: Delegation attestation agent doesn't match target agent */
+export const SATI_ERROR__AGENT_MINT_MISMATCH = 0x1797; // 6039
+/** DelegationOwnerMismatch: Delegation was created by different owner (NFT was transferred) */
+export const SATI_ERROR__DELEGATION_OWNER_MISMATCH = 0x1798; // 6040
+/** DelegationExpired: Delegation attestation has expired */
+export const SATI_ERROR__DELEGATION_EXPIRED = 0x1799; // 6041
 /** InvalidSecp256k1Signature: Invalid secp256k1 signature */
-export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x1791; // 6033
+export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x179a; // 6042
 /** Secp256k1RecoveryFailed: Secp256k1 recovery failed */
-export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x1792; // 6034
+export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x179b; // 6043
 /** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
-export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x1793; // 6035
+export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x179c; // 6044
 /** InvalidEvmAddressRecovery: Failed to extract EVM address from secp256k1 key recovery */
-export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x1794; // 6036
+export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x179d; // 6045
 
 export type SatiError =
   | typeof SATI_ERROR__AGENT_ATA_EMPTY
   | typeof SATI_ERROR__AGENT_ATA_MINT_MISMATCH
+  | typeof SATI_ERROR__AGENT_ATA_REQUIRED
+  | typeof SATI_ERROR__AGENT_MINT_MISMATCH
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_LARGE
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_SMALL
   | typeof SATI_ERROR__ATTESTATION_NOT_CLOSEABLE
   | typeof SATI_ERROR__CONTENT_TOO_LARGE
+  | typeof SATI_ERROR__DELEGATE_MISMATCH
+  | typeof SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED
+  | typeof SATI_ERROR__DELEGATION_EXPIRED
+  | typeof SATI_ERROR__DELEGATION_OWNER_MISMATCH
   | typeof SATI_ERROR__DUPLICATE_SIGNERS
   | typeof SATI_ERROR__EVM_ADDRESS_MISMATCH
   | typeof SATI_ERROR__IMMUTABLE_AUTHORITY
   | typeof SATI_ERROR__INVALID_AUTHORITY
   | typeof SATI_ERROR__INVALID_CONTENT_TYPE
+  | typeof SATI_ERROR__INVALID_DELEGATION_P_D_A
   | typeof SATI_ERROR__INVALID_ED25519_INSTRUCTION
   | typeof SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY
   | typeof SATI_ERROR__INVALID_GROUP_MINT
@@ -117,6 +142,7 @@ export type SatiError =
   | typeof SATI_ERROR__MISSING_SIGNATURES
   | typeof SATI_ERROR__NAME_TOO_LONG
   | typeof SATI_ERROR__OVERFLOW
+  | typeof SATI_ERROR__OWNER_ONLY
   | typeof SATI_ERROR__SCHEMA_CONFIG_NOT_FOUND
   | typeof SATI_ERROR__SECP256K1_RECOVERY_FAILED
   | typeof SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED
@@ -126,6 +152,7 @@ export type SatiError =
   | typeof SATI_ERROR__SYMBOL_TOO_LONG
   | typeof SATI_ERROR__TOO_MANY_METADATA_ENTRIES
   | typeof SATI_ERROR__UNAUTHORIZED_CLOSE
+  | typeof SATI_ERROR__UNSUPPORTED_LAYOUT_VERSION
   | typeof SATI_ERROR__URI_TOO_LONG;
 
 let satiErrorMessages: Record<SatiError, string> | undefined;
@@ -133,15 +160,22 @@ if (process.env.NODE_ENV !== "production") {
   satiErrorMessages = {
     [SATI_ERROR__AGENT_ATA_EMPTY]: `Agent ATA is empty - signer does not own the agent NFT`,
     [SATI_ERROR__AGENT_ATA_MINT_MISMATCH]: `Agent ATA mint does not match token_account in attestation data`,
+    [SATI_ERROR__AGENT_ATA_REQUIRED]: `Agent ATA required for this signature mode`,
+    [SATI_ERROR__AGENT_MINT_MISMATCH]: `Delegation attestation agent doesn't match target agent`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_LARGE]: `Attestation data exceeds maximum size`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_SMALL]: `Attestation data too small (minimum 130 bytes for universal base layout)`,
     [SATI_ERROR__ATTESTATION_NOT_CLOSEABLE]: `Attestation cannot be closed for this schema`,
     [SATI_ERROR__CONTENT_TOO_LARGE]: `Content exceeds maximum size (512 bytes)`,
+    [SATI_ERROR__DELEGATE_MISMATCH]: `Delegation attestation delegate doesn't match signer`,
+    [SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED]: `Delegate signed but no delegation attestation provided`,
+    [SATI_ERROR__DELEGATION_EXPIRED]: `Delegation attestation has expired`,
+    [SATI_ERROR__DELEGATION_OWNER_MISMATCH]: `Delegation was created by different owner (NFT was transferred)`,
     [SATI_ERROR__DUPLICATE_SIGNERS]: `Duplicate signers not allowed for dual signature mode`,
     [SATI_ERROR__EVM_ADDRESS_MISMATCH]: `EVM address mismatch - recovered address does not match expected`,
     [SATI_ERROR__IMMUTABLE_AUTHORITY]: `Authority is immutable (renounced)`,
     [SATI_ERROR__INVALID_AUTHORITY]: `Invalid authority`,
     [SATI_ERROR__INVALID_CONTENT_TYPE]: `Invalid content type (must be 0-15)`,
+    [SATI_ERROR__INVALID_DELEGATION_P_D_A]: `Delegation attestation PDA doesn't match expected derivation`,
     [SATI_ERROR__INVALID_ED25519_INSTRUCTION]: `Invalid Ed25519 instruction format`,
     [SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY]: `Failed to extract EVM address from secp256k1 key recovery`,
     [SATI_ERROR__INVALID_GROUP_MINT]: `Invalid group mint - must be owned by Token-2022 with TokenGroup extension`,
@@ -158,6 +192,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__MISSING_SIGNATURES]: `Missing required Ed25519 signatures in transaction`,
     [SATI_ERROR__NAME_TOO_LONG]: `Name too long (max 32 bytes)`,
     [SATI_ERROR__OVERFLOW]: `Arithmetic overflow`,
+    [SATI_ERROR__OWNER_ONLY]: `Schema requires owner signature but delegate attempted`,
     [SATI_ERROR__SCHEMA_CONFIG_NOT_FOUND]: `Schema config not found`,
     [SATI_ERROR__SECP256K1_RECOVERY_FAILED]: `Secp256k1 recovery failed`,
     [SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED]: `Self-attestation is not allowed (token_account == counterparty)`,
@@ -167,6 +202,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__SYMBOL_TOO_LONG]: `Symbol too long (max 10 bytes)`,
     [SATI_ERROR__TOO_MANY_METADATA_ENTRIES]: `Too many metadata entries (max 10)`,
     [SATI_ERROR__UNAUTHORIZED_CLOSE]: `Unauthorized to close attestation`,
+    [SATI_ERROR__UNSUPPORTED_LAYOUT_VERSION]: `Unsupported layout version`,
     [SATI_ERROR__URI_TOO_LONG]: `URI too long (max 200 bytes)`,
   };
 }

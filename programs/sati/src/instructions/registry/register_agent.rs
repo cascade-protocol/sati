@@ -16,7 +16,7 @@ use crate::constants::{
 };
 use crate::errors::SatiError;
 use crate::events::AgentRegistered;
-use crate::state::{MetadataEntry, RegistryConfig};
+use crate::state::{AgentIndex, MetadataEntry, RegistryConfig};
 
 #[derive(Accounts)]
 #[instruction(name: String, symbol: String, uri: String)]
@@ -57,6 +57,17 @@ pub struct RegisterAgent<'info> {
     /// CHECK: Token-2022 program
     #[account(address = anchor_spl::token_2022::ID)]
     pub token_2022_program: UncheckedAccount<'info>,
+
+    /// Agent index PDA for enumeration by member_number
+    /// NOTE: Uses (current_count + 1) which equals the new total_agents after increment
+    #[account(
+        init,
+        payer = payer,
+        space = AgentIndex::SIZE,
+        seeds = [b"agent_index", (registry_config.total_agents + 1).to_le_bytes().as_ref()],
+        bump
+    )]
+    pub agent_index: Account<'info, AgentIndex>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -391,6 +402,11 @@ pub fn handler(
     // === PHASE 3: Write state after CPIs succeed ===
     let registry = &mut ctx.accounts.registry_config;
     registry.total_agents = current_count.checked_add(1).ok_or(SatiError::Overflow)?;
+
+    // Initialize AgentIndex for enumeration
+    let agent_index = &mut ctx.accounts.agent_index;
+    agent_index.mint = ctx.accounts.agent_mint.key();
+    agent_index.bump = ctx.bumps.agent_index;
 
     // === Emit Event ===
     emit!(AgentRegistered {

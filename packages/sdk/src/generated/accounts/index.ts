@@ -6,5 +6,6 @@
  * @see https://github.com/codama-idl/codama
  */
 
+export * from "./agentIndex";
 export * from "./registryConfig";
 export * from "./schemaConfig";

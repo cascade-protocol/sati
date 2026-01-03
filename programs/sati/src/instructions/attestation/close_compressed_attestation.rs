@@ -14,10 +14,10 @@ use crate::state::{CloseParams, CompressedAttestation, SchemaConfig, StorageType
 use crate::ID;
 use crate::LIGHT_CPI_SIGNER;
 
-/// Accounts for close_attestation instruction (compressed storage)
+/// Accounts for close_compressed_attestation instruction (compressed storage)
 #[event_cpi]
 #[derive(Accounts)]
-pub struct CloseAttestation<'info> {
+pub struct CloseCompressedAttestation<'info> {
     /// Signer must be either the agent (NFT owner via ATA) or the counterparty
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -42,7 +42,7 @@ pub struct CloseAttestation<'info> {
 }
 
 pub fn handler<'info>(
-    ctx: Context<'_, '_, '_, 'info, CloseAttestation<'info>>,
+    ctx: Context<'_, '_, '_, 'info, CloseCompressedAttestation<'info>>,
     params: CloseParams,
 ) -> Result<()> {
     let schema_config = &ctx.accounts.schema_config;
@@ -63,18 +63,11 @@ pub fn handler<'info>(
     let token_account = Pubkey::new_from_array(token_account_bytes);
     let counterparty = Pubkey::new_from_array(counterparty_bytes);
 
-    // 2. Authorization check
-    // - DualSignature: Either agent owner OR counterparty can close
-    // - SingleSigner: Only counterparty (provider) can close
+    // 2. Authorization check based on signature mode
     let signer_key = ctx.accounts.signer.key();
     let is_counterparty = signer_key == counterparty;
 
     match schema_config.signature_mode {
-        crate::state::SignatureMode::SingleSigner => {
-            // SingleSigner (e.g., ReputationScore): Only provider can close
-            // This prevents agents from deleting unfavorable scores
-            require!(is_counterparty, SatiError::UnauthorizedClose);
-        }
         crate::state::SignatureMode::DualSignature => {
             // DualSignature: Either party can close (both participated in creation)
             let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
@@ -84,6 +77,19 @@ pub fn handler<'info>(
                 is_counterparty || is_agent_owner,
                 SatiError::UnauthorizedClose
             );
+        }
+        crate::state::SignatureMode::CounterpartySigned => {
+            // CounterpartySigned (e.g., FeedbackPublic, ReputationScore): Only counterparty can close
+            // For ReputationScore: prevents agents from deleting unfavorable scores
+            require!(is_counterparty, SatiError::UnauthorizedClose);
+        }
+        crate::state::SignatureMode::AgentOwnerSigned => {
+            // AgentOwnerSigned (e.g., DelegateV1): Only agent owner can close
+            // Agent controls their own delegations
+            let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
+                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+            });
+            require!(is_agent_owner, SatiError::UnauthorizedClose);
         }
     }
 
@@ -101,7 +107,6 @@ pub fn handler<'info>(
         CompressedAttestation {
             sas_schema: schema_config.sas_schema.to_bytes(),
             token_account: token_account_bytes,
-            data_type: params.data_type,
             data: params.current_data.clone(),
             num_signatures: params.num_signatures,
             signature1: params.signature1,

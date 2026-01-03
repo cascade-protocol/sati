@@ -85,6 +85,7 @@ export * from "./hashes";
 export type {
   SATILightClient,
   AttestationFilter,
+  PaginatedAttestations,
   ParsedAttestation,
   ValidityProofResult,
   CreationProofResult,

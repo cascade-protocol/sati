@@ -30,7 +30,7 @@ Please include:
 ### Scope
 
 The following are in scope:
-- SATI Program (`satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz`)
+- SATI Program (`satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe`)
 - SDK (`@cascade-fyi/sati-sdk`)
 - Official documentation and examples
 
@@ -51,7 +51,7 @@ We will not pursue legal action against researchers who:
 
 When using SATI:
 
-1. **Verify program ID**: Always verify you're interacting with `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz`
+1. **Verify program ID**: Always verify you're interacting with `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe`
 2. **Check token supply**: Agent NFTs must have supply=1 with renounced mint authority
 3. **Validate attestations**: Verify attestation schemas match SATI standards
 4. **Use multisig**: Production deployments should use Squads smart accounts

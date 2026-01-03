@@ -14,6 +14,8 @@ import {
   getAddressEncoder,
   getBooleanDecoder,
   getBooleanEncoder,
+  getOptionDecoder,
+  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
   getU32Decoder,
@@ -24,6 +26,8 @@ import {
   type Codec,
   type Decoder,
   type Encoder,
+  type Option,
+  type OptionOrNullable,
 } from "@solana/kit";
 import {
   getSignatureModeDecoder,
@@ -40,10 +44,12 @@ import {
 export type SchemaConfigRegistered = {
   /** SAS schema address */
   schema: Address;
-  /** Signature mode (DualSignature or SingleSigner) */
+  /** Signature mode (DualSignature, CounterpartySigned, or AgentOwnerSigned) */
   signatureMode: SignatureMode;
   /** Storage type (Compressed or Regular) */
   storageType: StorageType;
+  /** Schema for delegation verification (None = owner only) */
+  delegationSchema: Option<Address>;
   /** Whether attestations can be closed */
   closeable: boolean;
   /** Human-readable schema name (max 32 chars) */
@@ -53,10 +59,12 @@ export type SchemaConfigRegistered = {
 export type SchemaConfigRegisteredArgs = {
   /** SAS schema address */
   schema: Address;
-  /** Signature mode (DualSignature or SingleSigner) */
+  /** Signature mode (DualSignature, CounterpartySigned, or AgentOwnerSigned) */
   signatureMode: SignatureModeArgs;
   /** Storage type (Compressed or Regular) */
   storageType: StorageTypeArgs;
+  /** Schema for delegation verification (None = owner only) */
+  delegationSchema: OptionOrNullable<Address>;
   /** Whether attestations can be closed */
   closeable: boolean;
   /** Human-readable schema name (max 32 chars) */
@@ -68,6 +76,7 @@ export function getSchemaConfigRegisteredEncoder(): Encoder<SchemaConfigRegister
     ["schema", getAddressEncoder()],
     ["signatureMode", getSignatureModeEncoder()],
     ["storageType", getStorageTypeEncoder()],
+    ["delegationSchema", getOptionEncoder(getAddressEncoder())],
     ["closeable", getBooleanEncoder()],
     ["name", addEncoderSizePrefix(getUtf8Encoder(), getU32Encoder())],
   ]);
@@ -78,6 +87,7 @@ export function getSchemaConfigRegisteredDecoder(): Decoder<SchemaConfigRegister
     ["schema", getAddressDecoder()],
     ["signatureMode", getSignatureModeDecoder()],
     ["storageType", getStorageTypeDecoder()],
+    ["delegationSchema", getOptionDecoder(getAddressDecoder())],
     ["closeable", getBooleanDecoder()],
     ["name", addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
   ]);

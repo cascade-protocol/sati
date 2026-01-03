@@ -40,7 +40,7 @@ import {
 } from "@cascade-fyi/compression-kit";
 
 import { SATI_PROGRAM_ADDRESS } from "./generated/programs/sati.js";
-import type { CompressedAttestation, FeedbackData, ValidationData, DataType, Outcome } from "./schemas";
+import type { CompressedAttestation, FeedbackData, ValidationData, Outcome } from "./schemas";
 import { deserializeFeedback, deserializeValidation } from "./schemas";
 
 // Offsets for parsing compressed attestation data (Borsh serialization)
@@ -48,9 +48,8 @@ import { deserializeFeedback, deserializeValidation } from "./schemas";
 const BORSH_OFFSETS = {
   SAS_SCHEMA: 0,
   TOKEN_ACCOUNT: 32,
-  DATA_TYPE: 64,
-  DATA_LEN: 65, // 4-byte u32 LE length prefix for Vec<u8>
-  DATA_START: 69, // Actual data bytes start after length prefix
+  DATA_LEN: 64, // 4-byte u32 LE length prefix for Vec<u8>
+  DATA_START: 68, // Actual data bytes start after length prefix
 } as const;
 
 // =============================================================================
@@ -74,10 +73,24 @@ export interface AttestationFilter {
   /** Agent's mint address to filter by (named tokenAccount for SAS compatibility) */
   tokenAccount?: Address;
   counterparty?: Address;
-  dataType?: DataType;
   outcome?: Outcome;
   responseMin?: number;
   responseMax?: number;
+  /** Maximum number of results to return per page (default: all) */
+  limit?: number;
+  /** Pagination cursor from previous response (for fetching next page) */
+  cursor?: string;
+}
+
+/**
+ * Paginated result for attestation queries.
+ * Matches Photon RPC cursor-based pagination model.
+ */
+export interface PaginatedAttestations<T> {
+  /** Attestations matching the filter */
+  items: T[];
+  /** Cursor for next page, null if no more results */
+  cursor: string | null;
 }
 
 /**
@@ -227,11 +240,11 @@ export interface SATILightClient {
   /** Get attestation by address */
   getAttestationByAddress(addr: Address): Promise<ParsedAttestation | null>;
 
-  /** List feedback attestations */
-  listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedFeedbackAttestation[]>;
+  /** List feedback attestations with pagination */
+  listFeedbacks(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedFeedbackAttestation>>;
 
-  /** List validation attestations */
-  listValidations(filter: Partial<AttestationFilter>): Promise<ParsedValidationAttestation[]>;
+  /** List validation attestations with pagination */
+  listValidations(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedValidationAttestation>>;
 
   /** Get creation proof for a new compressed account */
   getCreationProof(addr: PublicKeyLike): Promise<CreationProofResult>;
@@ -297,18 +310,38 @@ export class SATILightClientImpl implements SATILightClient {
     const account = await this.rpc.getCompressedAccount({ address: addr });
     if (!account || !account.data) return null;
 
-    return this.parseAttestation(account);
+    // Try feedback deserializer first (most common), fall back to validation
+    try {
+      return this.parseAttestation(account, deserializeFeedback);
+    } catch {
+      try {
+        return this.parseAttestation(account, deserializeValidation);
+      } catch {
+        return null;
+      }
+    }
   }
 
-  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<ParsedFeedbackAttestation[]> {
-    // Query compressed accounts owned by SATI program with memcmp filters
-    const accounts = await this.queryAttestations(filter, 0); // DataType.Feedback = 0
-    return accounts as ParsedFeedbackAttestation[];
+  async listFeedbacks(
+    filter: AttestationFilter & { sasSchema: Address },
+  ): Promise<PaginatedAttestations<ParsedFeedbackAttestation>> {
+    // Query compressed accounts owned by SATI program with sasSchema filter
+    const result = await this.queryAttestations(filter, deserializeFeedback);
+    return {
+      items: result.items as ParsedFeedbackAttestation[],
+      cursor: result.cursor,
+    };
   }
 
-  async listValidations(filter: Partial<AttestationFilter>): Promise<ParsedValidationAttestation[]> {
-    const accounts = await this.queryAttestations(filter, 1); // DataType.Validation = 1
-    return accounts as ParsedValidationAttestation[];
+  async listValidations(
+    filter: AttestationFilter & { sasSchema: Address },
+  ): Promise<PaginatedAttestations<ParsedValidationAttestation>> {
+    // Query compressed accounts owned by SATI program with sasSchema filter
+    const result = await this.queryAttestations(filter, deserializeValidation);
+    return {
+      items: result.items as ParsedValidationAttestation[],
+      cursor: result.cursor,
+    };
   }
 
   async getCreationProof(addr: PublicKeyLike): Promise<CreationProofResult> {
@@ -569,25 +602,29 @@ export class SATILightClientImpl implements SATILightClient {
     };
   }
 
-  private async queryAttestations(filter: Partial<AttestationFilter>, dataType: number): Promise<ParsedAttestation[]> {
-    // Build memcmp filters based on SATI schema offsets
-    // For now, query by owner and filter in memory
-    // TODO: Use MemcmpFilter interface from compression-kit when Photon RPC supports server-side filtering.
-    // Interface is ready - waiting on Light Protocol indexer support.
+  private async queryAttestations<T extends FeedbackData | ValidationData>(
+    filter: AttestationFilter & { sasSchema: Address },
+    deserializer: (data: Uint8Array) => T,
+  ): Promise<PaginatedAttestations<ParsedAttestation>> {
+    // Pass cursor and limit to Photon RPC for pagination
+    // Note: Client-side filtering still applied after fetch
+    // TODO: Use MemcmpFilter for server-side filtering when we need sasSchema filtering at RPC level
 
-    const result = await this.rpc.getCompressedAccountsByOwner(this.programId);
+    const result = await this.rpc.getCompressedAccountsByOwner(this.programId, {
+      cursor: filter.cursor,
+      limit: filter.limit,
+    });
     const attestations: ParsedAttestation[] = [];
 
     for (const account of result.items) {
       if (!account.data) continue;
 
       try {
-        const parsed = this.parseAttestation(account);
+        const parsed = this.parseAttestation(account, deserializer);
         if (!parsed) continue;
 
         // Apply filters
-        if (parsed.attestation.dataType !== dataType) continue;
-        if (filter.sasSchema && parsed.attestation.sasSchema !== filter.sasSchema) continue;
+        if (parsed.attestation.sasSchema !== filter.sasSchema) continue;
         if (filter.tokenAccount && parsed.attestation.tokenAccount !== filter.tokenAccount) continue;
 
         attestations.push(parsed);
@@ -596,16 +633,22 @@ export class SATILightClientImpl implements SATILightClient {
       }
     }
 
-    return attestations;
+    return {
+      items: attestations,
+      cursor: result.cursor,
+    };
   }
 
-  private parseAttestation(account: CompressedAccount): ParsedAttestation | null {
+  private parseAttestation<T extends FeedbackData | ValidationData>(
+    account: CompressedAccount,
+    deserializer: (data: Uint8Array) => T,
+  ): ParsedAttestation | null {
     if (!account.data) return null;
 
     const rawData = account.data.data;
     const data = rawData instanceof Uint8Array ? new Uint8Array(rawData) : new Uint8Array(rawData as ArrayLike<number>);
 
-    // Minimum: sasSchema(32) + tokenAccount(32) + dataType(1) + dataLen(4) = 69 bytes
+    // Minimum: sasSchema(32) + tokenAccount(32) + dataLen(4) = 68 bytes
     if (data.length < BORSH_OFFSETS.DATA_START) return null;
 
     // Parse fixed fields and convert to Address
@@ -614,9 +657,8 @@ export class SATILightClientImpl implements SATILightClient {
     const tokenAccountBytes = data.slice(BORSH_OFFSETS.TOKEN_ACCOUNT, BORSH_OFFSETS.TOKEN_ACCOUNT + 32);
     const sasSchema = addressDecoder.decode(sasSchemaBytes);
     const tokenAccount = addressDecoder.decode(tokenAccountBytes);
-    const dataType = data[BORSH_OFFSETS.DATA_TYPE];
 
-    // Parse Vec length (4-byte u32 LE at offset 65)
+    // Parse Vec length (4-byte u32 LE at offset 64)
     const dataLen =
       data[BORSH_OFFSETS.DATA_LEN] |
       (data[BORSH_OFFSETS.DATA_LEN + 1] << 8) |
@@ -635,20 +677,14 @@ export class SATILightClientImpl implements SATILightClient {
     const attestation: CompressedAttestation = {
       sasSchema,
       tokenAccount,
-      dataType: dataType as DataType,
       numSignatures,
       data: schemaData,
       signature1,
       signature2,
     };
 
-    // Deserialize schema-specific data
-    let parsedData: FeedbackData | ValidationData;
-    if (dataType === 0) {
-      parsedData = deserializeFeedback(schemaData);
-    } else {
-      parsedData = deserializeValidation(schemaData);
-    }
+    // Deserialize schema-specific data using provided deserializer
+    const parsedData = deserializer(schemaData);
 
     return {
       address: account.address ?? new Uint8Array(32),

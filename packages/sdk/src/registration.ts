@@ -294,7 +294,7 @@ export function stringifyRegistrationFile(file: RegistrationFile, space = 2): st
 export const SATI_CHAIN_ID = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
 /** SATI program ID */
-export const SATI_PROGRAM_ID = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz";
+export const SATI_PROGRAM_ID = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe";
 
 /**
  * Build a registrations[] entry for linking a SATI agent to an off-chain registration file.

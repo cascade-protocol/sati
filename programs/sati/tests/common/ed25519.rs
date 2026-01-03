@@ -196,6 +196,109 @@ pub fn compute_data_hash(data: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+// ============================================================================
+// Attestation Data Builder
+// ============================================================================
+
+/// Current layout version for universal base layout
+pub const LAYOUT_VERSION: u8 = 1;
+
+/// Minimum size for universal base layout (131 bytes)
+pub const MIN_BASE_LAYOUT_SIZE: usize = 131;
+
+/// Universal base layout offsets (matches constants.rs)
+pub mod offsets {
+    pub const LAYOUT_VERSION: usize = 0;
+    pub const TASK_REF: usize = 1;
+    pub const TOKEN_ACCOUNT: usize = 33;
+    pub const COUNTERPARTY: usize = 65;
+    pub const OUTCOME: usize = 97;
+    pub const DATA_HASH: usize = 98;
+    pub const CONTENT_TYPE: usize = 130;
+    pub const CONTENT: usize = 131;
+}
+
+/// Builder for attestation data with universal base layout.
+/// Ensures consistent data construction across all tests.
+#[derive(Clone)]
+pub struct AttestationDataBuilder {
+    pub task_ref: [u8; 32],
+    pub token_account: Pubkey,
+    pub counterparty: Pubkey,
+    pub outcome: u8,
+    pub data_hash: [u8; 32],
+    pub content_type: u8,
+    pub content: Vec<u8>,
+}
+
+impl AttestationDataBuilder {
+    /// Create a new builder with required fields
+    pub fn new(
+        task_ref: [u8; 32],
+        token_account: Pubkey,
+        counterparty: Pubkey,
+        outcome: u8,
+        data_hash: [u8; 32],
+    ) -> Self {
+        Self {
+            task_ref,
+            token_account,
+            counterparty,
+            outcome,
+            data_hash,
+            content_type: 0,
+            content: Vec::new(),
+        }
+    }
+
+    /// Set content type and content bytes
+    pub fn with_content(mut self, content_type: u8, content: Vec<u8>) -> Self {
+        self.content_type = content_type;
+        self.content = content;
+        self
+    }
+
+    /// Set content type only (for testing invalid content types)
+    pub fn with_content_type(mut self, content_type: u8) -> Self {
+        self.content_type = content_type;
+        self
+    }
+
+    /// Build the attestation data bytes
+    pub fn build(&self) -> Vec<u8> {
+        let mut data = vec![0u8; MIN_BASE_LAYOUT_SIZE + self.content.len()];
+
+        // Layout version
+        data[offsets::LAYOUT_VERSION] = LAYOUT_VERSION;
+
+        // Task ref (32 bytes at offset 1)
+        data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT].copy_from_slice(&self.task_ref);
+
+        // Token account / agent mint (32 bytes at offset 33)
+        data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY]
+            .copy_from_slice(self.token_account.as_ref());
+
+        // Counterparty (32 bytes at offset 65)
+        data[offsets::COUNTERPARTY..offsets::OUTCOME].copy_from_slice(self.counterparty.as_ref());
+
+        // Outcome (1 byte at offset 97)
+        data[offsets::OUTCOME] = self.outcome;
+
+        // Data hash (32 bytes at offset 98)
+        data[offsets::DATA_HASH..offsets::CONTENT_TYPE].copy_from_slice(&self.data_hash);
+
+        // Content type (1 byte at offset 130)
+        data[offsets::CONTENT_TYPE] = self.content_type;
+
+        // Content (variable at offset 131+)
+        if !self.content.is_empty() {
+            data[offsets::CONTENT..].copy_from_slice(&self.content);
+        }
+
+        data
+    }
+}
+
 /// Compute nonce for attestation address derivation (matches on-chain)
 ///
 /// The nonce is a Keccak256 hash of the attestation identifiers,

@@ -28,7 +28,7 @@ SATI enables agents to establish trust across organizational boundaries without 
           │ (CPI: mint NFT)
 ┌─────────────────────────────────────────────────────────────────┐
 │                         SATI Program                             │
-│           (satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz)          │
+│           (satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)          │
 ├─────────────────────────────────────────────────────────────────┤
 │  Registry:                                                       │
 │    initialize()              → Create registry + TokenGroup      │
@@ -206,7 +206,7 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
 **Deployment Status:** Ready for Devnet
-**On-chain Verification:** [Program on Solana Explorer](https://explorer.solana.com/address/satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz)
+**On-chain Verification:** [Program on Solana Explorer](https://explorer.solana.com/address/satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)
 
 ---
 

@@ -6,9 +6,9 @@
  * @see https://github.com/codama-idl/codama
  */
 
-export * from "./closeAttestation";
+export * from "./closeCompressedAttestation";
 export * from "./closeRegularAttestation";
-export * from "./createAttestation";
+export * from "./createCompressedAttestation";
 export * from "./createRegularAttestation";
 export * from "./initialize";
 export * from "./linkEvmAddress";

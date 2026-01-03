@@ -12,7 +12,6 @@ import {
   computeInteractionHash,
   loadDeployedConfig,
   Sati,
-  createSATILightClient,
   type Outcome,
   MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
 } from "@cascade-fyi/sati-sdk";
@@ -357,11 +356,6 @@ function createApp(env: EchoEnv) {
         rpcUrl: env.VITE_DEVNET_RPC,
         photonRpcUrl: env.VITE_DEVNET_RPC,
       });
-
-      // Use custom Light client for Cloudflare Workers compatibility
-      // This avoids the Node.js 'events' module dependency in @lightprotocol/stateless.js
-      const lightClient = createSATILightClient(env.VITE_DEVNET_RPC || "https://api.devnet.solana.com");
-      sati.setLightClient(lightClient);
 
       // Build the transaction (server-side Light Protocol calls)
       // Use Light Protocol's devnet ALT to reduce transaction size

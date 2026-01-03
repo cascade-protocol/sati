@@ -105,8 +105,8 @@ export async function listAgentFeedbacks(tokenAccount: Address): Promise<ParsedF
     const allFeedbacks: ParsedFeedback[] = [];
 
     for (const sasSchema of schemas) {
-      const feedbacks = await sati.listFeedbacks({ sasSchema, tokenAccount });
-      allFeedbacks.push(...feedbacks);
+      const result = await sati.listFeedbacks({ sasSchema, tokenAccount });
+      allFeedbacks.push(...result.items);
     }
 
     return allFeedbacks;
@@ -133,8 +133,8 @@ export async function listAllFeedbacks(): Promise<ParsedFeedback[]> {
     const allFeedbacks: ParsedFeedback[] = [];
 
     for (const sasSchema of schemas) {
-      const feedbacks = await sati.listFeedbacks({ sasSchema });
-      allFeedbacks.push(...feedbacks);
+      const result = await sati.listFeedbacks({ sasSchema });
+      allFeedbacks.push(...result.items);
     }
 
     return allFeedbacks;

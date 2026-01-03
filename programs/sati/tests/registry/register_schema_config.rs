@@ -42,6 +42,7 @@ fn test_register_schema_config_success() {
         &sas_schema,
         SignatureMode::DualSignature,
         StorageType::Compressed,
+        None, // no delegation schema for this test
         true, // closeable
         "TestFeedback".to_string(),
     );
@@ -65,8 +66,9 @@ fn test_register_schema_config_success() {
     assert!(schema_account.is_some(), "Schema config should exist");
 
     let account = schema_account.unwrap();
-    // Size: 8 (discriminator) + 32 (sas_schema) + 1 + 1 + 1 + 4 (name_len) + 32 (name_max) + 1 (bump) = 80 bytes
-    assert_eq!(account.data.len(), 80, "Schema config should be 80 bytes");
+    // Size: 8 (discriminator) + 32 (sas_schema) + 1 (sig_mode) + 1 (storage_type)
+    //       + 33 (delegation_schema Option<Pubkey>) + 1 (closeable) + 36 (name String) + 1 (bump) = 113 bytes
+    assert_eq!(account.data.len(), 113, "Schema config should be 113 bytes");
 
     // Verify fields (after 8-byte discriminator)
     let stored_sas_schema = &account.data[8..40];
@@ -85,7 +87,10 @@ fn test_register_schema_config_success() {
     let storage_type = account.data[41];
     assert_eq!(storage_type, 0, "Storage type should be Compressed (0)");
 
-    let closeable = account.data[42];
+    // delegation_schema at [42] = 0 for None
+    assert_eq!(account.data[42], 0, "delegation_schema should be None (0)");
+
+    let closeable = account.data[43];
     assert_eq!(closeable, 1, "Closeable should be true");
 
     println!("✅ test_register_schema_config_success passed");
@@ -118,8 +123,9 @@ fn test_register_schema_config_single_signer_regular() {
         &authority.pubkey(),
         &schema_config,
         &sas_schema,
-        SignatureMode::SingleSigner,
+        SignatureMode::CounterpartySigned,
         StorageType::Regular,
+        None,  // no delegation schema for CounterpartySigned
         false, // not closeable
         "TestReputation".to_string(),
     );
@@ -134,17 +140,18 @@ fn test_register_schema_config_single_signer_regular() {
     let result = svm.send_transaction(tx);
     assert!(
         result.is_ok(),
-        "register_schema_config with SingleSigner should succeed: {:?}",
+        "register_schema_config with CounterpartySigned should succeed: {:?}",
         result.err()
     );
 
     let account = svm.get_account(&schema_config).unwrap();
     assert_eq!(
         account.data[40], 1,
-        "Signature mode should be SingleSigner (1)"
+        "Signature mode should be CounterpartySigned (1)"
     );
     assert_eq!(account.data[41], 1, "Storage type should be Regular (1)");
-    assert_eq!(account.data[42], 0, "Closeable should be false");
+    assert_eq!(account.data[42], 0, "delegation_schema should be None (0)");
+    assert_eq!(account.data[43], 0, "Closeable should be false");
 
     println!("✅ test_register_schema_config_single_signer_regular passed");
 }
@@ -180,6 +187,7 @@ fn test_register_schema_config_wrong_authority() {
         &sas_schema,
         SignatureMode::DualSignature,
         StorageType::Compressed,
+        None,
         true,
         "TestFeedback".to_string(),
     );
@@ -231,6 +239,7 @@ fn test_register_schema_config_immutable_registry() {
         &sas_schema,
         SignatureMode::DualSignature,
         StorageType::Compressed,
+        None,
         true,
         "TestFeedback".to_string(),
     );

@@ -27,10 +27,11 @@ use crate::common::{
     ed25519::{
         build_counterparty_message, compute_attestation_nonce, compute_data_hash,
         compute_interaction_hash, create_multi_ed25519_ix, generate_ed25519_keypair,
-        keypair_to_pubkey, sign_message,
+        keypair_to_pubkey, sign_message, AttestationDataBuilder,
     },
     instructions::{
-        build_create_attestation_ix, CreateParams, SignatureData, SignatureMode, StorageType,
+        build_create_compressed_attestation_ix, CreateParams, SignatureData, SignatureMode,
+        StorageType,
     },
     setup::{
         derive_schema_config_pda, setup_light_test_env, LightTestEnv, SATI_PROGRAM_ID,
@@ -38,12 +39,37 @@ use crate::common::{
     },
 };
 
-/// SchemaConfig account size with "Feedback" name (8 bytes):
-/// 8 (discriminator) + 32 (sas_schema) + 1 (signature_mode) + 1 (storage_type) + 1 (closeable) + 4 (name len) + 8 (name "Feedback") + 1 (bump) = 56 bytes
-const SCHEMA_CONFIG_SIZE: usize = 56;
+/// SchemaConfig account size with "Feedback" name (8 bytes) and delegation_schema = None:
+/// 8 (discriminator) + 32 (sas_schema) + 1 (signature_mode) + 1 (storage_type) + 1 (delegation_schema=None) + 1 (closeable) + 4 (name len) + 8 (name "Feedback") + 1 (bump) = 57 bytes
+const SCHEMA_CONFIG_SIZE: usize = 57;
 
 /// Schema name used in SIWS messages - must match build_counterparty_message calls
 const SCHEMA_NAME: &str = "Feedback";
+
+/// Create mock SchemaConfig account data
+///
+/// Layout: discriminator(8) + sas_schema(32) + signature_mode(1) + storage_type(1)
+///         + delegation_schema(1 for None) + closeable(1) + name_len(4) + name(N) + bump(1)
+fn create_schema_config_data(
+    sas_schema: &Pubkey,
+    signature_mode: SignatureMode,
+    storage_type: StorageType,
+    closeable: bool,
+    bump: u8,
+) -> Vec<u8> {
+    let mut data = vec![0u8; SCHEMA_CONFIG_SIZE];
+    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
+    data[0..8].copy_from_slice(&discriminator);
+    data[8..40].copy_from_slice(sas_schema.as_ref()); // sas_schema
+    data[40] = signature_mode as u8; // signature_mode
+    data[41] = storage_type as u8; // storage_type
+    data[42] = 0; // delegation_schema = None
+    data[43] = closeable as u8; // closeable
+    data[44..48].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
+    data[48..48 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
+    data[48 + SCHEMA_NAME.len()] = bump; // bump
+    data
+}
 
 /// Create mock Token-2022 mint account data
 fn create_mock_mint_data(mint_authority: &Pubkey) -> Vec<u8> {
@@ -93,17 +119,13 @@ async fn test_create_attestation_feedback_success() {
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
     // Mock SchemaConfig account (avoids Token-2022 registry setup)
-    // Layout: discriminator(8) + sas_schema(32) + signature_mode(1) + storage_type(1) + closeable(1) + name_len(4) + name(N) + bump(1)
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref()); // sas_schema
-    schema_data[40] = SignatureMode::DualSignature as u8; // signature_mode
-    schema_data[41] = StorageType::Compressed as u8; // storage_type
-    schema_data[42] = 1; // closeable = true
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true, // closeable
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -155,19 +177,19 @@ async fn test_create_attestation_feedback_success() {
         },
     );
 
-    // 4. Build attestation data (Universal 130-byte layout)
-    // Layout: task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content(N)
+    // 4. Build attestation data using builder (131-byte universal layout)
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test task data");
     let outcome: u8 = 2; // Positive feedback
 
-    let mut data = vec![0u8; 130]; // Minimum universal layout
-    data[0..32].copy_from_slice(&task_ref); // task_ref
-    data[32..64].copy_from_slice(agent_mint.as_ref()); // token_account = MINT address
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref()); // counterparty
-    data[96] = outcome; // outcome
-    data[97..129].copy_from_slice(&data_hash); // data_hash
-    data[129] = 0; // content_type = 0 (None) - no content
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // 5. Compute message hashes and sign
     // Agent signs interaction_hash (no token_account in hash)
@@ -226,7 +248,6 @@ async fn test_create_attestation_feedback_success() {
 
     // 10. Build CreateParams
     let params = CreateParams {
-        data_type: 0, // Feedback
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -250,10 +271,10 @@ async fn test_create_attestation_feedback_success() {
         (&agent_pubkey, &agent_message, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -292,16 +313,13 @@ async fn test_create_attestation_missing_signature() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -345,18 +363,19 @@ async fn test_create_attestation_missing_signature() {
         },
     );
 
-    // Build attestation data (Universal 130-byte layout)
+    // Build attestation data using builder
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0; // content_type = None (no content)
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // Build signatures
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -404,7 +423,6 @@ async fn test_create_attestation_missing_signature() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -422,10 +440,10 @@ async fn test_create_attestation_missing_signature() {
     };
 
     // Build ONLY attestation instruction (no Ed25519 instruction)
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -440,10 +458,10 @@ async fn test_create_attestation_missing_signature() {
         "Transaction should fail without Ed25519 instruction"
     );
     let err_str = format!("{:?}", result.unwrap_err());
-    // MissingSignatures = error code 6029
+    // MissingSignatures = error code 6031
     assert!(
-        err_str.contains("MissingSignatures") || err_str.contains("6029"),
-        "Expected MissingSignatures error (6029), got: {}",
+        err_str.contains("MissingSignatures") || err_str.contains("6031"),
+        "Expected MissingSignatures error (6031), got: {}",
         err_str
     );
 }
@@ -457,16 +475,13 @@ async fn test_create_attestation_invalid_signature() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -510,18 +525,19 @@ async fn test_create_attestation_invalid_signature() {
         },
     );
 
-    // Build attestation data
+    // Build attestation data using builder
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0; // content_type = None (no content)
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // Sign WRONG message hashes (valid signatures, but for wrong messages)
     let wrong_hash = compute_data_hash(b"wrong message");
@@ -567,7 +583,6 @@ async fn test_create_attestation_invalid_signature() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -584,10 +599,10 @@ async fn test_create_attestation_invalid_signature() {
         address_tree_info,
     };
 
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -608,10 +623,10 @@ async fn test_create_attestation_invalid_signature() {
         "Transaction should fail with wrong message hash"
     );
     let err_str = format!("{:?}", result.unwrap_err());
-    // MessageMismatch = error code 6030
+    // MessageMismatch = error code 6032
     assert!(
-        err_str.contains("MessageMismatch") || err_str.contains("6030"),
-        "Expected MessageMismatch error (6030), got: {}",
+        err_str.contains("MessageMismatch") || err_str.contains("6032"),
+        "Expected MessageMismatch error (6032), got: {}",
         err_str
     );
 }
@@ -624,16 +639,13 @@ async fn test_create_attestation_wrong_signer() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -684,13 +696,14 @@ async fn test_create_attestation_wrong_signer() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0; // content_type = None (no content)
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // Sign with correct hashes but WRONG keypair for agent
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -740,7 +753,6 @@ async fn test_create_attestation_wrong_signer() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -757,10 +769,10 @@ async fn test_create_attestation_wrong_signer() {
         address_tree_info,
     };
 
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -798,16 +810,13 @@ async fn test_create_attestation_self_attestation() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -855,13 +864,12 @@ async fn test_create_attestation_self_attestation() {
     let outcome: u8 = 2;
 
     // token_account = self_mint AND counterparty = self_mint (SAME!)
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(self_mint.as_ref()); // token_account = self_mint
-    data[64..96].copy_from_slice(self_mint.as_ref()); // counterparty = self_mint (SAME!)
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0; // content_type = None (no content)
+    let data = AttestationDataBuilder::new(
+        task_ref, self_mint, // token_account = self_mint
+        self_mint, // counterparty = self_mint (SAME!)
+        outcome, data_hash,
+    )
+    .build();
 
     // Build signatures (both from same keypair, but for different message types)
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -908,7 +916,6 @@ async fn test_create_attestation_self_attestation() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -925,10 +932,10 @@ async fn test_create_attestation_self_attestation() {
         address_tree_info,
     };
 
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &self_ata,
+        Some(&self_ata),
         params,
         system_accounts,
     );
@@ -967,16 +974,13 @@ async fn test_create_attestation_data_too_small() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -1068,7 +1072,6 @@ async fn test_create_attestation_data_too_small() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(), // Too small!
         signatures: vec![
             SignatureData {
@@ -1085,10 +1088,10 @@ async fn test_create_attestation_data_too_small() {
         address_tree_info,
     };
 
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -1124,17 +1127,14 @@ async fn test_create_attestation_wrong_storage_type() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    // Set storage_type = Regular (but using compressed handler)
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Regular as u8; // WRONG for create_attestation (compressed)
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes()); // name length
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes()); // name
-    schema_data[47 + SCHEMA_NAME.len()] = bump; // bump
+    // Set storage_type = Regular (but using compressed handler - WRONG)
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Regular, // Wrong storage type for compressed handler
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -1178,18 +1178,19 @@ async fn test_create_attestation_wrong_storage_type() {
         },
     );
 
-    // Build valid attestation data
+    // Build valid attestation data using builder
     let task_ref = [1u8; 32];
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0; // content_type = None (no content)
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // Build valid signatures
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -1237,7 +1238,6 @@ async fn test_create_attestation_wrong_storage_type() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -1254,10 +1254,10 @@ async fn test_create_attestation_wrong_storage_type() {
         address_tree_info,
     };
 
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -1300,16 +1300,13 @@ async fn test_create_attestation_wrong_mint_ata() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -1364,13 +1361,14 @@ async fn test_create_attestation_wrong_mint_ata() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(actual_agent_mint.as_ref()); // token_account = actual_agent_mint
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        actual_agent_mint, // token_account = actual_agent_mint
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // Build signatures
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -1420,7 +1418,6 @@ async fn test_create_attestation_wrong_mint_ata() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -1441,10 +1438,10 @@ async fn test_create_attestation_wrong_mint_ata() {
         (&agent_pubkey, &interaction_hash, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &wrong_ata, // Pass ATA with WRONG mint
+        Some(&wrong_ata), // Pass ATA with WRONG mint
         params,
         system_accounts,
     );
@@ -1477,16 +1474,13 @@ async fn test_create_attestation_wrong_owner_ata() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -1540,13 +1534,14 @@ async fn test_create_attestation_wrong_owner_ata() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // ATTACKER signs the interaction_hash (not the victim)
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -1591,7 +1586,6 @@ async fn test_create_attestation_wrong_owner_ata() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -1612,10 +1606,10 @@ async fn test_create_attestation_wrong_owner_ata() {
         (&attacker_pubkey, &interaction_hash, &attacker_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &victim_ata, // Victim's ATA, but attacker signed
+        Some(&victim_ata), // Victim's ATA, but attacker signed
         params,
         system_accounts,
     );
@@ -1651,16 +1645,13 @@ async fn test_create_attestation_empty_ata() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -1708,13 +1699,14 @@ async fn test_create_attestation_empty_ata() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     let counterparty_msg =
@@ -1758,7 +1750,6 @@ async fn test_create_attestation_empty_ata() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -1779,10 +1770,10 @@ async fn test_create_attestation_empty_ata() {
         (&agent_pubkey, &interaction_hash, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata, // ATA with zero balance
+        Some(&agent_ata), // ATA with zero balance
         params,
         system_accounts,
     );
@@ -1819,16 +1810,14 @@ async fn test_dual_signature_with_one_sig() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8; // Requires 2 signatures
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    // DualSignature requires 2 signatures
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -1875,13 +1864,14 @@ async fn test_dual_signature_with_one_sig() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
 
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     let agent_sig = sign_message(&agent_keypair, &interaction_hash);
@@ -1923,7 +1913,6 @@ async fn test_dual_signature_with_one_sig() {
 
     // Only provide ONE signature when schema requires TWO
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![SignatureData {
             pubkey: agent_pubkey,
@@ -1935,10 +1924,10 @@ async fn test_dual_signature_with_one_sig() {
     };
 
     let ed25519_ix = create_multi_ed25519_ix(&[(&agent_pubkey, &interaction_hash, &agent_sig)]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -1960,26 +1949,24 @@ async fn test_dual_signature_with_one_sig() {
     );
 }
 
-/// Test that create_attestation fails with SingleSigner schema but 2 signatures
+/// Test that create_compressed_attestation fails with CounterpartySigned schema but 2 signatures
 ///
-/// Tests that excess signatures are rejected for SingleSigner mode.
+/// Tests that excess signatures are rejected for CounterpartySigned mode.
 #[tokio::test]
-async fn test_single_signer_with_two_sigs() {
+async fn test_counterparty_signed_with_two_sigs() {
     let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
 
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::SingleSigner as u8; // Only requires 1 signature
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    // CounterpartySigned only requires 1 signature
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::CounterpartySigned,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -2026,14 +2013,15 @@ async fn test_single_signer_with_two_sigs() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    // For SingleSigner, counterparty field can be agent's own identity or any pubkey
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(extra_pubkey.as_ref()); // counterparty (not same as token_account)
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    // For CounterpartySigned, counterparty field is the signer
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        extra_pubkey, // counterparty (not same as token_account)
+        outcome,
+        data_hash,
+    )
+    .build();
 
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     let counterparty_msg =
@@ -2077,7 +2065,6 @@ async fn test_single_signer_with_two_sigs() {
 
     // Provide TWO signatures when schema only requires ONE
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -2088,7 +2075,7 @@ async fn test_single_signer_with_two_sigs() {
                 pubkey: extra_pubkey,
                 sig: extra_sig,
             },
-        ], // 2 signatures for SingleSigner!
+        ], // 2 signatures for CounterpartySigned!
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -2098,10 +2085,10 @@ async fn test_single_signer_with_two_sigs() {
         (&agent_pubkey, &interaction_hash, &agent_sig),
         (&extra_pubkey, &counterparty_msg, &extra_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -2113,7 +2100,7 @@ async fn test_single_signer_with_two_sigs() {
 
     assert!(
         result.is_err(),
-        "Transaction should fail with 2 signatures for SingleSigner schema"
+        "Transaction should fail with 2 signatures for CounterpartySigned schema"
     );
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
@@ -2133,16 +2120,13 @@ async fn test_dual_signature_duplicate_pubkeys() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -2190,13 +2174,14 @@ async fn test_dual_signature_duplicate_pubkeys() {
 
     // Use single_pubkey as counterparty in data so signature pubkey validation passes
     // This allows us to test the duplicate signers check
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(single_pubkey.as_ref()); // Same as signer!
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        single_pubkey, // Same as signer!
+        outcome,
+        data_hash,
+    )
+    .build();
 
     // Both signatures from SAME keypair
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
@@ -2241,7 +2226,6 @@ async fn test_dual_signature_duplicate_pubkeys() {
 
     // Both signatures use SAME pubkey - duplicate signers attack
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -2262,10 +2246,10 @@ async fn test_dual_signature_duplicate_pubkeys() {
         (&single_pubkey, &interaction_hash, &agent_sig),
         (&single_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -2281,8 +2265,8 @@ async fn test_dual_signature_duplicate_pubkeys() {
     );
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
-        err_str.contains("DuplicateSigners") || err_str.contains("6032"),
-        "Expected DuplicateSigners error (6032), got: {}",
+        err_str.contains("DuplicateSigners") || err_str.contains("6034"),
+        "Expected DuplicateSigners error (6034), got: {}",
         err_str
     );
 }
@@ -2302,16 +2286,13 @@ async fn test_data_exactly_129_bytes() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -2354,8 +2335,8 @@ async fn test_data_exactly_129_bytes() {
         },
     );
 
-    // Exactly 129 bytes - one byte short of minimum
-    let data = vec![0u8; 129];
+    // Exactly 130 bytes - one byte short of minimum (131 bytes)
+    let data = vec![0u8; 130];
 
     let dummy_message = compute_data_hash(b"dummy");
     let agent_sig = sign_message(&agent_keypair, &dummy_message);
@@ -2398,7 +2379,6 @@ async fn test_data_exactly_129_bytes() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -2419,10 +2399,10 @@ async fn test_data_exactly_129_bytes() {
         (&agent_pubkey, &dummy_message, &agent_sig),
         (&counterparty_pubkey, &dummy_message, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -2454,16 +2434,13 @@ async fn test_content_513_bytes() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -2512,14 +2489,15 @@ async fn test_content_513_bytes() {
 
     // Build data with 513 bytes of content (one over limit)
     let content = vec![b'x'; 513]; // 513 bytes - exceeds 512 limit
-    let mut data = vec![0u8; 130 + content.len()]; // 643 bytes total
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 1; // content_type = JSON
-    data[130..].copy_from_slice(&content);
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .with_content(1, content) // content_type = JSON
+    .build();
 
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     let counterparty_msg =
@@ -2563,7 +2541,6 @@ async fn test_content_513_bytes() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -2584,10 +2561,10 @@ async fn test_content_513_bytes() {
         (&agent_pubkey, &interaction_hash, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -2622,16 +2599,13 @@ async fn test_invalid_outcome_value_3() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -2678,13 +2652,14 @@ async fn test_invalid_outcome_value_3() {
     let data_hash = compute_data_hash(b"test");
     let invalid_outcome: u8 = 3; // INVALID - must be 0, 1, or 2
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = invalid_outcome; // Invalid outcome value
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 0;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        invalid_outcome, // Invalid outcome value
+        data_hash,
+    )
+    .build();
 
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     // Use a modified message for counterparty since outcome is different
@@ -2729,7 +2704,6 @@ async fn test_invalid_outcome_value_3() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -2750,10 +2724,10 @@ async fn test_invalid_outcome_value_3() {
         (&agent_pubkey, &interaction_hash, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -2768,8 +2742,8 @@ async fn test_invalid_outcome_value_3() {
     );
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
-        err_str.contains("InvalidOutcome") || err_str.contains("6025"),
-        "Expected InvalidOutcome error (6025), got: {}",
+        err_str.contains("InvalidOutcome") || err_str.contains("6026"),
+        "Expected InvalidOutcome error (6026), got: {}",
         err_str
     );
 }
@@ -2784,16 +2758,13 @@ async fn test_invalid_content_type_value_16() {
     let sas_schema = Pubkey::new_unique();
     let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
 
-    let mut schema_data = vec![0u8; SCHEMA_CONFIG_SIZE];
-    let discriminator = compute_anchor_account_discriminator("SchemaConfig");
-    schema_data[0..8].copy_from_slice(&discriminator);
-    schema_data[8..40].copy_from_slice(sas_schema.as_ref());
-    schema_data[40] = SignatureMode::DualSignature as u8;
-    schema_data[41] = StorageType::Compressed as u8;
-    schema_data[42] = 1;
-    schema_data[43..47].copy_from_slice(&(SCHEMA_NAME.len() as u32).to_le_bytes());
-    schema_data[47..47 + SCHEMA_NAME.len()].copy_from_slice(SCHEMA_NAME.as_bytes());
-    schema_data[47 + SCHEMA_NAME.len()] = bump;
+    let schema_data = create_schema_config_data(
+        &sas_schema,
+        SignatureMode::DualSignature,
+        StorageType::Compressed,
+        true,
+        bump,
+    );
 
     rpc.set_account(
         schema_config_pda,
@@ -2840,13 +2811,15 @@ async fn test_invalid_content_type_value_16() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    let mut data = vec![0u8; 140];
-    data[0..32].copy_from_slice(&task_ref);
-    data[32..64].copy_from_slice(agent_mint.as_ref());
-    data[64..96].copy_from_slice(counterparty_pubkey.as_ref());
-    data[96] = outcome;
-    data[97..129].copy_from_slice(&data_hash);
-    data[129] = 16; // INVALID - content_type must be 0-15
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .with_content_type(16) // INVALID - content_type must be 0-15
+    .build();
 
     let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     let counterparty_msg =
@@ -2890,7 +2863,6 @@ async fn test_invalid_content_type_value_16() {
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
-        data_type: 0,
         data: data.clone(),
         signatures: vec![
             SignatureData {
@@ -2911,10 +2883,10 @@ async fn test_invalid_content_type_value_16() {
         (&agent_pubkey, &interaction_hash, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
     ]);
-    let attestation_ix = build_create_attestation_ix(
+    let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
-        &agent_ata,
+        Some(&agent_ata),
         params,
         system_accounts,
     );
@@ -2929,8 +2901,8 @@ async fn test_invalid_content_type_value_16() {
     );
     let err_str = format!("{:?}", result.unwrap_err());
     assert!(
-        err_str.contains("InvalidContentType") || err_str.contains("6026"),
-        "Expected InvalidContentType error (6026), got: {}",
+        err_str.contains("InvalidContentType") || err_str.contains("6027"),
+        "Expected InvalidContentType error (6027), got: {}",
         err_str
     );
 }
@@ -2946,13 +2918,14 @@ mod tests {
     #[test]
     fn test_feedback_data_layout() {
         // Verify our test data layout matches universal base layout specification:
-        // Offset 0-31:   task_ref (32 bytes)
-        // Offset 32-63:  token_account (32 bytes)
-        // Offset 64-95:  counterparty (32 bytes)
-        // Offset 96:     outcome (1 byte: 0=Negative, 1=Neutral, 2=Positive)
-        // Offset 97-128: data_hash (32 bytes)
-        // Offset 129:    content_type (1 byte: 0=None, 1=JSON, etc.)
-        // Offset 130+:   content (variable, up to 512 bytes)
+        // Offset 0:      layout_version (1 byte)
+        // Offset 1-32:   task_ref (32 bytes)
+        // Offset 33-64:  token_account (32 bytes)
+        // Offset 65-96:  counterparty (32 bytes)
+        // Offset 97:     outcome (1 byte: 0=Negative, 1=Neutral, 2=Positive)
+        // Offset 98-129: data_hash (32 bytes)
+        // Offset 130:    content_type (1 byte: 0=None, 1=JSON, etc.)
+        // Offset 131+:   content (variable, up to 512 bytes)
         let task_ref = [1u8; 32];
         let token_account = Pubkey::new_unique();
         let counterparty = Pubkey::new_unique();
@@ -2960,31 +2933,29 @@ mod tests {
         let outcome: u8 = 2; // Positive
         let content_type: u8 = 1; // JSON
 
-        // Build 130-byte minimum universal base layout
-        let mut data = [0u8; 130];
-        data[0..32].copy_from_slice(&task_ref);
-        data[32..64].copy_from_slice(token_account.as_ref());
-        data[64..96].copy_from_slice(counterparty.as_ref());
-        data[96] = outcome;
-        data[97..129].copy_from_slice(&data_hash);
-        data[129] = content_type;
+        // Use AttestationDataBuilder for correct layout
+        let data =
+            AttestationDataBuilder::new(task_ref, token_account, counterparty, outcome, data_hash)
+                .with_content_type(content_type)
+                .build();
 
         // Verify layout matches specification offsets
-        assert_eq!(&data[0..32], &task_ref, "task_ref at offset 0-31");
+        assert_eq!(data[0], 1, "layout_version at offset 0");
+        assert_eq!(&data[1..33], &task_ref, "task_ref at offset 1-32");
         assert_eq!(
-            &data[32..64],
+            &data[33..65],
             token_account.as_ref(),
-            "token_account at offset 32-63"
+            "token_account at offset 33-64"
         );
         assert_eq!(
-            &data[64..96],
+            &data[65..97],
             counterparty.as_ref(),
-            "counterparty at offset 64-95"
+            "counterparty at offset 65-96"
         );
-        assert_eq!(data[96], outcome, "outcome at offset 96");
-        assert_eq!(&data[97..129], &data_hash, "data_hash at offset 97-128");
-        assert_eq!(data[129], content_type, "content_type at offset 129");
-        assert_eq!(data.len(), 130, "minimum base layout size");
+        assert_eq!(data[97], outcome, "outcome at offset 97");
+        assert_eq!(&data[98..130], &data_hash, "data_hash at offset 98-129");
+        assert_eq!(data[130], content_type, "content_type at offset 130");
+        assert_eq!(data.len(), 131, "minimum base layout size");
     }
 
     #[test]

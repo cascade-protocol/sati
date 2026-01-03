@@ -23,6 +23,8 @@ import {
   getBooleanEncoder,
   getBytesDecoder,
   getBytesEncoder,
+  getOptionDecoder,
+  getOptionEncoder,
   getStructDecoder,
   getStructEncoder,
   getU32Decoder,
@@ -42,6 +44,8 @@ import {
   type FetchAccountsConfig,
   type MaybeAccount,
   type MaybeEncodedAccount,
+  type Option,
+  type OptionOrNullable,
   type ReadonlyUint8Array,
 } from "@solana/kit";
 import {
@@ -73,6 +77,12 @@ export type SchemaConfig = {
   signatureMode: SignatureMode;
   /** Storage backend type */
   storageType: StorageType;
+  /**
+   * Schema for delegation verification.
+   * If Some: owner OR valid delegate can sign (AgentOwnerSigned mode).
+   * If None: only owner can sign (or anyone for CounterpartySigned mode).
+   */
+  delegationSchema: Option<Address>;
   /** Whether attestations can be closed/nullified */
   closeable: boolean;
   /** Schema name for signing messages (max 32 chars) */
@@ -88,6 +98,12 @@ export type SchemaConfigArgs = {
   signatureMode: SignatureModeArgs;
   /** Storage backend type */
   storageType: StorageTypeArgs;
+  /**
+   * Schema for delegation verification.
+   * If Some: owner OR valid delegate can sign (AgentOwnerSigned mode).
+   * If None: only owner can sign (or anyone for CounterpartySigned mode).
+   */
+  delegationSchema: OptionOrNullable<Address>;
   /** Whether attestations can be closed/nullified */
   closeable: boolean;
   /** Schema name for signing messages (max 32 chars) */
@@ -104,6 +120,7 @@ export function getSchemaConfigEncoder(): Encoder<SchemaConfigArgs> {
       ["sasSchema", getAddressEncoder()],
       ["signatureMode", getSignatureModeEncoder()],
       ["storageType", getStorageTypeEncoder()],
+      ["delegationSchema", getOptionEncoder(getAddressEncoder())],
       ["closeable", getBooleanEncoder()],
       ["name", addEncoderSizePrefix(getUtf8Encoder(), getU32Encoder())],
       ["bump", getU8Encoder()],
@@ -119,6 +136,7 @@ export function getSchemaConfigDecoder(): Decoder<SchemaConfig> {
     ["sasSchema", getAddressDecoder()],
     ["signatureMode", getSignatureModeDecoder()],
     ["storageType", getStorageTypeDecoder()],
+    ["delegationSchema", getOptionDecoder(getAddressDecoder())],
     ["closeable", getBooleanDecoder()],
     ["name", addDecoderSizePrefix(getUtf8Decoder(), getU32Decoder())],
     ["bump", getU8Decoder()],

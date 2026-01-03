@@ -12,7 +12,7 @@ pub use light_program_test::{
 
 /// SATI program ID (matches declare_id! in lib.rs)
 pub const SATI_PROGRAM_ID: Pubkey =
-    solana_sdk::pubkey!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
+    solana_sdk::pubkey!("satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe");
 
 /// Token-2022 program ID
 pub const TOKEN_2022_PROGRAM_ID: Pubkey =

@@ -333,9 +333,9 @@ describe("E2E: Attestation Flow", () => {
           outcome: Outcome.Positive,
         });
 
-        expect(Array.isArray(result)).toBe(true);
+        expect(Array.isArray(result.items)).toBe(true);
         // All returned items should have positive outcome
-        for (const item of result) {
+        for (const item of result.items) {
           if (item.data.outcome !== undefined) {
             expect(item.data.outcome).toBe(Outcome.Positive);
           }

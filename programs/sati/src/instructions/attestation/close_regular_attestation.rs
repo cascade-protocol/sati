@@ -87,18 +87,12 @@ pub fn handler<'info>(
     // Drop borrow before CPI
     drop(attestation_data);
 
-    // 2. Authorization check
-    // - DualSignature: Either agent owner OR counterparty can close
-    // - SingleSigner: Only counterparty (provider) can close
+    // 2. Authorization check based on signature mode
+    // Signing party controls closure
     let signer_key = ctx.accounts.signer.key();
     let is_counterparty = signer_key == counterparty;
 
     match schema_config.signature_mode {
-        crate::state::SignatureMode::SingleSigner => {
-            // SingleSigner (e.g., ReputationScore): Only provider can close
-            // This prevents agents from deleting unfavorable scores
-            require!(is_counterparty, SatiError::UnauthorizedClose);
-        }
         crate::state::SignatureMode::DualSignature => {
             // DualSignature: Either party can close (both participated in creation)
             let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
@@ -108,6 +102,19 @@ pub fn handler<'info>(
                 is_counterparty || is_agent_owner,
                 SatiError::UnauthorizedClose
             );
+        }
+        crate::state::SignatureMode::CounterpartySigned => {
+            // CounterpartySigned (e.g., ReputationScore): Only counterparty can close
+            // Prevents agents from deleting unfavorable scores
+            require!(is_counterparty, SatiError::UnauthorizedClose);
+        }
+        crate::state::SignatureMode::AgentOwnerSigned => {
+            // AgentOwnerSigned (e.g., DelegateV1): Only agent owner can close
+            // Agent controls their own delegations
+            let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
+                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+            });
+            require!(is_agent_owner, SatiError::UnauthorizedClose);
         }
     }
 

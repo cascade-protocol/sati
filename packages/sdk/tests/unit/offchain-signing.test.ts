@@ -319,9 +319,9 @@ describe("buildCounterpartyMessage", () => {
     ).toThrow(/Invalid outcome value/);
   });
 
-  test("works with minimum valid data size (130 bytes)", () => {
+  test("works with minimum valid data size (131 bytes)", () => {
     const data = buildTestData({ content: new Uint8Array(0) });
-    expect(data.length).toBe(130);
+    expect(data.length).toBe(131);
 
     const result = buildCounterpartyMessage({
       schemaName: "Feedback",

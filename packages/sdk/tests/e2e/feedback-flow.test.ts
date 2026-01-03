@@ -33,7 +33,7 @@ import { describe, test, expect, beforeAll } from "vitest";
 import type { KeyPairSigner, Address } from "@solana/kit";
 import type { Sati } from "../../src";
 import { computeInteractionHash, computeAttestationNonce, Outcome } from "../../src/hashes";
-import { DataType, SignatureMode, StorageType } from "../../src/schemas";
+import { SignatureMode, StorageType } from "../../src/generated";
 import { COMPRESSED_OFFSETS } from "../../src/schemas";
 
 // Import test helpers
@@ -229,11 +229,11 @@ describe("E2E: Full Feedback Lifecycle", () => {
         // listFeedbacks takes filter object with tokenAccount
         const result = await sati.listFeedbacks({ tokenAccount });
 
-        expect(Array.isArray(result)).toBe(true);
+        expect(Array.isArray(result.items)).toBe(true);
 
         // Should have at least one feedback (the one we created)
-        if (result.length > 0) {
-          const feedback = result[0];
+        if (result.items.length > 0) {
+          const feedback = result.items[0];
           expect(feedback.data).toHaveProperty("outcome");
           expect(feedback.data).toHaveProperty("tokenAccount");
         }
@@ -252,10 +252,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
           outcome: Outcome.Positive,
         });
 
-        expect(Array.isArray(result)).toBe(true);
+        expect(Array.isArray(result.items)).toBe(true);
 
         // All returned items should have Positive outcome
-        for (const item of result) {
+        for (const item of result.items) {
           if (item.data && "outcome" in item.data) {
             expect(item.data.outcome).toBe(Outcome.Positive);
           }
@@ -274,10 +274,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
           sasSchema,
         });
 
-        expect(Array.isArray(result)).toBe(true);
+        expect(Array.isArray(result.items)).toBe(true);
 
         // All returned items should belong to our schema
-        for (const item of result) {
+        for (const item of result.items) {
           // item.attestation.sasSchema is already an Address string
           expect(item.attestation.sasSchema).toBe(sasSchema);
         }
@@ -292,8 +292,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
 
         const result = await sati.listFeedbacks({ tokenAccount });
 
-        if (result.length > 0) {
-          const feedback = result[0];
+        if (result.items.length > 0) {
+          const feedback = result.items[0];
 
           // Verify structure
           expect(feedback).toHaveProperty("address");
@@ -301,7 +301,6 @@ describe("E2E: Full Feedback Lifecycle", () => {
           expect(feedback).toHaveProperty("data");
 
           // Verify attestation structure
-          expect(feedback.attestation.dataType).toBe(DataType.Feedback);
           expect(feedback.attestation.numSignatures).toBe(2); // DualSignature mode
 
           // Verify data structure
@@ -578,13 +577,11 @@ describe("E2E: Compressed Attestation Offset Verification", () => {
       // response, NOT prefixed to the data bytes. Data bytes start directly:
       // [0-31]   sas_schema (32 bytes)
       // [32-63]  token_account (32 bytes)
-      // [64]     data_type (1 byte)
-      // [65-68]  data length (4 bytes)
-      // [69+]    data (variable)
+      // [64-67]  data length (4 bytes)
+      // [68+]    data (variable)
 
       expect(COMPRESSED_OFFSETS.SAS_SCHEMA).toBe(0);
       expect(COMPRESSED_OFFSETS.TOKEN_ACCOUNT).toBe(32);
-      expect(COMPRESSED_OFFSETS.DATA_TYPE).toBe(64);
 
       // Feedback-specific offsets within data:
       // data[0-31]   taskRef (32 bytes)

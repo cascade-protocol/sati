@@ -2,8 +2,8 @@
  * Unit Tests for Schema Serialization
  *
  * Tests universal base layout serialization and deserialization for all schemas.
- * Universal layout (130 bytes): task_ref + token_account + counterparty + outcome +
- * data_hash + content_type + content
+ * Universal layout (131 bytes): layout_version + task_ref + token_account + counterparty +
+ * outcome + data_hash + content_type + content
  */
 
 import { describe, test, expect } from "vitest";
@@ -13,8 +13,6 @@ import {
   Outcome,
   ContentType,
   ValidationType,
-  SignatureMode,
-  StorageType,
   serializeFeedback,
   serializeValidation,
   serializeReputationScore,
@@ -42,6 +40,7 @@ import {
   MAX_CONTENT_SIZE,
   MAX_DUAL_SIGNATURE_CONTENT_SIZE,
   MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  CURRENT_LAYOUT_VERSION,
   SCHEMA_CONFIGS,
   type FeedbackData,
   type ValidationData,
@@ -51,6 +50,7 @@ import {
   type ValidationContent,
   type ReputationScoreContent,
 } from "../../src/schemas";
+import { SignatureMode, StorageType } from "../../src/generated";
 
 // =============================================================================
 // Test Utilities
@@ -113,7 +113,8 @@ describe("ValidationType Enum", () => {
 describe("SignatureMode Enum", () => {
   test("has correct values", () => {
     expect(SignatureMode.DualSignature).toBe(0);
-    expect(SignatureMode.SingleSigner).toBe(1);
+    expect(SignatureMode.CounterpartySigned).toBe(1);
+    expect(SignatureMode.AgentOwnerSigned).toBe(2);
   });
 });
 
@@ -129,8 +130,8 @@ describe("StorageType Enum", () => {
 // =============================================================================
 
 describe("Universal Layout Constants", () => {
-  test("MIN_BASE_LAYOUT_SIZE is 130", () => {
-    expect(MIN_BASE_LAYOUT_SIZE).toBe(130);
+  test("MIN_BASE_LAYOUT_SIZE is 131", () => {
+    expect(MIN_BASE_LAYOUT_SIZE).toBe(131);
   });
 
   test("MAX_CONTENT_SIZE is 512", () => {
@@ -138,13 +139,14 @@ describe("Universal Layout Constants", () => {
   });
 
   test("OFFSETS has correct values", () => {
-    expect(OFFSETS.TASK_REF).toBe(0);
-    expect(OFFSETS.TOKEN_ACCOUNT).toBe(32);
-    expect(OFFSETS.COUNTERPARTY).toBe(64);
-    expect(OFFSETS.OUTCOME).toBe(96);
-    expect(OFFSETS.DATA_HASH).toBe(97);
-    expect(OFFSETS.CONTENT_TYPE).toBe(129);
-    expect(OFFSETS.CONTENT).toBe(130);
+    expect(OFFSETS.LAYOUT_VERSION).toBe(0);
+    expect(OFFSETS.TASK_REF).toBe(1);
+    expect(OFFSETS.TOKEN_ACCOUNT).toBe(33);
+    expect(OFFSETS.COUNTERPARTY).toBe(65);
+    expect(OFFSETS.OUTCOME).toBe(97);
+    expect(OFFSETS.DATA_HASH).toBe(98);
+    expect(OFFSETS.CONTENT_TYPE).toBe(130);
+    expect(OFFSETS.CONTENT).toBe(131);
   });
 
   test("schema-specific offsets match universal offsets", () => {
@@ -436,6 +438,7 @@ describe("Content Parsing", () => {
 describe("validateBaseLayout", () => {
   test("accepts valid minimum layout", () => {
     const data = new Uint8Array(MIN_BASE_LAYOUT_SIZE);
+    data[OFFSETS.LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
     data[OFFSETS.OUTCOME] = Outcome.Positive;
     data[OFFSETS.CONTENT_TYPE] = ContentType.None;
 
@@ -448,8 +451,18 @@ describe("validateBaseLayout", () => {
     expect(() => validateBaseLayout(data)).toThrow("Data too small");
   });
 
+  test("throws for unsupported layout version", () => {
+    const data = new Uint8Array(MIN_BASE_LAYOUT_SIZE);
+    data[OFFSETS.LAYOUT_VERSION] = 0; // Invalid version
+    data[OFFSETS.OUTCOME] = Outcome.Positive;
+    data[OFFSETS.CONTENT_TYPE] = ContentType.None;
+
+    expect(() => validateBaseLayout(data)).toThrow("Unsupported layout version");
+  });
+
   test("throws for invalid outcome", () => {
     const data = new Uint8Array(MIN_BASE_LAYOUT_SIZE);
+    data[OFFSETS.LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
     data[OFFSETS.OUTCOME] = 10; // Invalid
     data[OFFSETS.CONTENT_TYPE] = ContentType.None;
 
@@ -458,6 +471,7 @@ describe("validateBaseLayout", () => {
 
   test("throws for invalid content type", () => {
     const data = new Uint8Array(MIN_BASE_LAYOUT_SIZE);
+    data[OFFSETS.LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
     data[OFFSETS.OUTCOME] = Outcome.Positive;
     data[OFFSETS.CONTENT_TYPE] = 20; // Invalid
 
@@ -466,6 +480,7 @@ describe("validateBaseLayout", () => {
 
   test("throws for content too large", () => {
     const data = new Uint8Array(MIN_BASE_LAYOUT_SIZE + MAX_CONTENT_SIZE + 1);
+    data[OFFSETS.LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
     data[OFFSETS.OUTCOME] = Outcome.Positive;
     data[OFFSETS.CONTENT_TYPE] = ContentType.JSON;
 
@@ -497,7 +512,7 @@ describe("getMaxContentSize", () => {
   });
 
   test("returns 240 for SingleSigner mode", () => {
-    expect(getMaxContentSize(SignatureMode.SingleSigner)).toBe(240);
+    expect(getMaxContentSize(SignatureMode.CounterpartySigned)).toBe(240);
   });
 });
 
@@ -532,7 +547,7 @@ describe("validateContentSize", () => {
 
   test("returns valid:true for content under SingleSignature limit", () => {
     const content = new Uint8Array(200); // Under 240
-    const result = validateContentSize(content, SignatureMode.SingleSigner, { throwOnError: false });
+    const result = validateContentSize(content, SignatureMode.CounterpartySigned, { throwOnError: false });
 
     expect(result.valid).toBe(true);
     expect(result.maxSize).toBe(240);
@@ -541,7 +556,7 @@ describe("validateContentSize", () => {
 
   test("returns valid:false for content over SingleSignature limit", () => {
     const content = new Uint8Array(300); // Over 240
-    const result = validateContentSize(content, SignatureMode.SingleSigner, { throwOnError: false });
+    const result = validateContentSize(content, SignatureMode.CounterpartySigned, { throwOnError: false });
 
     expect(result.valid).toBe(false);
     expect(result.error).toContain("Content too large for SingleSignature mode");
@@ -631,28 +646,35 @@ describe("SCHEMA_CONFIGS", () => {
     expect(SCHEMA_CONFIGS.Feedback.signatureMode).toBe(SignatureMode.DualSignature);
     expect(SCHEMA_CONFIGS.Feedback.storageType).toBe(StorageType.Compressed);
     expect(SCHEMA_CONFIGS.Feedback.closeable).toBe(false);
-    expect(SCHEMA_CONFIGS.Feedback.name).toBe("Feedback");
+    expect(SCHEMA_CONFIGS.Feedback.name).toBe("FeedbackV1");
   });
 
   test("FeedbackPublic config is correct", () => {
-    expect(SCHEMA_CONFIGS.FeedbackPublic.signatureMode).toBe(SignatureMode.SingleSigner);
+    expect(SCHEMA_CONFIGS.FeedbackPublic.signatureMode).toBe(SignatureMode.CounterpartySigned);
     expect(SCHEMA_CONFIGS.FeedbackPublic.storageType).toBe(StorageType.Compressed);
     expect(SCHEMA_CONFIGS.FeedbackPublic.closeable).toBe(false);
-    expect(SCHEMA_CONFIGS.FeedbackPublic.name).toBe("FeedbackPublic");
+    expect(SCHEMA_CONFIGS.FeedbackPublic.name).toBe("FeedbackPublicV1");
   });
 
   test("Validation config is correct", () => {
     expect(SCHEMA_CONFIGS.Validation.signatureMode).toBe(SignatureMode.DualSignature);
     expect(SCHEMA_CONFIGS.Validation.storageType).toBe(StorageType.Compressed);
     expect(SCHEMA_CONFIGS.Validation.closeable).toBe(false);
-    expect(SCHEMA_CONFIGS.Validation.name).toBe("Validation");
+    expect(SCHEMA_CONFIGS.Validation.name).toBe("ValidationV1");
   });
 
   test("ReputationScore config is correct", () => {
-    expect(SCHEMA_CONFIGS.ReputationScore.signatureMode).toBe(SignatureMode.SingleSigner);
+    expect(SCHEMA_CONFIGS.ReputationScore.signatureMode).toBe(SignatureMode.CounterpartySigned);
     expect(SCHEMA_CONFIGS.ReputationScore.storageType).toBe(StorageType.Regular);
     expect(SCHEMA_CONFIGS.ReputationScore.closeable).toBe(true);
-    expect(SCHEMA_CONFIGS.ReputationScore.name).toBe("ReputationScore");
+    expect(SCHEMA_CONFIGS.ReputationScore.name).toBe("ReputationScoreV1");
+  });
+
+  test("Delegate config is correct", () => {
+    expect(SCHEMA_CONFIGS.Delegate.signatureMode).toBe(SignatureMode.AgentOwnerSigned);
+    expect(SCHEMA_CONFIGS.Delegate.storageType).toBe(StorageType.Regular);
+    expect(SCHEMA_CONFIGS.Delegate.closeable).toBe(true);
+    expect(SCHEMA_CONFIGS.Delegate.name).toBe("DelegateV1");
   });
 });
 

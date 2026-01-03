@@ -37,10 +37,12 @@ pub struct RegistryAuthorityUpdated {
 pub struct SchemaConfigRegistered {
     /// SAS schema address
     pub schema: Pubkey,
-    /// Signature mode (DualSignature or SingleSigner)
+    /// Signature mode (DualSignature, CounterpartySigned, or AgentOwnerSigned)
     pub signature_mode: SignatureMode,
     /// Storage type (Compressed or Regular)
     pub storage_type: StorageType,
+    /// Schema for delegation verification (None = owner only)
+    pub delegation_schema: Option<Pubkey>,
     /// Whether attestations can be closed
     pub closeable: bool,
     /// Human-readable schema name (max 32 chars)
@@ -56,8 +58,6 @@ pub struct AttestationCreated {
     pub token_account: Pubkey,
     /// Counterparty (client for Feedback, validator for Validation, provider for ReputationScore)
     pub counterparty: Pubkey,
-    /// Schema data type (0=Feedback, 1=Validation, 2=ReputationScore)
-    pub data_type: u8,
     /// Storage type used
     pub storage_type: StorageType,
     /// Attestation address (Light address for compressed, PDA for regular)

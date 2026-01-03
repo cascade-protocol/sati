@@ -73,3 +73,27 @@ export async function findAssociatedTokenAddress(mint: Address, owner: Address):
     ],
   });
 }
+
+/**
+ * Derive the Agent Index PDA for enumeration
+ *
+ * Seeds: ["agent_index", member_number.to_le_bytes()]
+ *
+ * Agent Index PDAs allow enumeration of all registered agents.
+ * Each agent has a sequential member_number assigned at registration.
+ *
+ * @param memberNumber - The agent's member number (1-indexed)
+ * @returns PDA address and bump
+ */
+export async function findAgentIndexPda(memberNumber: bigint): Promise<readonly [Address, number]> {
+  const encoder = new TextEncoder();
+  // Convert memberNumber to little-endian u64 bytes
+  const memberBytes = new Uint8Array(8);
+  const view = new DataView(memberBytes.buffer);
+  view.setBigUint64(0, memberNumber, true); // true = little-endian
+
+  return getProgramDerivedAddress({
+    programAddress: SATI_PROGRAM_ADDRESS,
+    seeds: [encoder.encode("agent_index"), memberBytes],
+  });
+}

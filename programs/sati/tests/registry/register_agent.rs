@@ -24,6 +24,15 @@ use sati::state::MetadataEntry;
 
 const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("11111111111111111111111111111111");
 
+/// Derive agent_index PDA for the given member number
+fn derive_agent_index_pda(member_number: u64) -> Pubkey {
+    let (pda, _) = Pubkey::find_program_address(
+        &[b"agent_index", &member_number.to_le_bytes()],
+        &SATI_PROGRAM_ID,
+    );
+    pda
+}
+
 /// Build register_agent instruction
 #[allow(clippy::too_many_arguments)]
 fn build_register_agent_ix(
@@ -33,6 +42,7 @@ fn build_register_agent_ix(
     group_mint: &Pubkey,
     agent_mint: &Pubkey,
     agent_token_account: &Pubkey,
+    agent_index: &Pubkey,
     name: String,
     symbol: String,
     uri: String,
@@ -53,6 +63,7 @@ fn build_register_agent_ix(
         group_mint: *group_mint,
         agent_mint: *agent_mint,
         agent_token_account: *agent_token_account,
+        agent_index: *agent_index,
         token_2022_program: TOKEN_2022_PROGRAM_ID,
         associated_token_program: ATA_PROGRAM_ID,
         system_program: SYSTEM_PROGRAM_ID,
@@ -115,6 +126,9 @@ fn test_register_agent_name_too_long() {
     // Name longer than 32 bytes
     let long_name = "A".repeat(33);
 
+    // First agent gets member_number 1
+    let agent_index = derive_agent_index_pda(1);
+
     let ix = build_register_agent_ix(
         &authority.pubkey(),
         &owner,
@@ -122,6 +136,7 @@ fn test_register_agent_name_too_long() {
         &group_mint,
         &agent_mint.pubkey(),
         &agent_ata,
+        &agent_index,
         long_name,
         "SYM".to_string(),
         "https://example.com".to_string(),
@@ -163,6 +178,9 @@ fn test_register_agent_symbol_too_long() {
     // Symbol longer than 10 bytes
     let long_symbol = "S".repeat(11);
 
+    // First agent gets member_number 1
+    let agent_index = derive_agent_index_pda(1);
+
     let ix = build_register_agent_ix(
         &authority.pubkey(),
         &owner,
@@ -170,6 +188,7 @@ fn test_register_agent_symbol_too_long() {
         &group_mint,
         &agent_mint.pubkey(),
         &agent_ata,
+        &agent_index,
         "TestAgent".to_string(),
         long_symbol,
         "https://example.com".to_string(),
@@ -211,6 +230,9 @@ fn test_register_agent_uri_too_long() {
     // URI longer than 200 bytes
     let long_uri = format!("https://example.com/{}", "x".repeat(190));
 
+    // First agent gets member_number 1
+    let agent_index = derive_agent_index_pda(1);
+
     let ix = build_register_agent_ix(
         &authority.pubkey(),
         &owner,
@@ -218,6 +240,7 @@ fn test_register_agent_uri_too_long() {
         &group_mint,
         &agent_mint.pubkey(),
         &agent_ata,
+        &agent_index,
         "TestAgent".to_string(),
         "SYM".to_string(),
         long_uri,
@@ -264,6 +287,9 @@ fn test_register_agent_too_many_metadata_entries() {
         })
         .collect();
 
+    // First agent gets member_number 1
+    let agent_index = derive_agent_index_pda(1);
+
     let ix = build_register_agent_ix(
         &authority.pubkey(),
         &owner,
@@ -271,6 +297,7 @@ fn test_register_agent_too_many_metadata_entries() {
         &group_mint,
         &agent_mint.pubkey(),
         &agent_ata,
+        &agent_index,
         "TestAgent".to_string(),
         "SYM".to_string(),
         "https://example.com".to_string(),
@@ -318,6 +345,9 @@ fn test_register_agent_metadata_key_too_long() {
         value: "value".to_string(),
     }];
 
+    // First agent gets member_number 1
+    let agent_index = derive_agent_index_pda(1);
+
     let ix = build_register_agent_ix(
         &authority.pubkey(),
         &owner,
@@ -325,6 +355,7 @@ fn test_register_agent_metadata_key_too_long() {
         &group_mint,
         &agent_mint.pubkey(),
         &agent_ata,
+        &agent_index,
         "TestAgent".to_string(),
         "SYM".to_string(),
         "https://example.com".to_string(),
@@ -369,6 +400,9 @@ fn test_register_agent_metadata_value_too_long() {
         value: "v".repeat(201),
     }];
 
+    // First agent gets member_number 1
+    let agent_index = derive_agent_index_pda(1);
+
     let ix = build_register_agent_ix(
         &authority.pubkey(),
         &owner,
@@ -376,6 +410,7 @@ fn test_register_agent_metadata_value_too_long() {
         &group_mint,
         &agent_mint.pubkey(),
         &agent_ata,
+        &agent_index,
         "TestAgent".to_string(),
         "SYM".to_string(),
         "https://example.com".to_string(),

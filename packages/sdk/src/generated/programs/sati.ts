@@ -14,9 +14,9 @@ import {
   type ReadonlyUint8Array,
 } from "@solana/kit";
 import {
-  type ParsedCloseAttestationInstruction,
+  type ParsedCloseCompressedAttestationInstruction,
   type ParsedCloseRegularAttestationInstruction,
-  type ParsedCreateAttestationInstruction,
+  type ParsedCreateCompressedAttestationInstruction,
   type ParsedCreateRegularAttestationInstruction,
   type ParsedInitializeInstruction,
   type ParsedLinkEvmAddressInstruction,
@@ -26,9 +26,10 @@ import {
 } from "../instructions";
 
 export const SATI_PROGRAM_ADDRESS =
-  "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz" as Address<"satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz">;
+  "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe" as Address<"satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe">;
 
 export enum SatiAccount {
+  AgentIndex,
   RegistryConfig,
   SchemaConfig,
 }
@@ -37,6 +38,17 @@ export function identifySatiAccount(
   account: { data: ReadonlyUint8Array } | ReadonlyUint8Array,
 ): SatiAccount {
   const data = "data" in account ? account.data : account;
+  if (
+    containsBytes(
+      data,
+      fixEncoderSize(getBytesEncoder(), 8).encode(
+        new Uint8Array([241, 154, 35, 103, 180, 141, 49, 179]),
+      ),
+      0,
+    )
+  ) {
+    return SatiAccount.AgentIndex;
+  }
   if (
     containsBytes(
       data,
@@ -65,9 +77,9 @@ export function identifySatiAccount(
 }
 
 export enum SatiInstruction {
-  CloseAttestation,
+  CloseCompressedAttestation,
   CloseRegularAttestation,
-  CreateAttestation,
+  CreateCompressedAttestation,
   CreateRegularAttestation,
   Initialize,
   LinkEvmAddress,
@@ -84,12 +96,12 @@ export function identifySatiInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
-        new Uint8Array([249, 84, 133, 23, 48, 175, 252, 221]),
+        new Uint8Array([80, 7, 19, 206, 138, 158, 92, 24]),
       ),
       0,
     )
   ) {
-    return SatiInstruction.CloseAttestation;
+    return SatiInstruction.CloseCompressedAttestation;
   }
   if (
     containsBytes(
@@ -106,12 +118,12 @@ export function identifySatiInstruction(
     containsBytes(
       data,
       fixEncoderSize(getBytesEncoder(), 8).encode(
-        new Uint8Array([49, 24, 67, 80, 12, 249, 96, 239]),
+        new Uint8Array([204, 251, 61, 109, 25, 133, 237, 77]),
       ),
       0,
     )
   ) {
-    return SatiInstruction.CreateAttestation;
+    return SatiInstruction.CreateCompressedAttestation;
   }
   if (
     containsBytes(
@@ -185,17 +197,17 @@ export function identifySatiInstruction(
 }
 
 export type ParsedSatiInstruction<
-  TProgram extends string = "satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz",
+  TProgram extends string = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe",
 > =
   | ({
-      instructionType: SatiInstruction.CloseAttestation;
-    } & ParsedCloseAttestationInstruction<TProgram>)
+      instructionType: SatiInstruction.CloseCompressedAttestation;
+    } & ParsedCloseCompressedAttestationInstruction<TProgram>)
   | ({
       instructionType: SatiInstruction.CloseRegularAttestation;
     } & ParsedCloseRegularAttestationInstruction<TProgram>)
   | ({
-      instructionType: SatiInstruction.CreateAttestation;
-    } & ParsedCreateAttestationInstruction<TProgram>)
+      instructionType: SatiInstruction.CreateCompressedAttestation;
+    } & ParsedCreateCompressedAttestationInstruction<TProgram>)
   | ({
       instructionType: SatiInstruction.CreateRegularAttestation;
     } & ParsedCreateRegularAttestationInstruction<TProgram>)

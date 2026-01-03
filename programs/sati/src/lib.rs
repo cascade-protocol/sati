@@ -12,11 +12,11 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
+declare_id!("satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe");
 
 /// Light Protocol CPI signer for compressed account operations
 pub const LIGHT_CPI_SIGNER: CpiSigner =
-    derive_light_cpi_signer!("satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz");
+    derive_light_cpi_signer!("satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe");
 
 security_txt! {
     name: "SATI",
@@ -91,6 +91,7 @@ pub mod sati {
         sas_schema: Pubkey,
         signature_mode: SignatureMode,
         storage_type: StorageType,
+        delegation_schema: Option<Pubkey>,
         closeable: bool,
         name: String,
     ) -> Result<()> {
@@ -99,6 +100,7 @@ pub mod sati {
             sas_schema,
             signature_mode,
             storage_type,
+            delegation_schema,
             closeable,
             name,
         )
@@ -106,11 +108,11 @@ pub mod sati {
 
     /// Create a compressed attestation via Light Protocol.
     /// Verifies Ed25519 signatures via instruction introspection.
-    pub fn create_attestation<'info>(
-        ctx: Context<'_, '_, '_, 'info, CreateAttestation<'info>>,
+    pub fn create_compressed_attestation<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateCompressedAttestation<'info>>,
         params: CreateParams,
     ) -> Result<()> {
-        instructions::attestation::create_attestation::handler(ctx, params)
+        instructions::attestation::create_compressed_attestation::handler(ctx, params)
     }
 
     /// Create a regular attestation via SAS.
@@ -124,11 +126,11 @@ pub mod sati {
 
     /// Close a compressed attestation.
     /// Only allowed if schema config has closeable=true.
-    pub fn close_attestation<'info>(
-        ctx: Context<'_, '_, '_, 'info, CloseAttestation<'info>>,
+    pub fn close_compressed_attestation<'info>(
+        ctx: Context<'_, '_, '_, 'info, CloseCompressedAttestation<'info>>,
         params: CloseParams,
     ) -> Result<()> {
-        instructions::attestation::close_attestation::handler(ctx, params)
+        instructions::attestation::close_compressed_attestation::handler(ctx, params)
     }
 
     /// Close a regular (SAS) attestation.

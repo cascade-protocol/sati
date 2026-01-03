@@ -43,16 +43,20 @@ pub const LARGE_METADATA_THRESHOLD: usize = 5;
 pub const MAX_CONTENT_SIZE: usize = 512;
 
 /// Maximum total size for attestation data (bytes).
-/// Includes universal base layout (130) + variable content.
+/// Includes universal base layout (131) + variable content.
 pub const MAX_ATTESTATION_DATA_SIZE: usize = 768;
 
 /// Minimum size for universal base layout (bytes).
-/// All schemas use: task_ref(32) + token_account(32) + counterparty(32) +
-/// outcome(1) + data_hash(32) + content_type(1) = 130 bytes.
+/// All schemas use: layout_version(1) + task_ref(32) + token_account(32) + counterparty(32) +
+/// outcome(1) + data_hash(32) + content_type(1) = 131 bytes.
 ///
 /// NAMING CONVENTION: `token_account` = agent's **MINT ADDRESS** (stable identity).
 /// Authorization for agent signatures is verified via ATA ownership, not pubkey == mint.
-pub const MIN_BASE_LAYOUT_SIZE: usize = 130;
+pub const MIN_BASE_LAYOUT_SIZE: usize = 131;
+
+/// Current layout version for universal base layout.
+/// Increment when making breaking changes to the layout structure.
+pub const CURRENT_LAYOUT_VERSION: u8 = 1;
 
 /// Domain separator for interaction hash (agent signs blind).
 pub const DOMAIN_INTERACTION: &[u8] = b"SATI:interaction:v1";
@@ -87,26 +91,49 @@ pub const SAS_HEADER_SIZE: usize = 1 + 32 + 32 + 32 + 4; // 101 bytes
 pub const SAS_DATA_OFFSET: usize = SAS_HEADER_SIZE;
 
 // ============================================================================
+// SAS Attestation Tail Field Sizes (for delegation verification)
+// ============================================================================
+
+/// SAS attestation tail layout (after data payload):
+/// - signer: 32 bytes
+/// - expiry: 8 bytes (i64)
+/// - token_account_field: 32 bytes (redundant, for indexing)
+pub const SAS_SIGNER_SIZE: usize = 32;
+
+/// Size of expiry field in SAS attestation (8 bytes, i64).
+pub const SAS_EXPIRY_SIZE: usize = 8;
+
+/// Total size of tail fields after data payload.
+pub const SAS_TAIL_SIZE: usize = SAS_SIGNER_SIZE + SAS_EXPIRY_SIZE + 32; // 72 bytes
+
+/// Minimum delegation attestation size for parsing validation.
+/// header(101) + min_data(131) + tail(72) = 304 bytes
+pub const MIN_DELEGATION_ATTESTATION_SIZE: usize =
+    SAS_HEADER_SIZE + MIN_BASE_LAYOUT_SIZE + SAS_TAIL_SIZE;
+
+// ============================================================================
 // Data Layout Offsets (must match SDK schemas.ts)
 // ============================================================================
 
 /// Universal base layout offsets (all schemas).
-/// All schemas share identical first 130 bytes.
+/// All schemas share identical first 131 bytes.
 pub mod offsets {
+    /// layout_version offset (1 byte) - version of the universal base layout
+    pub const LAYOUT_VERSION: usize = 0;
     /// task_ref offset (32 bytes) - CAIP-220 tx hash or task identifier
-    pub const TASK_REF: usize = 0;
+    pub const TASK_REF: usize = 1;
     /// token_account (agent mint address) offset (32 bytes)
-    pub const TOKEN_ACCOUNT: usize = 32;
+    pub const TOKEN_ACCOUNT: usize = 33;
     /// counterparty offset (32 bytes)
-    pub const COUNTERPARTY: usize = 64;
+    pub const COUNTERPARTY: usize = 65;
     /// outcome offset (1 byte) - 0=Negative, 1=Neutral, 2=Positive (only 0-2 valid)
-    pub const OUTCOME: usize = 96;
+    pub const OUTCOME: usize = 97;
     /// data_hash offset (32 bytes) - agent's blind commitment (zeros for SingleSigner)
-    pub const DATA_HASH: usize = 97;
+    pub const DATA_HASH: usize = 98;
     /// content_type offset (1 byte) - format: 0=None, 1=JSON, 2=UTF-8, etc. (6-15 reserved)
-    pub const CONTENT_TYPE: usize = 129;
+    pub const CONTENT_TYPE: usize = 130;
     /// content offset (variable length, up to 512 bytes)
-    pub const CONTENT: usize = 130;
+    pub const CONTENT: usize = 131;
 }
 
 /// Maximum valid outcome value (0=Negative, 1=Neutral, 2=Positive)
