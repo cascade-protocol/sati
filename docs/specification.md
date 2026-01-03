@@ -1,8 +1,8 @@
-# SATI Specification v2.1
+# SATI Specification v2.2
 
 ## Solana Agent Trust Infrastructure
 
-**Version**: 2.1.0 | **Updated**: 2025-12-23 | **License**: Apache 2.0
+**Version**: 2.2 | **License**: Apache 2.0
 
 ---
 
@@ -15,6 +15,8 @@ SATI is open trust infrastructure for AI agents on Solana solving the economics 
 - **200x cost reduction** — ZK Compression stores attestations at ~$0.002 each
 - **Schema agnostic** — Program verifies signatures on 130-byte universal base layout; new schemas without upgrades
 - **No reputation monopoly** — Multiple providers compete with different scoring algorithms
+- **Hot/cold wallet separation** — Delegates can sign attestations without full ownership permissions
+- **On-chain agent enumeration** — AgentIndex PDAs enable listing all agents without external indexing
 
 **Built on**: Token-2022 (identity), SAS (schemas), Light Protocol (storage), Photon (indexing), x402 (payments)
 
@@ -28,7 +30,7 @@ The breakthrough enabling free on-chain feedback. Agent and counterparty sign di
 
 | Party | Signs | When | Proves |
 |-------|-------|------|--------|
-| Agent | `interaction_hash = keccak256(schema, task_ref, data_hash)` | With response | "I served this task" |
+| Agent | `interaction_hash = keccak256(schema \|\| task_ref \|\| data_hash)` | With response | "I served this task" |
 | Counterparty | Human-readable SIWS message (see Off-Chain Signing) | After service | "I gave this feedback" |
 
 **Flow**: Client pays (x402) → Agent responds + signs (blind) → Client signs feedback → Agent/facilitator submits
@@ -62,11 +64,13 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 
 | Operation | Cost | Notes |
 |-----------|------|-------|
-| Agent registration | ~0.003 SOL | Mint + metadata + group |
+| Agent registration | ~0.003 SOL | Mint + metadata + group + AgentIndex |
 | Feedback (single) | ~$0.002 | ~0.00001 SOL via Light |
 | Feedback (batched 5/tx) | ~$0.0006 | Amortized proof cost |
 | Validation | ~$0.002 | Same as feedback |
 | ReputationScore | ~0.002 SOL | Regular SAS attestation |
+| Delegation grant | ~0.002 SOL | Regular SAS attestation (reclaimable) |
+| Delegation revoke | ~0.000005 SOL | Tx fee only; ~0.002 SOL rent returned |
 | Photon indexing | Free | Compressed attestations only |
 
 ---
@@ -84,16 +88,18 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
           │ (CPI: mint NFT)
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         SATI Program                                 │
-│             (satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz)            │
+│             (satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)            │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Registry:                                                           │
-│    initialize()                → Create registry + TokenGroup        │
-│    register_agent()            → Token-2022 NFT + group membership   │
-│    update_registry_authority() → Transfer/renounce control           │
+│    initialize()                    → Create registry + TokenGroup    │
+│    register_agent()                → Token-2022 NFT + group + index  │
+│    update_registry_authority()     → Transfer/renounce control       │
 │  Attestation:                                                        │
-│    register_schema_config()    → Register schema + auth mode + storage│
-│    create_attestation()        → Verify sigs → route to storage      │
-│    close_attestation()         → Close/nullify attestation           │
+│    register_schema_config()        → Register schema + auth + storage│
+│    create_compressed_attestation() → Verify sigs → Light Protocol    │
+│    create_regular_attestation()    → Verify sigs → SAS storage       │
+│    close_compressed_attestation()  → Close compressed attestation    │
+│    close_regular_attestation()     → Close regular attestation       │
 └─────────────────────────────────────────────────────────────────────┘
           │                                         │
           │ (CPI: compressed)                       │ (CPI: regular)
@@ -103,15 +109,15 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 │   (Compressed Storage)    │         │   (Regular Storage)            │
 ├───────────────────────────┤         ├────────────────────────────────┤
 │ • Feedback attestations   │         │ • ReputationScore attestations │
-│ • Validation attestations │         │ • ~$0.40 per attestation       │
-│ • ~$0.002 per attestation │         │ • On-chain queryable (RPC)     │
-│ • Photon indexing (free)  │         │                                │
+│ • Validation attestations │         │ • Delegation attestations      │
+│ • ~$0.002 per attestation │         │ • ~$0.40 per attestation       │
+│ • Photon indexing (free)  │         │ • On-chain queryable (RPC)     │
 └───────────────────────────┘         └────────────────────────────────┘
 ```
 
 | Component | Responsibility |
 |-----------|----------------|
-| **SATI Program** | Agent registration, signature verification, storage routing |
+| **SATI Program** | Agent registration, signature verification, storage routing, delegation |
 | **Token-2022** | Identity storage, metadata, transfers |
 | **SAS** | Schema definitions + regular attestation storage |
 | **Light Protocol** | Compressed attestation storage |
@@ -121,7 +127,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 
 ## SATI Program
 
-**Program ID**: `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz`
+**Program ID**: `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe`
 
 ### Registry
 
@@ -134,12 +140,25 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | `total_agents` | u64 | Agent counter |
 | `bump` | u8 | PDA bump |
 
+#### AgentIndex (PDA: `["agent_index", member_number]`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | Pubkey | Agent mint address |
+| `bump` | u8 | PDA bump |
+
+**Size**: 8 (discriminator) + 32 (mint) + 1 (bump) = 41 bytes (~0.0003 SOL)
+
+> **Why AgentIndex?** Token-2022 TokenGroupMember stores `member_number` but provides no query mechanism. `getProgramAccounts` with memcmp fails because extension offsets vary by extension order. AgentIndex provides a forward index: derive PDA from `member_number`, fetch `mint`.
+
+> **Invariant**: AgentIndex PDAs are never deleted. Enumeration relies on sequential member_numbers with no gaps. Concurrent registrations are safe due to PDA collision protection (second tx fails if same member_number).
+
 #### Instructions
 
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
 | `initialize` | — | Create registry + TokenGroup (one-time) |
-| `register_agent` | name, symbol*, uri, additional_metadata?, non_transferable | Create Token-2022 NFT, add to group, renounce mint |
+| `register_agent` | name, symbol*, uri, additional_metadata?, non_transferable | Create Token-2022 NFT, add to group, create AgentIndex PDA, renounce mint |
 | `update_registry_authority` | new_authority? | Transfer or renounce (None = immutable) |
 | `link_evm_address` | evm_address, chain_id, signature, recovery_id | Verify secp256k1 signature, emit event |
 
@@ -155,7 +174,11 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 
 #### Errors
 
-`InvalidAuthority` · `ImmutableAuthority` · `NameTooLong` · `SymbolTooLong` · `UriTooLong` · `TooManyMetadataEntries` · `Overflow`
+`InvalidAuthority` · `ImmutableAuthority` · `NameTooLong` · `SymbolTooLong` · `UriTooLong` · `TooManyMetadataEntries` · `Overflow` · `InvalidEvmSignature` · `EvmAddressMismatch`
+
+**EVM linking errors:**
+- `InvalidEvmSignature` — secp256k1 signature recovery failed
+- `EvmAddressMismatch` — recovered address doesn't match provided `evm_address`
 
 ### Attestation
 
@@ -164,11 +187,16 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Field | Type | Description |
 |-------|------|-------------|
 | `sas_schema` | Pubkey | SAS schema address |
-| `signature_mode` | SignatureMode | DualSignature / SingleSigner |
+| `signature_mode` | SignatureMode | DualSignature / CounterpartySigned / OwnerSigned |
 | `storage_type` | StorageType | Compressed / Regular |
+| `delegation_schema` | `Option<Pubkey>` | Schema for delegation verification (None = owner only) |
 | `closeable` | bool | Whether attestations can be closed |
 | `name` | String | Schema name for signing messages (max 32 chars) |
 | `bump` | u8 | PDA bump seed |
+
+**`delegation_schema` semantics**:
+- `Some(schema)`: Owner OR valid delegate can sign (delegation checked against specified schema)
+- `None`: Only owner can sign (used for DelegateV1 itself to prevent recursive delegation)
 
 #### CompressedAttestation
 
@@ -183,8 +211,7 @@ pub struct CompressedAttestation { /* fields below */ }
 |-------|------|--------|-------------|
 | `sas_schema` | Pubkey | 0 | Schema (memcmp filter) |
 | `token_account` | Pubkey | 32 | Agent mint address (memcmp filter) |
-| `data_type` | u8 | 64 | Schema data type |
-| `data` | Vec&lt;u8&gt; | 65+ | Schema-conformant bytes |
+| `data` | Vec&lt;u8&gt; | 64+ | Schema-conformant bytes (universal base layout) |
 | `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
 
 #### Universal Base Data Layout (first 130 bytes)
@@ -197,7 +224,7 @@ All schemas MUST use this universal layout:
 | 32 | 32 | `token_account` | Agent mint address |
 | 64 | 32 | `counterparty` | Attester pubkey (Ed25519) |
 | 96 | 1 | `outcome` | Universal: 0=Negative, 1=Neutral, 2=Positive |
-| 97 | 32 | `data_hash` | Agent's blind commitment (zeros for SingleSigner) |
+| 97 | 32 | `data_hash` | Agent's blind commitment (zeros for OwnerSigned/CounterpartySigned) |
 | 129 | 1 | `content_type` | Format: 0=None, 1=JSON, 2=UTF-8, 3=IPFS, 4=Arweave, 5=Encrypted |
 | 130 | var | `content` | Variable length, up to 512 bytes |
 
@@ -206,7 +233,7 @@ All schemas MUST use this universal layout:
 - `content_type` ≤ 15 (0-5 defined, 6-15 reserved for future)
 - Data length ≥ 130 bytes
 
-**`data_hash` semantics:** Agent's cryptographic commitment to the interaction. Recommended: `data_hash = keccak256(request || response)`. For SingleSigner schemas, this field should be zero-filled.
+**`data_hash` semantics:** For DualSignature schemas, this is the agent's cryptographic commitment (`keccak256(request || response)`). For OwnerSigned schemas, this field stores schema-specific data (e.g., delegator pubkey for DelegateV1) or zeros if unused. For CounterpartySigned schemas, this field should be zero-filled.
 
 Program parses offsets 0-129 for signature binding and base validation. Content structure parsed by SDK/indexers.
 
@@ -216,13 +243,41 @@ Program parses offsets 0-129 for signature binding and base validation. Content 
 
 #### Signature Verification (On-Chain)
 
-1. **Count**: Match `SignatureMode` (2 for DualSignature)
-2. **Agent authorization**: ATA ownership check — `agent_ata.owner == signatures[0].pubkey`
-3. **Counterparty binding**: `signatures[1].pubkey == counterparty`
-4. **Self-attestation**: `token_account != counterparty`
-5. **Validity**: Each Ed25519 signature verified on its expected message
+Verification differs by `SignatureMode`:
 
-> **Note**: `token_account` is the agent's MINT ADDRESS (identity). The agent OWNER signs (verified via ATA ownership).
+**DualSignature** (Feedback, Validation):
+1. Require exactly 2 signatures
+2. **Agent authorization**: `verify_agent_authorization()` for signer of `signatures[0]`
+3. **Counterparty binding**: Verify `signatures[1]` using pubkey from `data[64..96]` (counterparty field)
+4. **Self-attestation**: `token_account != counterparty`
+
+**OwnerSigned** (ReputationScore, DelegateV1):
+1. Require exactly 1 signature
+2. **Agent authorization**: `verify_agent_authorization()` for signer
+3. No counterparty binding (signer IS the counterparty/provider)
+
+**CounterpartySigned** (FeedbackPublic):
+1. Require exactly 1 signature
+2. **No agent authorization** — anyone can submit
+3. **Counterparty binding**: Verify `signatures[0]` using pubkey from `data[64..96]`
+4. **Self-attestation**: `token_account != counterparty`
+
+> **Note**: `token_account` is the agent's MINT ADDRESS. For DualSignature/OwnerSigned, the agent OWNER (or delegate) provides `signatures[0]`. For CounterpartySigned, only the counterparty signs.
+
+#### verify_agent_authorization()
+
+Verification steps for agent authorization:
+
+1. **Owner fast path** (~100 CU): If signer equals agent ATA owner, authorize immediately
+2. **Delegation required**: If `delegation_schema` is `None`, reject with `OwnerOnly`
+3. **Attestation required**: Delegation attestation must be provided
+4. **PDA verification**: Derive expected PDA using `keccak256(schema || signer || agent_mint)` as nonce with SATI credential; reject if attestation key doesn't match (prevents schema confusion)
+5. **Delegate binding**: Verify `counterparty` field equals signer
+6. **Agent binding**: Verify `token_account` field equals agent mint
+7. **Owner binding**: Verify `data_hash` field equals current ATA owner (invalidates delegation after NFT transfer)
+8. **Expiration check**: Verify `expiry == 0` OR `expiry > current_timestamp`
+
+> **Note**: PDA verification ensures the attestation belongs to the expected DelegateV1 schema, preventing attestation confusion attacks. The `data_hash` check invalidates delegation when the agent NFT is transferred. The `sati_credential` used in PDA derivation is the SATI SAS credential account (derived from authority + "SATI" name).
 
 #### Off-Chain Message Signing Format (Wallet UX)
 
@@ -261,7 +316,7 @@ Sign to create this attestation.
 ```
 
 **Signature types:**
-- **Agent**: Signs `interaction_hash = keccak256(DOMAIN_INTERACTION, schema, task_ref, data_hash)` — 32-byte hash
+- **Agent**: Signs `interaction_hash = keccak256(DOMAIN_INTERACTION || schema || task_ref || data_hash)` — 32-byte hash
 - **Counterparty**: Signs the full human-readable message above (~300 bytes) — bypasses Phantom's 32-byte restriction
 
 > **Note**: The human-readable format enables wallet display while the full message (~300 bytes) bypasses Phantom's restriction on signing 32-byte messages (which look like transaction hashes).
@@ -270,16 +325,13 @@ Sign to create this attestation.
 
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
-| `register_schema_config` | schema, signature_mode, storage_type, closeable, name | Register schema config (authority only) |
-| `create_attestation` | data, signatures, storage-specific params | Verify sigs → route to storage by `storage_type` |
-| `close_attestation` | storage-specific params | Close if `closeable=true`; ReputationScore: provider only |
+| `register_schema_config` | schema, signature_mode, storage_type, delegation_schema, closeable, name | Register schema config (authority only) |
+| `create_compressed_attestation` | data, signatures, proof, address_tree_info, output_state_tree_index | Verify sigs → Light Protocol |
+| `create_regular_attestation` | data, signatures, nonce, expiry | Verify sigs → SAS storage |
+| `close_compressed_attestation` | proof, account_meta, current_data | Close compressed attestation |
+| `close_regular_attestation` | attestation_pda | Close regular attestation |
 
-**Storage-specific parameters:**
-
-| Storage Type | Create Params | Close Params |
-|--------------|---------------|--------------|
-| Compressed | proof, address_tree_info, output_state_tree_index | proof, account_meta, current_data |
-| Regular | nonce, expiry | attestation_pda |
+> **Note**: Instructions are named explicitly for their storage type to avoid ambiguity. `delegation_schema` in `register_schema_config` controls whether delegates can sign attestations for that schema.
 
 **Routing**: Program checks `SchemaConfig.storage_type` and CPIs to Light Protocol (compressed) or SAS (regular). SATI Program PDA is the sole authorized signer for both storage backends.
 
@@ -287,17 +339,26 @@ Sign to create this attestation.
 
 | Event | Fields |
 |-------|--------|
-| `SchemaConfigRegistered` | schema, signature_mode, storage_type |
-| `AttestationCreated` | sas_schema, token_account, data_type, storage_type, address, timestamp |
+| `SchemaConfigRegistered` | schema, signature_mode, storage_type, delegation_schema, closeable, name |
+| `AttestationCreated` | sas_schema, token_account, counterparty, storage_type, address |
 | `AttestationClosed` | sas_schema, token_account, address |
 
 #### Errors
 
-`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed`
+`SchemaConfigNotFound` · `InvalidSignatureCount` · `InvalidSignature` · `StorageTypeNotSupported` · `AttestationDataTooSmall` · `AttestationDataTooLarge` · `ContentTooLarge` · `SignatureMismatch` · `SelfAttestationNotAllowed` · `UnauthorizedClose` · `AttestationNotCloseable` · `InvalidOutcome` · `InvalidContentType` · `LightCpiInvocationFailed` · `OwnerOnly` · `DelegationAttestationRequired` · `InvalidDelegationPDA` · `DelegateMismatch` · `AgentMintMismatch` · `DelegationOwnerMismatch` · `DelegationExpired`
 
 **Universal base layout validation:**
 - `InvalidOutcome` — outcome not in {0, 1, 2}
 - `InvalidContentType` — content_type > 15 (0-5 defined, 6-15 reserved)
+
+**Delegation validation:**
+- `OwnerOnly` — schema requires owner signature but delegate attempted
+- `DelegationAttestationRequired` — delegate signed but no delegation attestation provided
+- `InvalidDelegationPDA` — delegation attestation PDA doesn't match expected derivation
+- `DelegateMismatch` — delegation attestation delegate doesn't match signer
+- `AgentMintMismatch` — delegation attestation agent doesn't match target agent
+- `DelegationOwnerMismatch` — delegation was created by different owner (NFT was transferred)
+- `DelegationExpired` — delegation attestation has expired
 
 ---
 
@@ -353,20 +414,25 @@ Sign to create this attestation.
 
 ### Core Schemas
 
-| Schema | Storage | SignatureMode | Closeable | Status |
-|--------|---------|---------------|-----------|--------|
-| Feedback | Compressed | DualSignature | No | ✅ MVP |
-| Validation | Compressed | DualSignature | No | ✅ MVP |
-| ReputationScore | Regular | SingleSigner | Yes (provider only) | ✅ MVP |
+| Schema | Storage | SignatureMode | Closeable | delegation_schema | Status |
+|--------|---------|---------------|-----------|-------------------|--------|
+| FeedbackV1 | Compressed | DualSignature | No | DelegateV1 | ✅ MVP |
+| FeedbackPublicV1 | Compressed | CounterpartySigned | No | None | ✅ MVP |
+| ValidationV1 | Compressed | DualSignature | No | DelegateV1 | ✅ MVP |
+| ReputationScoreV1 | Regular | OwnerSigned | Yes | DelegateV1 | ✅ MVP |
+| DelegateV1 | Regular | OwnerSigned | Yes | None | ✅ MVP |
 
 **SignatureMode determines payload signature requirements:**
 
 | Mode | Signatures | Use Case |
 |------|------------|----------|
 | DualSignature | 2 | Feedback, Validation (blind feedback model) |
-| SingleSigner | 1 | ReputationScore (provider signs) |
+| CounterpartySigned | 1 | FeedbackPublic (counterparty signs) |
+| OwnerSigned | 1 | ReputationScore, DelegateV1 (agent owner or delegate signs) |
 
-### Feedback Schema (data_type = 0)
+> **Note**: `SingleSigner` was split into `CounterpartySigned` and `OwnerSigned` to distinguish who must sign. This enables delegation for OwnerSigned schemas while preventing it for CounterpartySigned schemas.
+
+### FeedbackV1 Schema
 
 Uses universal base layout (130 bytes) + JSON content for extensibility.
 
@@ -396,7 +462,7 @@ Uses universal base layout (130 bytes) + JSON content for extensibility.
 
 **ERC-8004 compatibility**: Include `score` in JSON content for ERC-8004 interoperability. The `outcome` field provides categorical filtering (Negative/Neutral/Positive) while `score` provides granular 0-100 values.
 
-### Validation Schema (data_type = 1)
+### ValidationV1 Schema
 
 Uses universal base layout (130 bytes) + JSON content for validation details.
 
@@ -426,17 +492,17 @@ Uses universal base layout (130 bytes) + JSON content for validation details.
 
 **Validation types**: `tee` (TEE attestation), `zkml` (ZK-ML proof), `reexecution` (deterministic replay), `consensus` (multi-validator agreement).
 
-### ReputationScore Schema (data_type = 2)
+### ReputationScoreV1 Schema
 
-Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses SingleSigner mode (provider signature only).
+Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses OwnerSigned mode (provider signature only).
 
 | Field | Offset | Description |
 |-------|--------|-------------|
-| task_ref | 0-31 | Deterministic: `keccak256(counterparty, token_account)` |
+| task_ref | 0-31 | Deterministic: `keccak256(counterparty \|\| token_account)` |
 | token_account | 32-63 | Agent mint address being scored |
 | counterparty | 64-95 | Provider (reputation scorer) |
 | outcome | 96 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
-| data_hash | 97-128 | Zero-filled (SingleSigner mode, no blind commitment) |
+| data_hash | 97-128 | Zero-filled (OwnerSigned mode, no blind commitment) |
 | content_type | 129 | 1=JSON (recommended) |
 | content | 130+ | JSON with score details (see below) |
 
@@ -454,6 +520,81 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 **Size**: 130 bytes minimum (empty content), typical 150-250 bytes with JSON content.
 
 **Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. On-chain creation time is tracked via SAS attestation metadata.
+
+### DelegateV1 Schema
+
+Authorization attestation allowing a delegate to sign on behalf of an agent owner. Uses `StorageType::Regular` for on-chain queryability and `SignatureMode::OwnerSigned` with `delegation_schema: None` (owner only, no recursive delegation).
+
+| Field | Offset | Description |
+|-------|--------|-------------|
+| task_ref | 0-31 | Reserved (zeros) |
+| token_account | 32-63 | Agent mint address |
+| counterparty | 64-95 | Delegate pubkey (who receives authorization) |
+| outcome | 96 | Reserved (0) |
+| data_hash | 97-128 | Delegator pubkey (owner at delegation time) |
+| content_type | 129 | 0=None |
+| content | 130+ | Empty |
+
+**SAS Schema Definition:**
+
+```typescript
+export const DELEGATE_SAS_SCHEMA: SASSchemaDefinition = {
+  name: "DelegateV1",
+  description: "Delegation authorization for hot wallet signing",
+  // Layout types: pubkey=7, u8=0, blob=9
+  layout: [7, 7, 7, 0, 7, 0, 9],
+  fieldNames: ["task_ref", "token_account", "counterparty", "outcome", "data_hash", "content_type", "content"],
+};
+```
+
+**Address Derivation (deterministic nonce)**:
+
+```rust
+// One delegation per (schema, delegate, agent) tuple
+// Using schema pubkey as domain separator enables future delegation versions
+let nonce = keccak256(delegate_schema.as_ref(), delegate, agent_mint);
+```
+
+**Expiration**: Uses SAS attestation `expiry` field. `0` = no expiration.
+
+**Revocation**: Owner calls `close_regular_attestation` to revoke.
+
+**Size**: 130 bytes (no content).
+
+> **Why SAS for delegation?** Reuses existing infrastructure: built-in expiration, existing close mechanism, existing query patterns. Tradeoff: ~5-10k CU for delegate verification vs ~300 CU for custom PDA, but only applies when delegate signs (owner signing is ~100 CU fast path). Squads doesn't solve this — it requires human approval per action, incompatible with automated attestation signing.
+
+### Delegation Authorization Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  DELEGATION LIFECYCLE                                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. GRANT (Owner only):                                         │
+│     Owner calls create_regular_attestation(DelegateV1, ...)     │
+│       • delegation_schema: None → owner-only check              │
+│       • Creates SAS attestation with deterministic nonce        │
+│       • data_hash = delegator (current owner)                   │
+│                                                                  │
+│  2. USE:                                                         │
+│     Delegate calls create_*_attestation(Feedback/etc, ...)      │
+│       • delegation_schema: Some(DelegateV1) → check delegation  │
+│       • verify_agent_authorization():                           │
+│         - If signer == owner → OK (fast path, ~100 CU)         │
+│         - Else lookup DelegateV1 attestation                   │
+│         - Verify: counterparty == signer (delegate)            │
+│         - Verify: token_account == agent mint                  │
+│         - Verify: data_hash == current owner (transfer safety) │
+│         - Verify: not expired                                   │
+│         - If valid → OK (slow path, ~5-10k CU)                 │
+│                                                                  │
+│  3. REVOKE (Owner only):                                        │
+│     Owner calls close_regular_attestation(DelegateV1 PDA)       │
+│       • delegation_schema: None → owner-only check              │
+│       • Closes attestation, rent reclaimed                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### Address Derivation
 
@@ -483,7 +624,20 @@ let (attestation_pda, _) = Pubkey::find_program_address(
 );
 ```
 
-**Deterministic nonce** ensures one ReputationScore per (provider, agent) pair — updates replace previous.
+**Delegation Attestations (SAS):**
+
+```rust
+// Use schema pubkey as domain separator - enables future delegation versions
+let nonce = keccak256(delegate_schema.as_ref(), delegate, agent_mint);
+
+// SAS PDA derivation
+let (delegation_pda, _) = Pubkey::find_program_address(
+    &[b"attestation", sati_credential, delegate_schema, &nonce.to_bytes()],
+    &SAS_PROGRAM_ID
+);
+```
+
+**Deterministic nonce** ensures one delegation per (schema, delegate, agent) tuple. Using schema pubkey as domain separator allows multiple delegation schema versions to coexist.
 
 ### Content Types
 
@@ -641,7 +795,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 
 ### SAS (Regular Storage)
 
-Stores ReputationScore as standard Solana accounts for direct on-chain queryability.
+Stores ReputationScore and Delegation as standard Solana accounts for direct on-chain queryability.
 
 | Aspect | Value |
 |--------|-------|
@@ -663,7 +817,7 @@ Regular attestations use standard Solana RPC methods:
 
 **Filters**: `credential` (offset 33), `schema` (offset 65), custom data filters
 
-**Tradeoff**: Regular attestations cost ~200x more but are directly queryable on-chain by other programs (useful for escrow, governance, etc.).
+**Tradeoff**: Regular attestations cost ~200x more but are directly queryable on-chain by other programs (useful for escrow, governance, delegation verification).
 
 ---
 
@@ -688,8 +842,16 @@ type Tag = string;
 | **Registry** | `registerAgent(params)` | `{ mint, memberNumber, signature }` |
 | **Identity** | `loadAgent(mint)` | `AgentIdentity` |
 | | `listAgentsByOwner(owner)` | `AgentIdentity[]` |
+| | `listAllAgents()` | `AgentIdentity[]` |
+| | `getAgentByMemberNumber(n)` | `AgentIdentity \| null` |
 | | `updateAgentMetadata(params)` | `{ signature }` |
 | | `transferAgent(params)` | `{ signature }` |
+| **Delegation** | `createDelegation(params)` | `{ address, signature }` |
+| | `revokeDelegation(params)` | `{ signature }` |
+| | `getDelegation(delegate, tokenAccount)` | `Delegation \| null` |
+| | `listDelegations(tokenAccount)` | `Delegation[]` |
+| | `listDelegationsByDelegate(delegate)` | `Delegation[]` |
+| | `verifyDelegation(delegate, tokenAccount)` | `boolean` |
 | **Compressed** | `createFeedback(params)` | `{ address, signature }` |
 | | `createFeedbackBatch(params[])` | `{ addresses, signature }` |
 | | `createValidation(params)` | `{ address, signature }` |
@@ -711,7 +873,7 @@ type Tag = string;
 | | `computeDataHashFromStrings(request, response)` | `Uint8Array` |
 | | `computeInteractionHash(schema, taskRef, dataHash)` | `Uint8Array` |
 | | `buildCounterpartyMessage(schemaName, data)` | `string` |
-| | `zeroDataHash()` | `Uint8Array` (32 zeros for SingleSigner) |
+| | `zeroDataHash()` | `Uint8Array` (32 zeros for OwnerSigned) |
 | **Validation** | `validateBaseLayout(data)` | `void` (throws on invalid) |
 | | `validateFeedbackContent(content)` | `void` (throws on invalid) |
 | | `validateReputationScoreContent(content)` | `void` (throws on invalid) |
@@ -729,6 +891,30 @@ await sati.createFeedback({
 });
 ```
 
+### createDelegation Example
+
+```typescript
+// Owner grants delegation to hot wallet
+await sati.createDelegation({
+  tokenAccount: agentMint,
+  delegate: hotWalletPubkey,
+  expiresAt: Math.floor(Date.now() / 1000) + 86400 * 30,  // 30 days
+  // delegator (data_hash) is set automatically to current owner
+});
+
+// Hot wallet can now sign feedback on behalf of agent
+await sati.createFeedback({
+  tokenAccount: agentMint,
+  counterparty: clientPubkey,
+  outcome: Outcome.Positive,
+  taskRef: paymentTxHash,
+  signatures: [hotWalletSig, clientSig],  // Hot wallet signs instead of owner
+  // SDK automatically detects signer != owner, fetches delegation attestation
+});
+```
+
+> **SDK Auto-Lookup**: When signer differs from agent owner, SDK automatically derives the delegation PDA, fetches it, validates expiration, and includes it in the transaction. Caller does not need to explicitly provide delegation attestation.
+
 ---
 
 ## Security
@@ -739,13 +925,60 @@ await sati.createFeedback({
 |----------|-------------|
 | Signature validity | Ed25519 verification (precompile) |
 | Blind feedback | Agent signs before outcome known |
-| Agent authorization | ATA ownership (signer owns agent NFT) |
-| Counterparty binding | `signatures[1].pubkey == counterparty` |
+| Agent authorization | ATA ownership OR valid delegation |
+| Counterparty binding | Verify signature using pubkey from `data[64..96]` |
 | Self-attestation prevention | `token_account ≠ counterparty` |
 | Duplicate prevention | Deterministic address from task_ref |
 | Outcome range | Verified ∈ {0, 1, 2} before storage |
 | Content type range | Verified ≤ 15 before storage (0-5 defined, 6-15 reserved) |
 | Closeable enforcement | Schema config controls whether close is allowed |
+
+### Close Authorization
+
+| Schema | Closeable | Who Can Close |
+|--------|-----------|---------------|
+| FeedbackV1 | No | — |
+| FeedbackPublicV1 | No | — |
+| ValidationV1 | No | — |
+| ReputationScoreV1 | Yes | Agent owner only |
+| DelegateV1 | Yes | Agent owner only |
+
+> **Note**: Closeable schemas require agent owner signature. Delegates cannot close attestations even if they created them.
+
+### Delegation Permissions
+
+**What delegates CAN do:**
+- Sign `create_compressed_attestation` for schemas with `delegation_schema: Some(DelegateV1)`
+- Sign `create_regular_attestation` for schemas with `delegation_schema: Some(DelegateV1)`
+
+**What delegates CANNOT do:**
+- Create sub-delegations (DelegateV1 has `delegation_schema: None`)
+- Close attestations (`close_*_attestation` requires owner)
+- Revoke their own delegation (requires owner)
+- Transfer the agent NFT (Token-2022 requires owner signature)
+- Update agent metadata (Token-2022 requires updateAuthority)
+
+> **Note**: Delegation scope is all-or-nothing for attestation signing. A delegate authorized for one schema can sign for ALL schemas that allow delegation. Granular per-schema delegation is not supported in v2.2.
+
+### Delegation Security
+
+| Property | Enforcement |
+|----------|-------------|
+| Owner-only delegation grant | `delegation_schema: None` for DelegateV1 → signer must be owner |
+| No recursive delegation | DelegateV1 has `delegation_schema: None` → delegates cannot create sub-delegates |
+| Transfer invalidation | `delegator` field checked against current owner → delegation invalid after NFT transfer |
+| Expiration enforcement | SAS attestation `expiry` checked in `verify_agent_authorization()` |
+| Deterministic nonce | One delegation per (schema, delegate, agent) tuple → no duplicate delegations |
+
+**Attack Mitigations:**
+
+| Attack | Mitigation |
+|--------|------------|
+| Delegate persists after NFT sale | `delegator == current_owner` check invalidates old delegations |
+| Expired delegation use | Explicit expiry check in verification |
+| Schema/PDA confusion | Verify attestation PDA matches expected derivation before deserializing |
+| Account confusion | Deserialize and verify ALL fields (delegate, agent_mint, delegator) |
+| Recursive delegation | DelegateV1's `delegation_schema: None` prevents delegates from delegating |
 
 ### Off-Chain Validation (SDK/Indexer)
 
@@ -764,7 +997,7 @@ await sati.createFeedback({
 
 | Component | Trust Assumption |
 |-----------|-----------------|
-| SATI Programs | Correctly verify signatures |
+| SATI Programs | Correctly verify signatures and delegation |
 | Light Protocol | State tree integrity |
 | Photon | Accurate indexing |
 | SDK | Validates formats, constructs hashes |
@@ -774,6 +1007,8 @@ await sati.createFeedback({
 - **Sybil resistance**: Prevents self-attestation but not multiple wallets. Reputation providers implement sybil-resistant scoring.
 - **No pending state**: The protocol has no concept of "pending" validation or feedback. Attestations only exist once both signatures are collected and submitted. There is no on-chain way to check if a validation is in progress but not yet complete.
 - **Timestamp trust**: The `timestamp` field is set by the submitter and not verified against on-chain time. It should be trusted for ordering purposes only, not as cryptographic proof of time.
+- **Delegation race condition**: Between revocation and transaction landing, a delegate could complete one more operation. This is inherent to blockchain finality.
+- **Stale delegations after transfer**: When an agent NFT transfers, old delegations become invalid but their PDAs remain. New owner must call `close_regular_attestation` to reclaim rent before creating new delegations for the same delegate.
 
 ---
 
@@ -781,18 +1016,21 @@ await sati.createFeedback({
 
 ### Addresses
 
-| Network | SATI Program | SAS Credential | Lookup Table |
-|---------|--------------|----------------|--------------|
-| Devnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` | `EfAZzjfYQmd51o7kWJCtGBeoHssBrME1tqpLcVLpdns` |
-| Mainnet | `satiR3q7XLdnMLZZjgDTaJLFTwV6VqZ5BZUph697Jvz` | `DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1` | `8VLiASqKuGBzNdHpEiPCpMt4aLWkFifFKymHbquiguNK` |
+| Component | Address |
+|-----------|---------|
+| SATI Program | `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe` |
+| TokenGroup Mint | `satiG7i9iyFxjq23sdyeLB4ibAHf6GXCARuosGeqane` |
+| SAS Credential | Derived at deployment from authority + "SATI" |
+| Lookup Table | Derived at deployment from authority + slot |
 
-**SAS Schemas** (same on Devnet and Mainnet):
-- Feedback: `6fhPUeLkkg2zA9YrhMLry7ff91DZ7zuCXRPahNkieRUB`
-- FeedbackPublic: `HFVmsUxbCjTmDzWKdBcXhqFBGv7dhq9uuPxo9WejDYz3`
-- Validation: `5VBFsqkX6mG2zBhXBpkCnfvPNcc9mY9UQdCHtnTFHQEF`
-- ReputationScore: `7Pm1CmkMfU8XM3ehApgfsMjfGg6A63y9egVfD1VN8EPd`
+**SAS Schemas**:
+- FeedbackV1
+- FeedbackPublicV1
+- ValidationV1
+- ReputationScoreV1
+- DelegateV1
 
-**Note**: Registry Config PDA is derived from seeds `[b"registry"]`. Group Mint is created during `initialize()`.
+**Note**: Registry Config PDA derived from `["registry"]`. SAS Credential, Schema PDAs, SchemaConfig PDAs, and Lookup Table addresses are deterministic but generated at deployment time. See `packages/sdk/src/deployed/{network}.json` for deployed addresses.
 
 ### Governance
 
@@ -802,7 +1040,7 @@ await sati.createFeedback({
 - Upgrade authority controls program deployment
 - Both independently renounceable
 
-**Schema governance**: Versioned, not upgraded. New schema = new version (e.g., Feedback_v2).
+**Schema governance**: Versioned, not upgraded. New schema = new version (e.g., FeedbackV2).
 
 ---
 
@@ -825,7 +1063,7 @@ SATI implements the [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/
 | **Reputation** | | |
 | `feedbackAuth` | ⚡ | Replaced by dual-signature model (more secure) |
 | `giveFeedback()` | ✅ | Compressed attestation via Light Protocol |
-| `revokeFeedback()` | ✅ | close_attestation() |
+| `revokeFeedback()` | ✅ | close_compressed_attestation() |
 | `appendResponse()` | ✅ | FeedbackResponse schema (deferred) |
 | `getSummary()` | ✅ | Photon indexer queries |
 | `readFeedback()` | ✅ | Fetch compressed attestation |
@@ -928,7 +1166,7 @@ The registration file is an off-chain JSON document referenced by the on-chain `
     { "name": "agentWallet", "endpoint": "solana:5eykt4...:7S3P4..." }
   ],
   "registrations": [
-    { "agentId": "sati:mainnet:ABC123mint", "agentRegistry": "solana:5eykt4...:satiR3q7..." },
+    { "agentId": "sati:mainnet:ABC123mint", "agentRegistry": "solana:5eykt4...:satiRkx..." },
     { "agentId": 22, "agentRegistry": "eip155:1:0x..." }
   ],
   "supportedTrust": ["reputation"],
@@ -991,7 +1229,7 @@ sati:<network>:<mint_address>
 |--------|---------|
 | SATI (Solana) | `sati:mainnet:ABC123mintPubkey` |
 | ERC-8004 (EVM) | `22` (tokenId on specific registry) |
-| Registry address | `solana:5eykt4...:satiR3q7...` (CAIP-10) |
+| Registry address | `solana:5eykt4...:satiRkx...` (CAIP-10) |
 
 See [CAIP Standards](https://github.com/ChainAgnostic/CAIPs) and [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) for full format specifications.
 
@@ -1079,6 +1317,10 @@ No custom indexer needed. ZK proofs enable escrow verification.
 ### Why Blind Feedback?
 
 If agent signs AFTER seeing outcome, they can refuse negative feedback. By signing with response (blind to outcome), agents commit to reputation participation before knowing the sentiment.
+
+### Why Delegation?
+
+Hot/cold wallet separation: agent must sign every response (blind feedback), but hot wallet shouldn't control NFT transfers/metadata. Delegation allows hot wallet to sign attestations while cold wallet retains ownership. See DelegateV1 schema for implementation details.
 
 ---
 
