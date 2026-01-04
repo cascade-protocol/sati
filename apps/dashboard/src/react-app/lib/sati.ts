@@ -21,6 +21,7 @@ import {
   type FeedbackContent,
 } from "@cascade-fyi/sati-sdk";
 import type { Address } from "@solana/kit";
+import bs58 from "bs58";
 import { getNetwork, getRpcUrl } from "./network";
 
 // Singleton Sati client instance with network tracking
@@ -68,6 +69,31 @@ export function getSatiClient(): Sati {
 export function resetSatiClient(): void {
   satiClient = null;
   clientNetwork = null;
+}
+
+/**
+ * Get the transaction signature that created a compressed account.
+ * Uses Photon's getCompressionSignaturesForAddress API via the SDK's light client.
+ *
+ * @param accountAddress - The compressed account address (Uint8Array)
+ * @returns The transaction signature or null if not found
+ */
+export async function getCreationSignature(accountAddress: Uint8Array): Promise<string | null> {
+  try {
+    const sati = getSatiClient();
+    const photon = sati.getLightClient().getRpc();
+
+    // Convert Uint8Array to base58 Address
+    const addrStr = bs58.encode(accountAddress) as Address;
+
+    const result = await photon.getCompressionSignaturesForAddress(addrStr, { limit: 1 });
+
+    // First signature should be the creation tx
+    return result.items[0]?.signature ?? null;
+  } catch (e) {
+    console.error("Failed to get creation signature:", e);
+    return null;
+  }
 }
 
 /**

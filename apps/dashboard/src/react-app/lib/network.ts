@@ -5,16 +5,18 @@
  * for proper wallet integration and network mismatch detection.
  */
 
+import { parse, type Network } from "../../env";
+
+const env = parse(import.meta.env);
+
 /**
  * Wallet Standard chain identifiers
  * @see https://github.com/anza-xyz/wallet-standard
  */
 export type SolanaChain = "solana:mainnet" | "solana:devnet" | "solana:testnet" | "solana:localnet";
 
-/**
- * SDK-compatible network type (used internally with SATI SDK)
- */
-export type Network = "devnet" | "mainnet";
+// Re-export Network type from env.ts
+export type { Network };
 
 const STORAGE_KEY = "sati-network";
 const DEFAULT_CHAIN: SolanaChain = "solana:devnet";
@@ -86,14 +88,11 @@ export function setNetwork(network: Network): void {
 export function getRpcUrl(chainOrNetwork: SolanaChain | Network): string {
   const chain = chainOrNetwork.startsWith("solana:") ? chainOrNetwork : networkToChain(chainOrNetwork as Network);
 
-  if (chain === "solana:mainnet") {
-    return import.meta.env.VITE_MAINNET_RPC ?? "https://api.mainnet-beta.solana.com";
-  }
   if (chain === "solana:localnet") {
     return "http://127.0.0.1:8899";
   }
-  // devnet and testnet use devnet RPC
-  return import.meta.env.VITE_DEVNET_RPC ?? "https://api.devnet.solana.com";
+  const network = chainToNetwork(chain as SolanaChain);
+  return env.RPC_URLS[network].rpc;
 }
 
 /**
@@ -102,14 +101,11 @@ export function getRpcUrl(chainOrNetwork: SolanaChain | Network): string {
 export function getWsUrl(chainOrNetwork: SolanaChain | Network): string {
   const chain = chainOrNetwork.startsWith("solana:") ? chainOrNetwork : networkToChain(chainOrNetwork as Network);
 
-  if (chain === "solana:mainnet") {
-    return import.meta.env.VITE_MAINNET_WS ?? "wss://api.mainnet-beta.solana.com";
-  }
   if (chain === "solana:localnet") {
     return "ws://127.0.0.1:8900";
   }
-  // devnet and testnet use devnet WS
-  return import.meta.env.VITE_DEVNET_WS ?? "wss://api.devnet.solana.com";
+  const network = chainToNetwork(chain as SolanaChain);
+  return env.RPC_URLS[network].ws;
 }
 
 /**

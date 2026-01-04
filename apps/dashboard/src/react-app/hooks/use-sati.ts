@@ -370,8 +370,10 @@ export function useAllFeedbacks(options?: { outcomeFilter?: OutcomeFilter }) {
     // TanStack Query's select provides automatic memoization
     // Only re-runs when data or outcomeFilter changes
     select: (data) => {
-      if (outcomeFilter === "all") return data;
-      return data.filter((f) => {
+      // Sort by slotCreated descending (most recent first)
+      const sorted = [...data].sort((a, b) => Number(b.raw.slotCreated - a.raw.slotCreated));
+      if (outcomeFilter === "all") return sorted;
+      return sorted.filter((f) => {
         const outcome = (f.data as FeedbackData).outcome;
         if (outcomeFilter === "positive") return outcome === 2;
         if (outcomeFilter === "neutral") return outcome === 1;
@@ -435,6 +437,8 @@ export function useAgentFeedbacks(mint: Address | string | undefined) {
       // tokenAccount in feedbacks stores the agent mint directly (not ATA)
       return listAgentFeedbacks(mint as Address);
     },
+    // Sort by slotCreated descending (most recent first)
+    select: (data) => [...data].sort((a, b) => Number(b.raw.slotCreated - a.raw.slotCreated)),
     enabled: !!mint,
     staleTime: 30_000,
   });

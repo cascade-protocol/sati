@@ -21,7 +21,7 @@ import {
   serializeFeedback,
   type FeedbackData,
 } from "@cascade-fyi/sati-sdk";
-import { getNetwork } from "@/lib/network";
+import { getNetwork, getSolscanUrl } from "@/lib/network";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -220,7 +220,22 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         }
 
         console.log("[Feedback] Submitted:", result.attestationAddress);
-        toast.success("Feedback submitted!", { id: toastId });
+
+        // Show success with Solscan link if signature available
+        if (result.signature) {
+          const txUrl = getSolscanUrl(result.signature, "tx");
+          toast.success(
+            <span>
+              Feedback submitted!{" "}
+              <a href={txUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                View tx
+              </a>
+            </span>,
+            { id: toastId, duration: 10000 },
+          );
+        } else {
+          toast.success("Feedback submitted!", { id: toastId });
+        }
 
         return {
           address: result.attestationAddress as Address,
@@ -234,11 +249,17 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
       }
     },
     onSuccess: () => {
-      // Delay query invalidation to give Photon indexer time to index the new attestation
-      // Without this delay, the refetch can fail with error 8190004
-      setTimeout(() => {
+      // Poll for indexer to pick up the new attestation (every 5s for up to 2 minutes)
+      let attempts = 0;
+      const maxAttempts = 24; // 2 minutes at 5s intervals
+      const pollInterval = setInterval(() => {
+        attempts++;
         queryClient.invalidateQueries({ queryKey: ["sati", "feedbacks"] });
-      }, 3000);
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+        }
+      }, 5000);
+
       setOpen(false);
       // Reset form state
       setTags([]);

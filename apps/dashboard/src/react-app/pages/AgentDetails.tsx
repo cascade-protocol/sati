@@ -32,7 +32,15 @@ import { GiveFeedbackDialog } from "@/components/GiveFeedbackDialog";
 import { toast } from "sonner";
 import { useAgentDetails, useAgentMetadata, useAgentFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { formatMemberNumber, formatSlotTime, getSolscanUrl, truncateAddress, parseFeedback } from "@/lib/sati";
+import {
+  formatMemberNumber,
+  formatSlotTime,
+  getSolscanUrl,
+  truncateAddress,
+  parseFeedback,
+  getCreationSignature,
+} from "@/lib/sati";
+import { useState } from "react";
 
 // Helper to format outcome
 function formatOutcome(outcome: number): { text: string; color: string } {
@@ -46,6 +54,38 @@ function formatOutcome(outcome: number): { text: string; color: string } {
     default:
       return { text: "Unknown", color: "text-muted-foreground" };
   }
+}
+
+// Component to fetch and open transaction link on-demand
+function TxLink({ feedbackAddress }: { feedbackAddress: Uint8Array }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleClick = async () => {
+    setLoading(true);
+    try {
+      const signature = await getCreationSignature(feedbackAddress);
+      if (signature) {
+        window.open(getSolscanUrl(signature, "tx"), "_blank");
+      } else {
+        toast.error("Transaction not found");
+      }
+    } catch {
+      toast.error("Failed to fetch transaction");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="sm" onClick={handleClick} disabled={loading}>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>View on Solscan</TooltipContent>
+    </Tooltip>
+  );
 }
 
 // Compute feedback stats
@@ -326,33 +366,25 @@ export function AgentDetails() {
                         .map((b) => b.toString(16).padStart(2, "0"))
                         .join("");
                       return (
-                        <div key={key} className="flex items-center justify-between py-2 border-b last:border-0">
-                          <div className="flex items-center gap-2">
+                        <div key={key} className="flex items-center justify-between py-2 border-b last:border-0 gap-4">
+                          <div className="flex items-center gap-2 min-w-0">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <code className="text-sm cursor-help">{truncateAddress(data.counterparty)}</code>
+                                <code className="text-sm cursor-help shrink-0">
+                                  {truncateAddress(data.counterparty)}
+                                </code>
                               </TooltipTrigger>
                               <TooltipContent>
                                 <span className="font-mono text-xs">{data.counterparty}</span>
                               </TooltipContent>
                             </Tooltip>
-                            {content?.tags && content.tags.length > 0 && (
-                              <div className="flex gap-1">
-                                {content.tags.slice(0, 3).map((tag) => (
-                                  <span
-                                    key={tag}
-                                    className="px-1.5 py-0.5 text-xs bg-muted rounded-full text-muted-foreground"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                                {content.tags.length > 3 && (
-                                  <span className="text-xs text-muted-foreground">+{content.tags.length - 3}</span>
-                                )}
-                              </div>
+                            {content && (
+                              <code className="text-xs bg-muted px-2 py-0.5 rounded truncate max-w-xs">
+                                {JSON.stringify(content)}
+                              </code>
                             )}
                           </div>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 shrink-0">
                             <span className={outcomeColor}>{outcomeText}</span>
                             <span className="text-xs text-muted-foreground">
                               {formatSlotTime(slotCreated, currentSlot)}
@@ -386,9 +418,10 @@ export function AgentDetails() {
                         <tr className="border-b text-left text-sm text-muted-foreground">
                           <th className="pb-3 pr-4 font-medium">From</th>
                           <th className="pb-3 pr-4 font-medium">Outcome</th>
-                          <th className="pb-3 pr-4 font-medium">Tags</th>
+                          <th className="pb-3 pr-4 font-medium">Content</th>
                           <th className="pb-3 pr-4 font-medium text-right">Time</th>
-                          <th className="pb-3 font-medium text-right">Details</th>
+                          <th className="pb-3 pr-4 font-medium text-right">Details</th>
+                          <th className="pb-3 font-medium text-right">Tx</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -423,20 +456,10 @@ export function AgentDetails() {
                                 <span className={outcomeColor}>{outcomeText}</span>
                               </td>
                               <td className="py-4 pr-4">
-                                {content?.tags && content.tags.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {content.tags.slice(0, 3).map((tag) => (
-                                      <span
-                                        key={tag}
-                                        className="px-2 py-0.5 text-xs bg-muted rounded-full text-muted-foreground"
-                                      >
-                                        {tag}
-                                      </span>
-                                    ))}
-                                    {content.tags.length > 3 && (
-                                      <span className="text-xs text-muted-foreground">+{content.tags.length - 3}</span>
-                                    )}
-                                  </div>
+                                {content ? (
+                                  <code className="text-xs bg-muted px-2 py-1 rounded block whitespace-pre-wrap break-all">
+                                    {JSON.stringify(content)}
+                                  </code>
                                 ) : (
                                   <span className="text-muted-foreground">—</span>
                                 )}
@@ -444,12 +467,15 @@ export function AgentDetails() {
                               <td className="py-4 pr-4 text-right text-sm text-muted-foreground">
                                 {formatSlotTime(slotCreated, currentSlot)}
                               </td>
-                              <td className="py-4 text-right">
+                              <td className="py-4 pr-4 text-right">
                                 <FeedbackDetailModal feedback={feedback} currentSlot={currentSlot}>
                                   <Button variant="ghost" size="sm">
                                     <Eye className="h-4 w-4" />
                                   </Button>
                                 </FeedbackDetailModal>
+                              </td>
+                              <td className="py-4 text-right">
+                                <TxLink feedbackAddress={feedback.address} />
                               </td>
                             </tr>
                           );

@@ -19,21 +19,17 @@ import bs58 from "bs58";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
+import { parse } from "../env";
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface EchoEnv extends Env {
-  // Agent signer private key (base58 encoded 64-byte secret key)
-  // Used only for signing the echo response (blind signature)
+interface WorkerBindings extends Record<string, unknown> {
+  VITE_HELIUS_API_KEY?: string;
   SATI_AGENT_SIGNER_KEY?: string;
-  // Demo agent mint addresses (network-specific)
   DEMO_AGENT_MINT_DEVNET?: string;
   DEMO_AGENT_MINT_MAINNET?: string;
-  // Helius RPC URLs for Light Protocol (network-specific)
-  VITE_DEVNET_RPC?: string;
-  VITE_MAINNET_RPC?: string;
 }
 
 interface EchoRequest {
@@ -119,8 +115,9 @@ function bytesToHex(bytes: Uint8Array): string {
  * The payment middleware is configured dynamically based on the agent's address
  * which is derived from the SATI_AGENT_SIGNER_KEY environment variable.
  */
-function createApp(env: EchoEnv) {
-  const app = new Hono<{ Bindings: EchoEnv }>();
+function createApp(bindings: WorkerBindings) {
+  const env = parse(bindings);
+  const app = new Hono<{ Bindings: WorkerBindings }>();
 
   app.use("/*", cors());
 
@@ -380,13 +377,14 @@ function createApp(env: EchoEnv) {
     }
 
     try {
-      // Select network-appropriate RPC URL
-      const rpcUrl = body.network === "mainnet" ? env.VITE_MAINNET_RPC : env.VITE_DEVNET_RPC;
+      // Get network-appropriate RPC URLs
+      const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[body.network];
 
       // Initialize Sati client with Helius RPC for Light Protocol
       const sati = new Sati({
         network: body.network,
         rpcUrl,
+        wsUrl,
         photonRpcUrl: rpcUrl,
       });
 
@@ -492,8 +490,8 @@ function createApp(env: EchoEnv) {
 // =============================================================================
 
 export default {
-  async fetch(request: Request, env: EchoEnv, ctx: ExecutionContext) {
-    const app = createApp(env);
-    return app.fetch(request, env, ctx);
+  async fetch(request: Request, bindings: WorkerBindings, ctx: ExecutionContext) {
+    const app = createApp(bindings);
+    return app.fetch(request, bindings, ctx);
   },
 };

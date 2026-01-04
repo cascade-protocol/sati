@@ -258,6 +258,13 @@ export interface CreateFeedbackParams {
   counterpartyMessage?: Uint8Array;
   /** Optional address lookup table for transaction compression */
   lookupTableAddress?: Address;
+  /**
+   * Skip WebSocket-based transaction confirmation.
+   * Use this in serverless environments (e.g., Cloudflare Workers) that don't support
+   * outbound WebSocket connections. When true, returns immediately after sending the
+   * transaction without waiting for confirmation.
+   */
+  skipConfirmation?: boolean;
 }
 
 /**
@@ -1377,12 +1384,21 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
-    // tokenAccount is the agent's MINT address (identity), NOT a wallet address
-    const [agentAta] = await findAssociatedTokenAddress(
-      tokenAccount, // mint address (agent identity)
-      agentSignature.pubkey, // owner who signed
-    );
+    // Detect CounterpartySigned mode: counterpartyMessage provided but no counterpartySignature
+    // In this mode, the "agentSignature" actually contains the counterparty's SIWS signature,
+    // and we don't need to verify agent NFT ownership (counterparty doesn't own the agent)
+    const isCounterpartySigned = counterpartyMessage && !counterpartySignature;
+
+    // Derive agent's ATA only for modes that require agent ownership verification
+    // (DualSignature and AgentOwnerSigned modes)
+    let agentAta: Address | undefined;
+    if (!isCounterpartySigned) {
+      // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+      [agentAta] = await findAssociatedTokenAddress(
+        tokenAccount, // mint address (agent identity)
+        agentSignature.pubkey, // owner who signed
+      );
+    }
 
     const light = this.getLightClient();
 
@@ -1419,8 +1435,8 @@ export class Sati {
     const baseCreateIx = await getCreateCompressedAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
-      agentAta, // Proves signer owns the agent NFT
-      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
+      agentAta, // undefined for CounterpartySigned mode, required for other modes
+      tokenProgram: agentAta ? TOKEN_2022_PROGRAM_ADDRESS : undefined, // Only needed when verifying ATA
       program: SATI_PROGRAM_ADDRESS,
       data,
       outputStateTreeIndex,
@@ -1553,12 +1569,21 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
-    // tokenAccount is the agent's MINT address (identity), NOT a wallet address
-    const [agentAta] = await findAssociatedTokenAddress(
-      tokenAccount, // mint address (agent identity)
-      agentSignature.pubkey, // owner who signed
-    );
+    // Detect CounterpartySigned mode: counterpartyMessage provided but no counterpartySignature
+    // In this mode, the "agentSignature" actually contains the counterparty's SIWS signature,
+    // and we don't need to verify agent NFT ownership (counterparty doesn't own the agent)
+    const isCounterpartySigned = counterpartyMessage && !counterpartySignature;
+
+    // Derive agent's ATA only for modes that require agent ownership verification
+    // (DualSignature and AgentOwnerSigned modes)
+    let agentAta: Address | undefined;
+    if (!isCounterpartySigned) {
+      // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+      [agentAta] = await findAssociatedTokenAddress(
+        tokenAccount, // mint address (agent identity)
+        agentSignature.pubkey, // owner who signed
+      );
+    }
 
     const light = this.getLightClient();
 
@@ -1595,8 +1620,8 @@ export class Sati {
     const baseCreateIx = await getCreateCompressedAttestationInstructionAsync({
       payer: { address: payer } as KeyPairSigner,
       schemaConfig: schemaConfigPda,
-      agentAta, // Proves signer owns the agent NFT
-      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
+      agentAta, // undefined for CounterpartySigned mode, required for other modes
+      tokenProgram: agentAta ? TOKEN_2022_PROGRAM_ADDRESS : undefined, // Only needed when verifying ATA
       program: SATI_PROGRAM_ADDRESS,
       data,
       outputStateTreeIndex,

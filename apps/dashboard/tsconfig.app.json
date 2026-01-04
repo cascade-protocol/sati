@@ -20,6 +20,6 @@
       "@cascade-fyi/compression-kit/*": ["../../packages/compression-kit/src/*"]
     }
   },
-  "include": ["src/react-app"],
+  "include": ["src/react-app", "src/env.ts"],
   "references": [{ "path": "../../packages/sdk" }]
 }
