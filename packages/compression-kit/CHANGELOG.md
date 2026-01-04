@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-01-04
+
+### Added
+
+- **Web Crypto Utilities**
+  - `importEd25519PublicKey()` - Import Ed25519 public keys using Web Crypto API for signature verification
+
+- **RPC Types**
+  - `MemcmpFilter` - Interface for memory comparison filtering in Photon RPC queries
+
+### Changed
+
+- Upgraded TypeScript target to ES2022 with ES2023 lib for better performance
+- Added DOM type definitions for Web Crypto API compatibility
+- Improved npm package metadata and publishing configuration
+
 ## [0.1.0] - 2024-12-29
 
 ### Added

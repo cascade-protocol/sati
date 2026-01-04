@@ -155,6 +155,20 @@ if (isSmallerThanFieldSize(someBytes)) {
 }
 ```
 
+### Web Crypto Utilities
+
+```typescript
+import { importEd25519PublicKey } from '@cascade-fyi/compression-kit';
+import { verifySignature, signatureBytes } from '@solana/kit';
+
+// Import Ed25519 public key for signature verification
+const pubkeyBytes = new Uint8Array(32); // your public key
+const cryptoKey = await importEd25519PublicKey(pubkeyBytes);
+
+// Use with Web Crypto API
+const isValid = await verifySignature(cryptoKey, signatureBytes(sig), message);
+```
+
 ## Configuration
 
 ### RPC Endpoints
@@ -196,6 +210,12 @@ import {
 | `getIndexerHealth()` | Check indexer health status |
 | `getIndexerSlot()` | Get current indexer slot |
 
+### Crypto Utilities
+
+| Function | Description |
+|----------|-------------|
+| `importEd25519PublicKey(bytes)` | Import Ed25519 public key for Web Crypto verification |
+
 ### Types
 
 | Type | Description |
@@ -205,6 +225,7 @@ import {
 | `ValidityProof` | ZK validity proof |
 | `BN254` | BN254 field element (branded bigint) |
 | `PackedAccounts` | Helper for building instruction accounts |
+| `MemcmpFilter` | Memory comparison filter for RPC queries |
 
 ### Constants
 
@@ -219,6 +240,10 @@ import {
 
 - Node.js >= 20.18.0
 - TypeScript >= 5.0 (for type definitions)
+
+## Changelog
+
+See [CHANGELOG.md](https://github.com/cascade-protocol/sati/blob/main/packages/compression-kit/CHANGELOG.md) for version history.
 
 ## Related Packages
 
