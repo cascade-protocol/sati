@@ -129,17 +129,17 @@ const PRODUCTION_AUTHORITY = "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z";
 const PROGRAM_KEYPAIR_FILENAME = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe.json";
 const GROUP_KEYPAIR_FILENAME = "satiG7i9iyFxjq23sdyeLB4ibAHf6GXCARuosGeqane.json";
 
-// Network RPC endpoints
+// Network RPC endpoints (env vars override defaults)
 const RPC_ENDPOINTS: Record<string, string> = {
-  localnet: "http://127.0.0.1:8899",
-  devnet: "https://api.devnet.solana.com",
-  mainnet: "https://api.mainnet-beta.solana.com",
+  localnet: process.env.LOCALNET_RPC || "http://127.0.0.1:8899",
+  devnet: process.env.DEVNET_RPC || "https://api.devnet.solana.com",
+  mainnet: process.env.MAINNET_RPC || "https://api.mainnet-beta.solana.com",
 };
 
 const WSS_ENDPOINTS: Record<string, string> = {
-  localnet: "ws://127.0.0.1:8900",
-  devnet: "wss://api.devnet.solana.com",
-  mainnet: "wss://api.mainnet-beta.solana.com",
+  localnet: process.env.LOCALNET_WS || "ws://127.0.0.1:8900",
+  devnet: process.env.DEVNET_WS || "wss://api.devnet.solana.com",
+  mainnet: process.env.MAINNET_WS || "wss://api.mainnet-beta.solana.com",
 };
 
 class FrontrunningDetectedError extends Error {
