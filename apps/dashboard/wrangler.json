@@ -15,6 +15,6 @@
   },
   "routes": [{ "pattern": "sati.cascade.fyi", "custom_domain": true }],
   "vars": {
-    "DEMO_AGENT_MINT": "A9kWdZ59N8595vNcWdzV7yV6akpZGoV7Bdvf4Y9ApLnX"
+    "DEMO_AGENT_MINT_DEVNET": "A9kWdZ59N8595vNcWdzV7yV6akpZGoV7Bdvf4Y9ApLnX"
   }
 }
