@@ -130,8 +130,7 @@ function createApp(env: EchoEnv) {
   // Demo agents list endpoint (accepts optional network query param)
   app.get("/api/demo-agents", (c) => {
     const network = c.req.query("network") || "devnet";
-    const demoAgentMint =
-      network === "mainnet" ? env.DEMO_AGENT_MINT_MAINNET : env.DEMO_AGENT_MINT_DEVNET;
+    const demoAgentMint = network === "mainnet" ? env.DEMO_AGENT_MINT_MAINNET : env.DEMO_AGENT_MINT_DEVNET;
 
     if (!demoAgentMint) {
       return c.json({ agents: [] });

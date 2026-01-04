@@ -234,7 +234,11 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sati", "feedbacks"] });
+      // Delay query invalidation to give Photon indexer time to index the new attestation
+      // Without this delay, the refetch can fail with error 8190004
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["sati", "feedbacks"] });
+      }, 3000);
       setOpen(false);
       // Reset form state
       setTags([]);
