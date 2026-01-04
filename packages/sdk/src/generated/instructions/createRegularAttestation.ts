@@ -12,8 +12,6 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
-  getArrayDecoder,
-  getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
   getI64Decoder,
@@ -41,12 +39,6 @@ import {
 } from "@solana/kit";
 import { SATI_PROGRAM_ADDRESS } from "../programs";
 import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
-import {
-  getSignatureDataDecoder,
-  getSignatureDataEncoder,
-  type SignatureData,
-  type SignatureDataArgs,
-} from "../types";
 
 export const CREATE_REGULAR_ATTESTATION_DISCRIMINATOR = new Uint8Array([
   69, 6, 28, 228, 190, 240, 142, 79,
@@ -138,8 +130,6 @@ export type CreateRegularAttestationInstructionData = {
   discriminator: ReadonlyUint8Array;
   /** Schema-conformant data bytes (130+ bytes, universal base layout) */
   data: ReadonlyUint8Array;
-  /** Single signature (owner or delegate for AgentOwnerSigned mode) */
-  signatures: Array<SignatureData>;
   /** Expiry timestamp (0 = never expires) */
   expiry: bigint;
 };
@@ -147,8 +137,6 @@ export type CreateRegularAttestationInstructionData = {
 export type CreateRegularAttestationInstructionDataArgs = {
   /** Schema-conformant data bytes (130+ bytes, universal base layout) */
   data: ReadonlyUint8Array;
-  /** Single signature (owner or delegate for AgentOwnerSigned mode) */
-  signatures: Array<SignatureDataArgs>;
   /** Expiry timestamp (0 = never expires) */
   expiry: number | bigint;
 };
@@ -158,7 +146,6 @@ export function getCreateRegularAttestationInstructionDataEncoder(): Encoder<Cre
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["data", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
-      ["signatures", getArrayEncoder(getSignatureDataEncoder())],
       ["expiry", getI64Encoder()],
     ]),
     (value) => ({
@@ -172,7 +159,6 @@ export function getCreateRegularAttestationInstructionDataDecoder(): Decoder<Cre
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["data", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
-    ["signatures", getArrayDecoder(getSignatureDataDecoder())],
     ["expiry", getI64Decoder()],
   ]);
 }
@@ -246,7 +232,6 @@ export type CreateRegularAttestationAsyncInput<
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   data: CreateRegularAttestationInstructionDataArgs["data"];
-  signatures: CreateRegularAttestationInstructionDataArgs["signatures"];
   expiry: CreateRegularAttestationInstructionDataArgs["expiry"];
 };
 
@@ -487,7 +472,6 @@ export type CreateRegularAttestationInput<
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   data: CreateRegularAttestationInstructionDataArgs["data"];
-  signatures: CreateRegularAttestationInstructionDataArgs["signatures"];
   expiry: CreateRegularAttestationInstructionDataArgs["expiry"];
 };
 

@@ -214,7 +214,9 @@ pub struct CompressedAttestation { /* fields below */ }
 | `sas_schema` | Pubkey | 0 | Schema (memcmp filter) |
 | `token_account` | Pubkey | 32 | Agent mint address (memcmp filter) |
 | `data` | Vec&lt;u8&gt; | 64+ | Schema-conformant bytes (universal base layout) |
-| `signatures` | Vec&lt;[u8;64]&gt; | varies | Ed25519 signatures |
+| `num_signatures` | u8 | varies | Number of signatures (1 or 2) |
+| `signature1` | [u8; 64] | varies | First Ed25519 signature |
+| `signature2` | [u8; 64] | varies | Second Ed25519 signature (zeros if single-sig) |
 
 #### Universal Base Data Layout (first 131 bytes)
 
@@ -251,26 +253,28 @@ Program parses offsets 0-130 for signature binding and base validation. Content 
 
 #### Signature Verification (On-Chain)
 
+Signatures are **extracted** from Ed25519 precompile instructions in the transaction, matched by **message content** (not index). This is resilient to transactions containing unrelated Ed25519 instructions from other protocols.
+
 Verification differs by `SignatureMode`:
 
 **DualSignature** (Feedback, Validation):
-1. Require exactly 2 signatures
-2. **Agent authorization**: `verify_agent_authorization()` for signer of `signatures[0]`
-3. **Counterparty binding**: Verify `signatures[1]` using pubkey from `data[65..97]` (counterparty field)
+1. Extract 2 signatures from Ed25519 instructions by matching expected messages
+2. **Agent authorization**: `verify_agent_authorization()` for signer of interaction_hash message
+3. **Counterparty binding**: Verify SIWS message signer matches pubkey from `data[65..97]`
 4. **Self-attestation**: `token_account != counterparty`
 
 **AgentOwnerSigned** (DelegateV1):
-1. Require exactly 1 signature
-2. **Agent authorization**: `verify_agent_authorization()` for signer
+1. Extract 1 signature matching interaction_hash message
+2. **Agent authorization**: `verify_agent_authorization()` for extracted signer
 3. No counterparty binding (signer IS the agent owner/delegate)
 
 **CounterpartySigned** (FeedbackPublic, ReputationScore):
-1. Require exactly 1 signature
+1. Extract 1 signature matching interaction_hash message
 2. **No agent authorization** — anyone can submit about any agent
-3. **Counterparty binding**: Verify `signatures[0]` using pubkey from `data[65..97]`
+3. **Counterparty binding**: Verify extracted signer matches pubkey from `data[65..97]`
 4. **Self-attestation**: `token_account != counterparty`
 
-> **Note**: `token_account` is the agent's MINT ADDRESS. For DualSignature/AgentOwnerSigned, the agent OWNER (or delegate) provides `signatures[0]`. For CounterpartySigned, only the counterparty signs.
+> **Note**: `token_account` is the agent's MINT ADDRESS. For DualSignature/AgentOwnerSigned, the agent OWNER (or delegate) signs the interaction_hash. For DualSignature, counterparty signs the SIWS message. For CounterpartySigned, only the counterparty signs the interaction_hash.
 
 #### verify_agent_authorization()
 
@@ -334,10 +338,12 @@ Sign to create this attestation.
 | Instruction | Parameters | Behavior |
 |-------------|------------|----------|
 | `register_schema_config` | schema, signature_mode, storage_type, delegation_schema, closeable, name | Register schema config (authority only) |
-| `create_compressed_attestation` | data, signatures, proof, address_tree_info, output_state_tree_index | Verify sigs → Light Protocol |
-| `create_regular_attestation` | data, signatures, nonce, expiry | Verify sigs → SAS storage |
+| `create_compressed_attestation` | data, proof, address_tree_info, output_state_tree_index | Verify sigs → Light Protocol |
+| `create_regular_attestation` | data, expiry | Verify sigs → SAS storage |
 | `close_compressed_attestation` | proof, account_meta, current_data | Close compressed attestation |
 | `close_regular_attestation` | attestation_pda | Close regular attestation |
+
+> **Note on signature handling**: Signatures are NOT included in instruction parameters. The program extracts pubkeys and signatures directly from Ed25519 precompile instructions that MUST precede the SATI instruction in the same transaction. This optimization saves ~192 bytes for DualSignature transactions (2× pubkey + 2× signature), enabling larger attestation content.
 
 > **Note**: Instructions are named explicitly for their storage type to avoid ambiguity. `delegation_schema` in `register_schema_config` controls whether delegates can sign attestations for that schema.
 
@@ -929,13 +935,17 @@ type Tag = string;
 ### createFeedback Example
 
 ```typescript
+// SDK builds Ed25519 instructions from provided signatures automatically
 await sati.createFeedback({
   tokenAccount,
   counterparty: clientPubkey,
   outcome: Outcome.Positive,
   taskRef: paymentTxHash,  // CAIP-220 format
-  signatures: [agentSig, clientSig],
+  agentSignature: agentSig,      // Signs interaction_hash
+  counterpartySignature: clientSig,  // Signs SIWS message
 });
+// Note: SDK constructs Ed25519 precompile instruction(s) that precede
+// the SATI instruction. The program extracts signatures from Ed25519 ix.
 ```
 
 ### createDelegation Example
@@ -946,6 +956,7 @@ await sati.createDelegation({
   tokenAccount: agentMint,
   delegate: hotWalletPubkey,
   expiresAt: Math.floor(Date.now() / 1000) + 86400 * 30,  // 30 days
+  ownerSignature: ownerSig,  // Owner signs to authorize delegation
   // delegator (data_hash) is set automatically to current owner
 });
 
@@ -955,7 +966,8 @@ await sati.createFeedback({
   counterparty: clientPubkey,
   outcome: Outcome.Positive,
   taskRef: paymentTxHash,
-  signatures: [hotWalletSig, clientSig],  // Hot wallet signs instead of owner
+  agentSignature: hotWalletSig,      // Delegate signs instead of owner
+  counterpartySignature: clientSig,  // Client signs SIWS
   // SDK automatically detects signer != owner, fetches delegation attestation
 });
 ```

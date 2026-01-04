@@ -1461,56 +1461,71 @@
     },
     {
       "code": 6035,
+      "name": "Ed25519InstructionNotFound",
+      "msg": "No Ed25519 instruction found in transaction"
+    },
+    {
+      "code": 6036,
+      "name": "AgentSignatureNotFound",
+      "msg": "Agent's Ed25519 signature not found (message content mismatch)"
+    },
+    {
+      "code": 6037,
+      "name": "CounterpartySignatureNotFound",
+      "msg": "Counterparty's Ed25519 signature not found (message content mismatch)"
+    },
+    {
+      "code": 6038,
       "name": "OwnerOnly",
       "msg": "Schema requires owner signature but delegate attempted"
     },
     {
-      "code": 6036,
+      "code": 6039,
       "name": "DelegationAttestationRequired",
       "msg": "Delegate signed but no delegation attestation provided"
     },
     {
-      "code": 6037,
+      "code": 6040,
       "name": "InvalidDelegationPDA",
       "msg": "Delegation attestation PDA doesn't match expected derivation"
     },
     {
-      "code": 6038,
+      "code": 6041,
       "name": "DelegateMismatch",
       "msg": "Delegation attestation delegate doesn't match signer"
     },
     {
-      "code": 6039,
+      "code": 6042,
       "name": "AgentMintMismatch",
       "msg": "Delegation attestation agent doesn't match target agent"
     },
     {
-      "code": 6040,
+      "code": 6043,
       "name": "DelegationOwnerMismatch",
       "msg": "Delegation was created by different owner (NFT was transferred)"
     },
     {
-      "code": 6041,
+      "code": 6044,
       "name": "DelegationExpired",
       "msg": "Delegation attestation has expired"
     },
     {
-      "code": 6042,
+      "code": 6045,
       "name": "InvalidSecp256k1Signature",
       "msg": "Invalid secp256k1 signature"
     },
     {
-      "code": 6043,
+      "code": 6046,
       "name": "Secp256k1RecoveryFailed",
       "msg": "Secp256k1 recovery failed"
     },
     {
-      "code": 6044,
+      "code": 6047,
       "name": "EvmAddressMismatch",
       "msg": "EVM address mismatch - recovered address does not match expected"
     },
     {
-      "code": 6045,
+      "code": 6048,
       "name": "InvalidEvmAddressRecovery",
       "msg": "Failed to extract EVM address from secp256k1 key recovery"
     }
@@ -1833,19 +1848,6 @@
             "type": "bytes"
           },
           {
-            "name": "signatures",
-            "docs": [
-              "Ed25519 signatures with public keys (1 or 2 depending on SignatureMode)"
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "SignatureData"
-                }
-              }
-            }
-          },
-          {
             "name": "output_state_tree_index",
             "docs": [
               "Output state tree index for the new compressed account"
@@ -1892,19 +1894,6 @@
               "Schema-conformant data bytes (130+ bytes, universal base layout)"
             ],
             "type": "bytes"
-          },
-          {
-            "name": "signatures",
-            "docs": [
-              "Single signature (owner or delegate for AgentOwnerSigned mode)"
-            ],
-            "type": {
-              "vec": {
-                "defined": {
-                  "name": "SignatureData"
-                }
-              }
-            }
           },
           {
             "name": "expiry",
@@ -2284,36 +2273,6 @@
               "Human-readable schema name (max 32 chars)"
             ],
             "type": "string"
-          }
-        ]
-      }
-    },
-    {
-      "name": "SignatureData",
-      "docs": [
-        "Ed25519 signature with associated public key"
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "pubkey",
-            "docs": [
-              "Public key that signed"
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "sig",
-            "docs": [
-              "64-byte Ed25519 signature"
-            ],
-            "type": {
-              "array": [
-                "u8",
-                64
-              ]
-            }
           }
         ]
       }

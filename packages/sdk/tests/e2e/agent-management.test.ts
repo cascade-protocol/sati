@@ -78,7 +78,7 @@ async function createDestinationAta(payer: KeyPairSigner, owner: Address, mint: 
   await sendAndConfirm(signedCreateAtaTx as SignedBlockhashTransaction, { commitment: "confirmed" });
 }
 
-import { setupE2ETest, type E2ETestContext } from "../helpers";
+import { loadGlobalContext, type GlobalTestContext } from "../helpers";
 
 // =============================================================================
 // Test Configuration
@@ -96,7 +96,7 @@ const TEST_TIMEOUT = 60000; // 60s for network operations
  * Nested describes create fresh agents for state-modifying operations.
  */
 describe("E2E: Agent Management", () => {
-  let ctx: E2ETestContext;
+  let ctx: GlobalTestContext;
 
   // Aliases for cleaner test code
   let sati: Sati;
@@ -105,7 +105,8 @@ describe("E2E: Agent Management", () => {
   let agentMint: Address;
 
   beforeAll(async () => {
-    ctx = await setupE2ETest();
+    // Use global shared context - created once by globalSetup before all tests
+    ctx = await loadGlobalContext();
 
     sati = ctx.sati;
     payer = ctx.payer;

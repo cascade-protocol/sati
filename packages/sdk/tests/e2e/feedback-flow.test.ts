@@ -44,11 +44,11 @@ import {
   createFeedbackSignatures,
   verifyFeedbackSignatures,
   randomBytes32,
-  setupE2ETest,
+  loadGlobalContext,
   setupSignatureTest,
   type TestKeypair,
   type SignatureData,
-  type E2ETestContext,
+  type GlobalTestContext,
   type SignatureTestContext,
   waitForIndexer,
 } from "../helpers";
@@ -71,7 +71,7 @@ const TEST_TIMEOUT = 60000;
  * Nested describes share state intentionally - they test the same agent.
  */
 describe("E2E: Full Feedback Lifecycle", () => {
-  let ctx: E2ETestContext;
+  let ctx: GlobalTestContext;
 
   // Aliases for cleaner test code
   let sati: Sati;
@@ -83,8 +83,8 @@ describe("E2E: Full Feedback Lifecycle", () => {
   let lookupTableAddress: Address;
 
   beforeAll(async () => {
-    // Use shared test setup - handles SDK init, keypairs, agent/schema registration, lookup table
-    ctx = await setupE2ETest();
+    // Use global shared context - created once by globalSetup before all tests
+    ctx = await loadGlobalContext();
 
     // Create aliases for cleaner test code
     sati = ctx.sati;
@@ -92,7 +92,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
     agentOwnerKeypair = ctx.agentOwnerKeypair;
     lookupTableAddress = ctx.lookupTableAddress;
 
-    // Use the schema from context - its config PDA is in the lookup table
+    // Use the schema from global context - its config PDA is in the lookup table
     // This is required for transaction size limits (DualSignature needs ~200 extra bytes for SIWS message)
     sasSchema = ctx.feedbackSchema;
   }, TEST_TIMEOUT);

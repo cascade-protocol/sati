@@ -135,7 +135,7 @@ pub fn build_link_evm_address_ix(
 // Attestation Instructions (Compressed - Light Protocol)
 // ============================================================================
 
-pub use sati::state::{CloseParams, CompressedAttestation, CreateParams, SignatureData};
+pub use sati::state::{CloseParams, CompressedAttestation, CreateParams};
 
 /// Derive the Anchor event authority PDA for CPI events
 fn derive_event_authority() -> Pubkey {

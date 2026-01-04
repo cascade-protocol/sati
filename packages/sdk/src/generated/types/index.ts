@@ -18,7 +18,6 @@ export * from "./packedStateTreeInfo";
 export * from "./registryAuthorityUpdated";
 export * from "./registryInitialized";
 export * from "./schemaConfigRegistered";
-export * from "./signatureData";
 export * from "./signatureMode";
 export * from "./storageType";
 export * from "./validityProof";

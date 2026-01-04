@@ -9,7 +9,6 @@
  *   createTestKeypair,
  *   createFeedbackSignatures,
  *   buildFeedbackData,
- *   buildEd25519Instructions,
  *   Outcome,
  *   ContentType,
  * } from "./helpers";
@@ -26,7 +25,6 @@ export {
   createValidationSignatures,
   createReputationSignature,
   randomBytes32,
-  randomBytes,
   type SignatureData,
   type TestKeypair,
 } from "./signatures";
@@ -68,39 +66,11 @@ export {
   type ReputationScoreDataParams,
 } from "./accounts";
 
-// Instruction builders
-export {
-  buildEd25519Instruction,
-  buildEd25519Instructions,
-  buildFeedbackEd25519Instructions,
-  addressToBytes,
-  type Ed25519SignatureParams,
-} from "./instructions";
-
-// RPC and connection utilities
-export {
-  getRpc,
-  isTestValidatorReady,
-  newAccountWithLamports,
-  getTestKeypair,
-  sleep,
-  waitForIndexer,
-  retry,
-  DEFAULT_CONFIG,
-  type TestRpcConfig,
-} from "./test-rpc";
-
 // Address Lookup Table helpers
-export {
-  createSatiLookupTable,
-  type CreateLookupTableResult,
-} from "./lookup-table";
+export { createSatiLookupTable, type CreateLookupTableResult } from "./lookup-table";
 
 // Test Setup
-export {
-  setupE2ETest,
-  setupSignatureTest,
-  type E2ETestContext,
-  type SignatureTestContext,
-  type SetupOptions,
-} from "./test-setup";
+export { setupSignatureTest, type SignatureTestContext } from "./test-setup";
+
+// Global Context (preferred - uses shared resources from globalSetup)
+export { loadGlobalContext, clearContextCache, waitForIndexer, type GlobalTestContext } from "./global-context";

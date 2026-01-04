@@ -32,7 +32,6 @@ import { address, type KeyPairSigner, type Address } from "@solana/kit";
 import type { Sati } from "../../src";
 import { Outcome } from "../../src/hashes";
 import { ContentType } from "../../src/schemas";
-import { SignatureMode, StorageType } from "../../src/generated";
 
 // Import test helpers
 import {
@@ -41,9 +40,9 @@ import {
   createValidationSignatures,
   createReputationSignature,
   randomBytes32,
-  setupE2ETest,
+  loadGlobalContext,
   type TestKeypair,
-  type E2ETestContext,
+  type GlobalTestContext,
   waitForIndexer,
 } from "../helpers";
 
@@ -66,7 +65,7 @@ const TEST_TIMEOUT = 60000;
  * Nested describes share state - they use the same registered agent.
  */
 describe("E2E: tokenAccount validation", () => {
-  let ctx: E2ETestContext;
+  let ctx: GlobalTestContext;
 
   // Aliases for cleaner test code
   let sati: Sati;
@@ -89,8 +88,8 @@ describe("E2E: tokenAccount validation", () => {
   let satiCredential: Address;
 
   beforeAll(async () => {
-    // Use shared test setup - handles SDK init, keypairs, agent/schema registration, lookup table
-    ctx = await setupE2ETest();
+    // Use global shared context - created once by globalSetup before all tests
+    ctx = await loadGlobalContext();
 
     // Create aliases
     sati = ctx.sati;
@@ -551,45 +550,32 @@ describe("E2E: tokenAccount validation", () => {
 // =============================================================================
 
 /**
- * Isolated E2E tests for CounterpartySigned mode validation.
- * Has its own `E2ETestContext` - complete isolation from main validation tests.
- * Tests CounterpartySigned schema registration and tokenAccount validation.
+ * E2E tests for CounterpartySigned mode validation.
+ * Uses shared GlobalTestContext - CounterpartySigned schema is pre-registered in globalSetup.
+ * Tests tokenAccount validation for CounterpartySigned attestations.
  */
 describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
-  let ctx: E2ETestContext;
+  let ctx: GlobalTestContext;
   let sati: Sati;
   let payer: KeyPairSigner;
-  let authority: KeyPairSigner;
   let lookupTableAddress: Address;
   let agentOwnerKeypair: TestKeypair;
   let registeredAgentMint: Address;
   let feedbackPublicSchema: Address;
 
   beforeAll(async () => {
-    // Isolated context: fresh agent, schema, lookup table
-    ctx = await setupE2ETest();
+    // Use global shared context - CounterpartySigned schema already registered
+    ctx = await loadGlobalContext();
 
     sati = ctx.sati;
     payer = ctx.payer;
-    authority = ctx.authority;
     lookupTableAddress = ctx.lookupTableAddress;
     agentOwnerKeypair = ctx.agentOwnerKeypair;
     registeredAgentMint = ctx.agentMint;
 
-    // Register CounterpartySigned schema for this test
-    const schemaKeypair = await createTestKeypair();
-    feedbackPublicSchema = schemaKeypair.address;
-    await sati.registerSchemaConfig({
-      payer,
-      authority,
-      sasSchema: feedbackPublicSchema,
-      signatureMode: SignatureMode.CounterpartySigned,
-      storageType: StorageType.Compressed,
-      delegationSchema: null,
-      closeable: false,
-      name: "FeedbackPublic",
-    });
-  }, TEST_TIMEOUT * 2);
+    // Use the pre-registered CounterpartySigned schema from global context
+    feedbackPublicSchema = ctx.feedbackPublicSchema;
+  }, TEST_TIMEOUT);
 
   test(
     "createFeedback (CounterpartySigned) rejects non-registered mint",
@@ -638,6 +624,7 @@ describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
       const dataHash = randomBytes32();
 
       // agentOwnerKeypair is the NFT owner - must use this for signing
+      // For CounterpartySigned mode (FeedbackPublic), counterparty signs the SIWS message
       const signatures = await createFeedbackSignatures(
         feedbackPublicSchema,
         taskRef,
@@ -646,8 +633,12 @@ describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
         dataHash,
         Outcome.Positive,
         registeredAgentMint, // Hash computed with registered agent mint
+        "FeedbackPublic", // Use correct schema name for SIWS message
       );
 
+      // For CounterpartySigned mode:
+      // - agentSignature is the counterparty's SIWS signature (signatures[1])
+      // - counterpartyMessage is required for Ed25519 verification
       const result = await sati.createFeedback({
         payer,
         sasSchema: feedbackPublicSchema,
@@ -657,9 +648,10 @@ describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
         dataHash,
         outcome: Outcome.Positive,
         agentSignature: {
-          pubkey: signatures.signatures[0].pubkey,
-          signature: signatures.signatures[0].sig,
+          pubkey: signatures.signatures[1].pubkey, // Counterparty's SIWS signature
+          signature: signatures.signatures[1].sig,
         },
+        counterpartyMessage: signatures.counterpartyMessage, // SIWS message for Ed25519
         lookupTableAddress,
       });
 

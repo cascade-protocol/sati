@@ -320,12 +320,3 @@ export function randomBytes32(): Uint8Array {
   crypto.getRandomValues(bytes);
   return bytes;
 }
-
-/**
- * Generate random bytes of specified length
- */
-export function randomBytes(length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return bytes;
-}

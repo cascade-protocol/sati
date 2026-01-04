@@ -45,10 +45,10 @@ import {
   createTestKeypair,
   verifySignature,
   randomBytes32,
-  setupE2ETest,
+  loadGlobalContext,
   setupSignatureTest,
   type TestKeypair,
-  type E2ETestContext,
+  type GlobalTestContext,
   type SignatureTestContext,
 } from "../helpers";
 
@@ -68,7 +68,7 @@ const TEST_TIMEOUT = 60000; // 60s for network operations
  * Nested describes share state intentionally - they test the same agent.
  */
 describe("E2E: Attestation Flow", () => {
-  let ctx: E2ETestContext;
+  let ctx: GlobalTestContext;
 
   // Aliases for cleaner test code
   let sati: Sati;
@@ -83,8 +83,8 @@ describe("E2E: Attestation Flow", () => {
   let counterpartyKeypair: TestKeypair;
 
   beforeAll(async () => {
-    // Use shared test setup - handles SDK init, keypairs, agent/schema registration, lookup table
-    ctx = await setupE2ETest();
+    // Use global shared context - created once by globalSetup before all tests
+    ctx = await loadGlobalContext();
 
     // Create aliases for cleaner test code
     sati = ctx.sati;
@@ -97,7 +97,7 @@ describe("E2E: Attestation Flow", () => {
     agentOwnerKeypair = ctx.agentOwnerKeypair;
     counterpartyKeypair = ctx.counterpartyKeypair;
 
-    // Use the schema from setup - its schemaConfigPda is already in the lookup table
+    // Use the schema from global context - its schemaConfigPda is already in the lookup table
     // This is CRITICAL for transaction size (saves 32 bytes vs random schema)
     sasSchema = ctx.feedbackSchema;
   }, TEST_TIMEOUT);
@@ -315,7 +315,7 @@ describe("E2E: Attestation Flow", () => {
         // listFeedbacks takes filter object with tokenAccount
         const result = await sati.listFeedbacks({ tokenAccount });
 
-        expect(Array.isArray(result)).toBe(true);
+        expect(Array.isArray(result.items)).toBe(true);
       },
       TEST_TIMEOUT,
     );

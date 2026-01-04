@@ -17,7 +17,7 @@ use crate::errors::SatiError;
 use crate::events::AttestationCreated;
 use crate::signature::{
     compute_attestation_nonce, compute_interaction_hash, extract_ed25519_signatures,
-    verify_agent_authorization, ExtractedSignature,
+    verify_agent_authorization,
 };
 use crate::state::{CompressedAttestation, CreateParams, SchemaConfig, SignatureMode, StorageType};
 use crate::ID;
@@ -447,11 +447,11 @@ mod tests {
         assert_eq!(
             messages.len(),
             1,
-            "AgentOwnerSigned mode should return exactly 1 message (Some(interaction_hash))"
+            "AgentOwnerSigned mode should return exactly 1 message (interaction_hash)"
         );
         assert!(
-            messages[0].is_some(),
-            "AgentOwnerSigned should have Some(interaction_hash)"
+            !messages[0].is_empty(),
+            "AgentOwnerSigned should have non-empty interaction_hash"
         );
     }
 
@@ -468,15 +468,14 @@ mod tests {
         assert_eq!(
             messages.len(),
             1,
-            "CounterpartySigned mode should return exactly 1 message (Some(siws_message))"
+            "CounterpartySigned mode should return exactly 1 message (siws_message)"
         );
         assert!(
-            messages[0].is_some(),
-            "CounterpartySigned should have Some(siws_message)"
+            !messages[0].is_empty(),
+            "CounterpartySigned should have non-empty siws_message"
         );
         // Verify it's a SIWS message (contains the expected format)
-        let siws_msg = messages[0].as_ref().unwrap();
-        let siws_str = std::str::from_utf8(siws_msg).unwrap();
+        let siws_str = std::str::from_utf8(&messages[0]).unwrap();
         assert!(
             siws_str.contains("SATI"),
             "CounterpartySigned message should be a SIWS message"
@@ -498,20 +497,19 @@ mod tests {
             2,
             "DualSignature mode should return 2 entries"
         );
-        // First entry should be Some(interaction_hash) for agent verification
+        // First entry should be interaction_hash for agent verification
         assert!(
-            messages[0].is_some(),
-            "Agent message should be Some(interaction_hash)"
+            !messages[0].is_empty(),
+            "Agent message should be non-empty interaction_hash"
         );
-        // Second entry should be Some(siws_message) for counterparty verification
+        // Second entry should be siws_message for counterparty verification
         // SECURITY: We verify the SIWS message content matches the data
         assert!(
-            messages[1].is_some(),
-            "Counterparty message should be Some(siws_message)"
+            !messages[1].is_empty(),
+            "Counterparty message should be non-empty siws_message"
         );
         // Verify the SIWS message contains expected outcome
-        let siws_msg = messages[1].as_ref().unwrap();
-        let siws_str = std::str::from_utf8(siws_msg).unwrap();
+        let siws_str = std::str::from_utf8(&messages[1]).unwrap();
         assert!(
             siws_str.contains("Outcome: Positive"),
             "SIWS message should contain the correct outcome"
@@ -537,9 +535,9 @@ mod tests {
         let messages = result.unwrap();
 
         assert_eq!(
-            messages[0].as_ref().unwrap(),
+            &messages[0],
             &expected_hash.to_vec(),
-            "AgentOwnerSigned should return Some(interaction_hash)"
+            "AgentOwnerSigned should return interaction_hash"
         );
     }
 

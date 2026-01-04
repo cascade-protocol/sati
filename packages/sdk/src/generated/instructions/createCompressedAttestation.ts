@@ -12,8 +12,6 @@ import {
   combineCodec,
   fixDecoderSize,
   fixEncoderSize,
-  getArrayDecoder,
-  getArrayEncoder,
   getBytesDecoder,
   getBytesEncoder,
   getProgramDerivedAddress,
@@ -43,14 +41,10 @@ import { getAccountMetaFactory, type ResolvedAccount } from "../shared";
 import {
   getPackedAddressTreeInfoDecoder,
   getPackedAddressTreeInfoEncoder,
-  getSignatureDataDecoder,
-  getSignatureDataEncoder,
   getValidityProofDecoder,
   getValidityProofEncoder,
   type PackedAddressTreeInfo,
   type PackedAddressTreeInfoArgs,
-  type SignatureData,
-  type SignatureDataArgs,
   type ValidityProof,
   type ValidityProofArgs,
 } from "../types";
@@ -123,8 +117,6 @@ export type CreateCompressedAttestationInstructionData = {
   discriminator: ReadonlyUint8Array;
   /** Schema-conformant data bytes (130+ bytes, universal base layout) */
   data: ReadonlyUint8Array;
-  /** Ed25519 signatures with public keys (1 or 2 depending on SignatureMode) */
-  signatures: Array<SignatureData>;
   /** Output state tree index for the new compressed account */
   outputStateTreeIndex: number;
   /** Light Protocol validity proof (None for new address creation) */
@@ -136,8 +128,6 @@ export type CreateCompressedAttestationInstructionData = {
 export type CreateCompressedAttestationInstructionDataArgs = {
   /** Schema-conformant data bytes (130+ bytes, universal base layout) */
   data: ReadonlyUint8Array;
-  /** Ed25519 signatures with public keys (1 or 2 depending on SignatureMode) */
-  signatures: Array<SignatureDataArgs>;
   /** Output state tree index for the new compressed account */
   outputStateTreeIndex: number;
   /** Light Protocol validity proof (None for new address creation) */
@@ -151,7 +141,6 @@ export function getCreateCompressedAttestationInstructionDataEncoder(): Encoder<
     getStructEncoder([
       ["discriminator", fixEncoderSize(getBytesEncoder(), 8)],
       ["data", addEncoderSizePrefix(getBytesEncoder(), getU32Encoder())],
-      ["signatures", getArrayEncoder(getSignatureDataEncoder())],
       ["outputStateTreeIndex", getU8Encoder()],
       ["proof", getValidityProofEncoder()],
       ["addressTreeInfo", getPackedAddressTreeInfoEncoder()],
@@ -167,7 +156,6 @@ export function getCreateCompressedAttestationInstructionDataDecoder(): Decoder<
   return getStructDecoder([
     ["discriminator", fixDecoderSize(getBytesDecoder(), 8)],
     ["data", addDecoderSizePrefix(getBytesDecoder(), getU32Decoder())],
-    ["signatures", getArrayDecoder(getSignatureDataDecoder())],
     ["outputStateTreeIndex", getU8Decoder()],
     ["proof", getValidityProofDecoder()],
     ["addressTreeInfo", getPackedAddressTreeInfoDecoder()],
@@ -236,7 +224,6 @@ export type CreateCompressedAttestationAsyncInput<
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   data: CreateCompressedAttestationInstructionDataArgs["data"];
-  signatures: CreateCompressedAttestationInstructionDataArgs["signatures"];
   outputStateTreeIndex: CreateCompressedAttestationInstructionDataArgs["outputStateTreeIndex"];
   proof: CreateCompressedAttestationInstructionDataArgs["proof"];
   addressTreeInfo: CreateCompressedAttestationInstructionDataArgs["addressTreeInfo"];
@@ -421,7 +408,6 @@ export type CreateCompressedAttestationInput<
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   data: CreateCompressedAttestationInstructionDataArgs["data"];
-  signatures: CreateCompressedAttestationInstructionDataArgs["signatures"];
   outputStateTreeIndex: CreateCompressedAttestationInstructionDataArgs["outputStateTreeIndex"];
   proof: CreateCompressedAttestationInstructionDataArgs["proof"];
   addressTreeInfo: CreateCompressedAttestationInstructionDataArgs["addressTreeInfo"];

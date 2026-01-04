@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    globalSetup: ["./tests/helpers/global-setup.ts"],
     testTimeout: 60000, // 60s for e2e tests with Light Protocol
     hookTimeout: 30000, // 30s for beforeAll/afterAll hooks
     reporters: ["verbose"],

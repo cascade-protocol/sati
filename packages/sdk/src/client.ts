@@ -65,7 +65,6 @@ import {
   fetchMaybeAgentIndex,
   fetchAllMaybeAgentIndex,
   SATI_PROGRAM_ADDRESS,
-  type SignatureData as GeneratedSignatureData,
   type ValidityProofArgs,
   type PackedAddressTreeInfoArgs,
   type CompressedAccountMetaArgs,
@@ -1361,7 +1360,8 @@ export class Sati {
     };
     const data = serializeFeedback(feedbackData);
 
-    const signatures: GeneratedSignatureData[] = [
+    // Signatures for Ed25519 instruction (extracted by program, not passed as params)
+    const signaturesForEd25519 = [
       {
         pubkey: agentSignature.pubkey,
         sig: assertSignature64(agentSignature.signature),
@@ -1369,7 +1369,7 @@ export class Sati {
     ];
 
     if (counterpartySignature) {
-      signatures.push({
+      signaturesForEd25519.push({
         pubkey: counterpartySignature.pubkey,
         sig: assertSignature64(counterpartySignature.signature),
       });
@@ -1423,7 +1423,6 @@ export class Sati {
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
       data,
-      signatures,
       outputStateTreeIndex,
       proof,
       addressTreeInfo,
@@ -1440,23 +1439,35 @@ export class Sati {
       ],
     };
 
-    // Agent signs interaction hash (blind commitment to task + data)
+    // Build Ed25519 entries based on signature mode
     const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
+    const ed25519Entries: { publicKey: Uint8Array; message: Uint8Array; signature: Uint8Array }[] = [];
 
-    const ed25519Entries = [
-      {
+    if (counterpartySignature && counterpartyMessage) {
+      // DualSignature mode: agent signs interaction hash, counterparty signs SIWS
+      ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
         message: interactionHash,
         signature: agentSignature.signature,
-      },
-    ];
-
-    // Counterparty signs human-readable SIWS message (passed as counterpartyMessage)
-    if (counterpartySignature && counterpartyMessage) {
+      });
       ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(counterpartySignature.pubkey)),
         message: counterpartyMessage,
         signature: counterpartySignature.signature,
+      });
+    } else if (counterpartyMessage && !counterpartySignature) {
+      // CounterpartySigned mode: counterparty signs SIWS message (passed as agentSignature)
+      ed25519Entries.push({
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: counterpartyMessage,
+        signature: agentSignature.signature,
+      });
+    } else {
+      // AgentOwnerSigned mode: agent owner signs interaction hash
+      ed25519Entries.push({
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: interactionHash,
+        signature: agentSignature.signature,
       });
     }
 
@@ -1525,7 +1536,8 @@ export class Sati {
     };
     const data = serializeFeedback(feedbackData);
 
-    const signatures: GeneratedSignatureData[] = [
+    // Signatures for Ed25519 instruction (extracted by program, not passed as params)
+    const signaturesForEd25519 = [
       {
         pubkey: agentSignature.pubkey,
         sig: assertSignature64(agentSignature.signature),
@@ -1533,7 +1545,7 @@ export class Sati {
     ];
 
     if (counterpartySignature) {
-      signatures.push({
+      signaturesForEd25519.push({
         pubkey: counterpartySignature.pubkey,
         sig: assertSignature64(counterpartySignature.signature),
       });
@@ -1587,7 +1599,6 @@ export class Sati {
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
       data,
-      signatures,
       outputStateTreeIndex,
       proof,
       addressTreeInfo,
@@ -1604,22 +1615,35 @@ export class Sati {
       ],
     };
 
-    // Agent signs interaction hash (blind commitment to task + data)
+    // Build Ed25519 entries based on signature mode
     const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
-    const ed25519Entries = [
-      {
+    const ed25519Entries: { publicKey: Uint8Array; message: Uint8Array; signature: Uint8Array }[] = [];
+
+    if (counterpartySignature && counterpartyMessage) {
+      // DualSignature mode: agent signs interaction hash, counterparty signs SIWS
+      ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
         message: interactionHash,
         signature: agentSignature.signature,
-      },
-    ];
-
-    // Counterparty signs human-readable SIWS message (passed as counterpartyMessage)
-    if (counterpartySignature && counterpartyMessage) {
+      });
       ed25519Entries.push({
         publicKey: new Uint8Array(addressEncoder.encode(counterpartySignature.pubkey)),
         message: counterpartyMessage,
         signature: counterpartySignature.signature,
+      });
+    } else if (counterpartyMessage && !counterpartySignature) {
+      // CounterpartySigned mode: counterparty signs SIWS message (passed as agentSignature)
+      ed25519Entries.push({
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: counterpartyMessage,
+        signature: agentSignature.signature,
+      });
+    } else {
+      // AgentOwnerSigned mode: agent owner signs interaction hash
+      ed25519Entries.push({
+        publicKey: new Uint8Array(addressEncoder.encode(agentSignature.pubkey)),
+        message: interactionHash,
+        signature: agentSignature.signature,
       });
     }
 
@@ -1720,17 +1744,6 @@ export class Sati {
     };
     const data = serializeValidation(validationData);
 
-    const signatures: GeneratedSignatureData[] = [
-      {
-        pubkey: agentSignature.pubkey,
-        sig: assertSignature64(agentSignature.signature),
-      },
-      {
-        pubkey: validatorSignature.pubkey,
-        sig: assertSignature64(validatorSignature.signature),
-      },
-    ];
-
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
     // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
@@ -1782,7 +1795,6 @@ export class Sati {
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
       program: SATI_PROGRAM_ADDRESS,
       data,
-      signatures,
       outputStateTreeIndex,
       proof,
       addressTreeInfo,
@@ -1978,12 +1990,6 @@ export class Sati {
       attestation: attestationPda,
       program: SATI_PROGRAM_ADDRESS,
       data,
-      signatures: [
-        {
-          pubkey: provider,
-          sig: providerSignature,
-        },
-      ],
       expiry: BigInt(expiry),
     });
 

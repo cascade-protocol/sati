@@ -30,8 +30,7 @@ use crate::common::{
         keypair_to_pubkey, sign_message, AttestationDataBuilder,
     },
     instructions::{
-        build_create_compressed_attestation_ix, CreateParams, SignatureData, SignatureMode,
-        StorageType,
+        build_create_compressed_attestation_ix, CreateParams, SignatureMode, StorageType,
     },
     setup::{
         derive_schema_config_pda, setup_light_test_env, LightTestEnv, SATI_PROGRAM_ID,
@@ -246,19 +245,9 @@ async fn test_create_attestation_feedback_success() {
         remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
-    // 10. Build CreateParams
+    // 10. Build CreateParams (signatures extracted from Ed25519 ix)
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -266,7 +255,7 @@ async fn test_create_attestation_feedback_success() {
 
     // 11. agent_ata was already derived and mocked in step 3b
 
-    // Build instructions
+    // Build instructions - Ed25519 ix provides signatures
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &agent_message, &agent_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
@@ -377,12 +366,8 @@ async fn test_create_attestation_missing_signature() {
     )
     .build();
 
-    // Build signatures
-    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
-    let counterparty_msg =
-        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
-    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
-    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+    // NOTE: We intentionally don't build Ed25519 instruction for this test
+    // to verify the program rejects transactions without signature verification
 
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
@@ -424,16 +409,6 @@ async fn test_create_attestation_missing_signature() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -448,7 +423,7 @@ async fn test_create_attestation_missing_signature() {
         system_accounts,
     );
 
-    // Send transaction WITHOUT Ed25519 instruction - should fail with MissingSignatures
+    // Send transaction WITHOUT Ed25519 instruction - should fail with Ed25519InstructionNotFound
     let result = rpc
         .create_and_send_transaction(&[attestation_ix], &payer.pubkey(), &[&payer])
         .await;
@@ -458,10 +433,10 @@ async fn test_create_attestation_missing_signature() {
         "Transaction should fail without Ed25519 instruction"
     );
     let err_str = format!("{:?}", result.unwrap_err());
-    // MissingSignatures = error code 6031
+    // Ed25519InstructionNotFound = error code 6035
     assert!(
-        err_str.contains("MissingSignatures") || err_str.contains("6031"),
-        "Expected MissingSignatures error (6031), got: {}",
+        err_str.contains("Ed25519InstructionNotFound") || err_str.contains("6035"),
+        "Expected Ed25519InstructionNotFound error (6035), got: {}",
         err_str
     );
 }
@@ -584,16 +559,6 @@ async fn test_create_attestation_invalid_signature() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -608,12 +573,13 @@ async fn test_create_attestation_invalid_signature() {
     );
 
     // Ed25519 instruction with valid signatures but for WRONG messages
+    // With message-based extraction, no signature will match expected message
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&agent_pubkey, &wrong_hash, &agent_sig),
         (&counterparty_pubkey, &wrong_hash, &counterparty_sig),
     ]);
 
-    // Send transaction - should fail with MessageMismatch
+    // Send transaction - should fail with AgentSignatureNotFound (message content mismatch)
     let result = rpc
         .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
         .await;
@@ -623,10 +589,10 @@ async fn test_create_attestation_invalid_signature() {
         "Transaction should fail with wrong message hash"
     );
     let err_str = format!("{:?}", result.unwrap_err());
-    // MessageMismatch = error code 6032
+    // AgentSignatureNotFound = error code 6036 (signature for expected message not found)
     assert!(
-        err_str.contains("MessageMismatch") || err_str.contains("6032"),
-        "Expected MessageMismatch error (6032), got: {}",
+        err_str.contains("AgentSignatureNotFound") || err_str.contains("6036"),
+        "Expected AgentSignatureNotFound error (6036), got: {}",
         err_str
     );
 }
@@ -754,16 +720,6 @@ async fn test_create_attestation_wrong_signer() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey, // Claims to be agent_pubkey
-                sig: agent_sig,       // But signed by wrong_keypair
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -917,16 +873,6 @@ async fn test_create_attestation_self_attestation() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: self_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: self_pubkey, // Same pubkey for both signatures
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -940,7 +886,7 @@ async fn test_create_attestation_self_attestation() {
         system_accounts,
     );
 
-    // Ed25519 instruction with same signer for both
+    // Ed25519 instruction with same signer for both - should fail
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&self_pubkey, &interaction_hash, &agent_sig),
         (&self_pubkey, &counterparty_msg, &counterparty_sig),
@@ -1073,16 +1019,6 @@ async fn test_create_attestation_data_too_small() {
 
     let params = CreateParams {
         data: data.clone(), // Too small!
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -1239,16 +1175,6 @@ async fn test_create_attestation_wrong_storage_type() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -1419,16 +1345,6 @@ async fn test_create_attestation_wrong_mint_ata() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -1587,21 +1503,12 @@ async fn test_create_attestation_wrong_owner_ata() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: attacker_pubkey, // ATTACKER's pubkey in signature
-                sig: attacker_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
     };
 
+    // Ed25519 ix with attacker's pubkey (not victim who owns the ATA)
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&attacker_pubkey, &interaction_hash, &attacker_sig),
         (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
@@ -1751,16 +1658,6 @@ async fn test_create_attestation_empty_ata() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -1914,15 +1811,12 @@ async fn test_dual_signature_with_one_sig() {
     // Only provide ONE signature when schema requires TWO
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![SignatureData {
-            pubkey: agent_pubkey,
-            sig: agent_sig,
-        }], // Only 1 signature!
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
     };
 
+    // Only agent signs - missing counterparty signature
     let ed25519_ix = create_multi_ed25519_ix(&[(&agent_pubkey, &interaction_hash, &agent_sig)]);
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
@@ -1932,7 +1826,7 @@ async fn test_dual_signature_with_one_sig() {
         system_accounts,
     );
 
-    // Send transaction - should fail with InvalidSignatureCount
+    // Send transaction - should fail with CounterpartySignatureNotFound
     let result = rpc
         .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
         .await;
@@ -1942,9 +1836,10 @@ async fn test_dual_signature_with_one_sig() {
         "Transaction should fail with only 1 signature for DualSignature schema"
     );
     let err_str = format!("{:?}", result.unwrap_err());
+    // CounterpartySignatureNotFound = 6037 (message-based extraction failed to find counterparty sig)
     assert!(
-        err_str.contains("InvalidSignatureCount") || err_str.contains("6012"),
-        "Expected InvalidSignatureCount error (6012), got: {}",
+        err_str.contains("CounterpartySignatureNotFound") || err_str.contains("6037"),
+        "Expected CounterpartySignatureNotFound error (6037), got: {}",
         err_str
     );
 }
@@ -2013,21 +1908,21 @@ async fn test_counterparty_signed_with_two_sigs() {
     let data_hash = compute_data_hash(b"test");
     let outcome: u8 = 2;
 
-    // For CounterpartySigned, counterparty field is the signer
+    // For CounterpartySigned, counterparty field should be the signer
+    // But we'll have the WRONG person (agent) sign the message to test failure
     let data = AttestationDataBuilder::new(
         task_ref,
         agent_mint,
-        extra_pubkey, // counterparty (not same as token_account)
+        extra_pubkey, // counterparty in data is extra_pubkey
         outcome,
         data_hash,
     )
     .build();
 
-    let interaction_hash = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
     let counterparty_msg =
         build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
-    let agent_sig = sign_message(&agent_keypair, &interaction_hash);
-    let extra_sig = sign_message(&extra_keypair, &counterparty_msg);
+    // WRONG: agent signs the counterparty message instead of extra (the actual counterparty)
+    let wrong_sig = sign_message(&agent_keypair, &counterparty_msg);
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
@@ -2063,28 +1958,16 @@ async fn test_counterparty_signed_with_two_sigs() {
         remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
-    // Provide TWO signatures when schema only requires ONE
+    // Wrong signer: agent signs the counterparty message, but data says extra_pubkey is counterparty
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: extra_pubkey,
-                sig: extra_sig,
-            },
-        ], // 2 signatures for CounterpartySigned!
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
     };
 
-    let ed25519_ix = create_multi_ed25519_ix(&[
-        (&agent_pubkey, &interaction_hash, &agent_sig),
-        (&extra_pubkey, &counterparty_msg, &extra_sig),
-    ]);
+    // Agent signs counterparty_msg (wrong pubkey for CounterpartySigned mode)
+    let ed25519_ix = create_multi_ed25519_ix(&[(&agent_pubkey, &counterparty_msg, &wrong_sig)]);
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
@@ -2093,19 +1976,20 @@ async fn test_counterparty_signed_with_two_sigs() {
         system_accounts,
     );
 
-    // Send transaction - should fail with InvalidSignatureCount
+    // Send transaction - should fail because signer != counterparty from data
     let result = rpc
         .create_and_send_transaction(&[ed25519_ix, attestation_ix], &payer.pubkey(), &[&payer])
         .await;
 
     assert!(
         result.is_err(),
-        "Transaction should fail with 2 signatures for CounterpartySigned schema"
+        "Transaction should fail when signer doesn't match counterparty"
     );
     let err_str = format!("{:?}", result.unwrap_err());
+    // SignatureMismatch = 6019 (extracted signer != expected counterparty)
     assert!(
-        err_str.contains("InvalidSignatureCount") || err_str.contains("6012"),
-        "Expected InvalidSignatureCount error (6012), got: {}",
+        err_str.contains("SignatureMismatch") || err_str.contains("6019"),
+        "Expected SignatureMismatch error (6019), got: {}",
         err_str
     );
 }
@@ -2227,21 +2111,12 @@ async fn test_dual_signature_duplicate_pubkeys() {
     // Both signatures use SAME pubkey - duplicate signers attack
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: single_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: single_pubkey, // SAME pubkey!
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
     };
 
+    // Both Ed25519 signatures with same pubkey - should fail DuplicateSigners check
     let ed25519_ix = create_multi_ed25519_ix(&[
         (&single_pubkey, &interaction_hash, &agent_sig),
         (&single_pubkey, &counterparty_msg, &counterparty_sig),
@@ -2380,16 +2255,6 @@ async fn test_data_exactly_129_bytes() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -2542,16 +2407,6 @@ async fn test_content_513_bytes() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -2705,16 +2560,6 @@ async fn test_invalid_outcome_value_3() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,
@@ -2864,16 +2709,6 @@ async fn test_invalid_content_type_value_16() {
 
     let params = CreateParams {
         data: data.clone(),
-        signatures: vec![
-            SignatureData {
-                pubkey: agent_pubkey,
-                sig: agent_sig,
-            },
-            SignatureData {
-                pubkey: counterparty_pubkey,
-                sig: counterparty_sig,
-            },
-        ],
         output_state_tree_index,
         proof: rpc_result.proof,
         address_tree_info,

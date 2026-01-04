@@ -127,7 +127,7 @@ const PRODUCTION_AUTHORITY = "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z";
 
 // REQUIRED keypair filenames - NEVER use sati-keypair.json for production!
 const PROGRAM_KEYPAIR_FILENAME = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe.json";
-const GROUP_KEYPAIR_FILENAME = "satiGGZR9LCqKPvBzsKTB9fMdfjd9pmmWw5E5aCGXzv.json";
+const GROUP_KEYPAIR_FILENAME = "satiG7i9iyFxjq23sdyeLB4ibAHf6GXCARuosGeqane.json";
 
 // Network RPC endpoints
 const RPC_ENDPOINTS: Record<string, string> = {

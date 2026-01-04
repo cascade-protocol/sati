@@ -9,8 +9,8 @@ use crate::constants::*;
 use crate::errors::SatiError;
 use crate::events::AttestationCreated;
 use crate::signature::{
-    compute_interaction_hash, compute_reputation_nonce, verify_agent_authorization,
-    verify_ed25519_signatures,
+    compute_interaction_hash, compute_reputation_nonce, extract_ed25519_signatures,
+    verify_agent_authorization,
 };
 use crate::state::{CreateRegularParams, SchemaConfig, SignatureMode, StorageType};
 
@@ -89,13 +89,7 @@ pub fn handler<'info>(
 ) -> Result<()> {
     let schema_config = &ctx.accounts.schema_config;
 
-    // 1. Verify signature count (CounterpartySigned for ReputationScore, AgentOwnerSigned for Delegation)
-    require!(
-        params.signatures.len() == 1,
-        SatiError::InvalidSignatureCount
-    );
-
-    // 2. Verify data length (universal layout requires 131 bytes minimum)
+    // 1. Verify data length (universal layout requires 131 bytes minimum)
     require!(
         params.data.len() >= MIN_BASE_LAYOUT_SIZE,
         SatiError::AttestationDataTooSmall
@@ -105,14 +99,14 @@ pub fn handler<'info>(
         SatiError::AttestationDataTooLarge
     );
 
-    // 2b. Verify layout version
+    // 1b. Verify layout version
     let layout_version = params.data[offsets::LAYOUT_VERSION];
     require!(
         layout_version == CURRENT_LAYOUT_VERSION,
         SatiError::UnsupportedLayoutVersion
     );
 
-    // 3. Parse base layout (universal offsets)
+    // 2. Parse base layout (universal offsets)
     let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
@@ -126,24 +120,15 @@ pub fn handler<'info>(
     let token_account_pubkey = Pubkey::new_from_array(token_account_bytes);
     let counterparty_pubkey = Pubkey::new_from_array(counterparty_bytes);
 
-    // 4. Self-attestation prevention
+    // 3. Self-attestation prevention
     require!(
         token_account_pubkey != counterparty_pubkey,
         SatiError::SelfAttestationNotAllowed
     );
 
-    // 5. Verify signature authorization based on signature mode
-    match schema_config.signature_mode {
-        SignatureMode::CounterpartySigned => {
-            // Counterparty (provider) must be the signer
-            // agent_ata is optional and not validated for this mode
-            require!(
-                params.signatures[0].pubkey == counterparty_pubkey,
-                SatiError::SignatureMismatch
-            );
-        }
+    // 4. Determine expected pubkeys for signature extraction
+    let expected_agent_pubkey = match schema_config.signature_mode {
         SignatureMode::AgentOwnerSigned => {
-            // Agent authorization via ATA: signatures[0] must be owner OR valid delegate
             let agent_ata = ctx
                 .accounts
                 .agent_ata
@@ -154,38 +139,17 @@ pub fn handler<'info>(
                 SatiError::AgentAtaMintMismatch
             );
             require!(agent_ata.amount >= 1, SatiError::AgentAtaEmpty);
-
-            // Get clock for delegation verification (only if not owner)
-            let clock = if params.signatures[0].pubkey != agent_ata.owner {
-                ctx.accounts
-                    .clock
-                    .as_ref()
-                    .ok_or(SatiError::DelegationAttestationRequired)?
-                    .deref()
-            } else {
-                &Clock::default()
-            };
-
-            // Verify agent authorization (owner fast path or delegation)
-            verify_agent_authorization(
-                &params.signatures[0].pubkey,
-                &token_account_pubkey,
-                &agent_ata.owner,
-                schema_config.delegation_schema.as_ref(),
-                ctx.accounts.delegation_attestation.as_ref(),
-                &ctx.accounts.sati_credential.key(),
-                clock,
-            )?;
-            // No counterparty binding - agent owner/delegate IS the signer
+            Some(agent_ata.owner)
         }
+        SignatureMode::CounterpartySigned => None,
         SignatureMode::DualSignature => {
             // DualSignature not supported for Regular storage
             // (requires 2 signatures, but Regular uses single-signature nonce)
             return Err(SatiError::StorageTypeNotSupported.into());
         }
-    }
+    };
 
-    // 6. Validate universal base layout fields
+    // 5. Validate universal base layout fields
     // Validate outcome (0-2 for ReputationScore: 0=Poor, 1=Average, 2=Good)
     let outcome = params.data[offsets::OUTCOME];
     require!(outcome <= MAX_OUTCOME_VALUE, SatiError::InvalidOutcome);
@@ -201,7 +165,7 @@ pub fn handler<'info>(
     let content_len = params.data.len().saturating_sub(offsets::CONTENT);
     require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
 
-    // 7. Build expected message hash (owner/delegate signs interaction_hash)
+    // 6. Build expected message hash (owner/delegate signs interaction_hash)
     // data_hash should be zero-filled for single-signature schemas (CounterpartySigned/AgentOwnerSigned)
     let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
         .try_into()
@@ -209,12 +173,42 @@ pub fn handler<'info>(
     let expected_message =
         compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
 
-    // 8. Verify Ed25519 signature (single-signature mode: verify signer signed interaction_hash)
-    verify_ed25519_signatures(
+    // 7. Extract and verify Ed25519 signature
+    let extracted_signatures = extract_ed25519_signatures(
         &ctx.accounts.instructions_sysvar,
-        &params.signatures,
-        &[Some(expected_message.to_vec())],
+        expected_agent_pubkey.as_ref(),
+        &counterparty_pubkey,
+        schema_config.signature_mode,
+        &[expected_message.to_vec()],
     )?;
+
+    // 8. Additional authorization for delegation (AgentOwnerSigned only)
+    if schema_config.signature_mode == SignatureMode::AgentOwnerSigned {
+        let agent_ata = ctx.accounts.agent_ata.as_ref().unwrap(); // Already validated above
+        let signer_pubkey = &extracted_signatures[0].pubkey;
+
+        // Get clock for delegation verification (only if not owner)
+        let clock = if signer_pubkey != &agent_ata.owner {
+            ctx.accounts
+                .clock
+                .as_ref()
+                .ok_or(SatiError::DelegationAttestationRequired)?
+                .deref()
+        } else {
+            &Clock::default()
+        };
+
+        // Verify agent authorization (owner fast path or delegation)
+        verify_agent_authorization(
+            signer_pubkey,
+            &token_account_pubkey,
+            &agent_ata.owner,
+            schema_config.delegation_schema.as_ref(),
+            ctx.accounts.delegation_attestation.as_ref(),
+            &ctx.accounts.sati_credential.key(),
+            clock,
+        )?;
+    }
 
     // 9. Compute deterministic nonce
     let nonce = compute_reputation_nonce(&counterparty_pubkey, &token_account_pubkey);

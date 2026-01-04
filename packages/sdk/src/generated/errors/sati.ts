@@ -84,43 +84,52 @@ export const SATI_ERROR__MESSAGE_MISMATCH = 0x1790; // 6032
 export const SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR = 0x1791; // 6033
 /** DuplicateSigners: Duplicate signers not allowed for dual signature mode */
 export const SATI_ERROR__DUPLICATE_SIGNERS = 0x1792; // 6034
+/** Ed25519InstructionNotFound: No Ed25519 instruction found in transaction */
+export const SATI_ERROR__ED25519_INSTRUCTION_NOT_FOUND = 0x1793; // 6035
+/** AgentSignatureNotFound: Agent's Ed25519 signature not found (message content mismatch) */
+export const SATI_ERROR__AGENT_SIGNATURE_NOT_FOUND = 0x1794; // 6036
+/** CounterpartySignatureNotFound: Counterparty's Ed25519 signature not found (message content mismatch) */
+export const SATI_ERROR__COUNTERPARTY_SIGNATURE_NOT_FOUND = 0x1795; // 6037
 /** OwnerOnly: Schema requires owner signature but delegate attempted */
-export const SATI_ERROR__OWNER_ONLY = 0x1793; // 6035
+export const SATI_ERROR__OWNER_ONLY = 0x1796; // 6038
 /** DelegationAttestationRequired: Delegate signed but no delegation attestation provided */
-export const SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED = 0x1794; // 6036
+export const SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED = 0x1797; // 6039
 /** InvalidDelegationPDA: Delegation attestation PDA doesn't match expected derivation */
-export const SATI_ERROR__INVALID_DELEGATION_P_D_A = 0x1795; // 6037
+export const SATI_ERROR__INVALID_DELEGATION_P_D_A = 0x1798; // 6040
 /** DelegateMismatch: Delegation attestation delegate doesn't match signer */
-export const SATI_ERROR__DELEGATE_MISMATCH = 0x1796; // 6038
+export const SATI_ERROR__DELEGATE_MISMATCH = 0x1799; // 6041
 /** AgentMintMismatch: Delegation attestation agent doesn't match target agent */
-export const SATI_ERROR__AGENT_MINT_MISMATCH = 0x1797; // 6039
+export const SATI_ERROR__AGENT_MINT_MISMATCH = 0x179a; // 6042
 /** DelegationOwnerMismatch: Delegation was created by different owner (NFT was transferred) */
-export const SATI_ERROR__DELEGATION_OWNER_MISMATCH = 0x1798; // 6040
+export const SATI_ERROR__DELEGATION_OWNER_MISMATCH = 0x179b; // 6043
 /** DelegationExpired: Delegation attestation has expired */
-export const SATI_ERROR__DELEGATION_EXPIRED = 0x1799; // 6041
+export const SATI_ERROR__DELEGATION_EXPIRED = 0x179c; // 6044
 /** InvalidSecp256k1Signature: Invalid secp256k1 signature */
-export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x179a; // 6042
+export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x179d; // 6045
 /** Secp256k1RecoveryFailed: Secp256k1 recovery failed */
-export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x179b; // 6043
+export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x179e; // 6046
 /** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
-export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x179c; // 6044
+export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x179f; // 6047
 /** InvalidEvmAddressRecovery: Failed to extract EVM address from secp256k1 key recovery */
-export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x179d; // 6045
+export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x17a0; // 6048
 
 export type SatiError =
   | typeof SATI_ERROR__AGENT_ATA_EMPTY
   | typeof SATI_ERROR__AGENT_ATA_MINT_MISMATCH
   | typeof SATI_ERROR__AGENT_ATA_REQUIRED
   | typeof SATI_ERROR__AGENT_MINT_MISMATCH
+  | typeof SATI_ERROR__AGENT_SIGNATURE_NOT_FOUND
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_LARGE
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_SMALL
   | typeof SATI_ERROR__ATTESTATION_NOT_CLOSEABLE
   | typeof SATI_ERROR__CONTENT_TOO_LARGE
+  | typeof SATI_ERROR__COUNTERPARTY_SIGNATURE_NOT_FOUND
   | typeof SATI_ERROR__DELEGATE_MISMATCH
   | typeof SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED
   | typeof SATI_ERROR__DELEGATION_EXPIRED
   | typeof SATI_ERROR__DELEGATION_OWNER_MISMATCH
   | typeof SATI_ERROR__DUPLICATE_SIGNERS
+  | typeof SATI_ERROR__ED25519_INSTRUCTION_NOT_FOUND
   | typeof SATI_ERROR__EVM_ADDRESS_MISMATCH
   | typeof SATI_ERROR__IMMUTABLE_AUTHORITY
   | typeof SATI_ERROR__INVALID_AUTHORITY
@@ -162,15 +171,18 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__AGENT_ATA_MINT_MISMATCH]: `Agent ATA mint does not match token_account in attestation data`,
     [SATI_ERROR__AGENT_ATA_REQUIRED]: `Agent ATA required for this signature mode`,
     [SATI_ERROR__AGENT_MINT_MISMATCH]: `Delegation attestation agent doesn't match target agent`,
+    [SATI_ERROR__AGENT_SIGNATURE_NOT_FOUND]: `Agent's Ed25519 signature not found (message content mismatch)`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_LARGE]: `Attestation data exceeds maximum size`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_SMALL]: `Attestation data too small (minimum 130 bytes for universal base layout)`,
     [SATI_ERROR__ATTESTATION_NOT_CLOSEABLE]: `Attestation cannot be closed for this schema`,
     [SATI_ERROR__CONTENT_TOO_LARGE]: `Content exceeds maximum size (512 bytes)`,
+    [SATI_ERROR__COUNTERPARTY_SIGNATURE_NOT_FOUND]: `Counterparty's Ed25519 signature not found (message content mismatch)`,
     [SATI_ERROR__DELEGATE_MISMATCH]: `Delegation attestation delegate doesn't match signer`,
     [SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED]: `Delegate signed but no delegation attestation provided`,
     [SATI_ERROR__DELEGATION_EXPIRED]: `Delegation attestation has expired`,
     [SATI_ERROR__DELEGATION_OWNER_MISMATCH]: `Delegation was created by different owner (NFT was transferred)`,
     [SATI_ERROR__DUPLICATE_SIGNERS]: `Duplicate signers not allowed for dual signature mode`,
+    [SATI_ERROR__ED25519_INSTRUCTION_NOT_FOUND]: `No Ed25519 instruction found in transaction`,
     [SATI_ERROR__EVM_ADDRESS_MISMATCH]: `EVM address mismatch - recovered address does not match expected`,
     [SATI_ERROR__IMMUTABLE_AUTHORITY]: `Authority is immutable (renounced)`,
     [SATI_ERROR__INVALID_AUTHORITY]: `Invalid authority`,
