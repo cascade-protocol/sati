@@ -57,6 +57,7 @@ interface GiveFeedbackDialogProps {
 
 // API request/response types for CounterpartySigned mode
 interface SubmitFeedbackRequest {
+  network: "devnet" | "mainnet"; // Network to submit on
   sasSchema: string;
   taskRef: string;
   tokenAccount: string;
@@ -189,6 +190,7 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         toast.loading("Submitting feedback...", { id: toastId });
 
         const request: SubmitFeedbackRequest = {
+          network: getNetwork(),
           sasSchema: FEEDBACK_SCHEMA_ADDRESS,
           taskRef: bytesToHex(taskRef),
           tokenAccount: agentMint,

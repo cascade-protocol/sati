@@ -28,10 +28,12 @@ interface EchoEnv extends Env {
   // Agent signer private key (base58 encoded 64-byte secret key)
   // Used only for signing the echo response (blind signature)
   SATI_AGENT_SIGNER_KEY?: string;
-  // Demo agent mint address
-  DEMO_AGENT_MINT?: string;
-  // Helius RPC URL for Light Protocol
+  // Demo agent mint addresses (network-specific)
+  DEMO_AGENT_MINT_DEVNET?: string;
+  DEMO_AGENT_MINT_MAINNET?: string;
+  // Helius RPC URLs for Light Protocol (network-specific)
   VITE_DEVNET_RPC?: string;
+  VITE_MAINNET_RPC?: string;
 }
 
 interface EchoRequest {
@@ -43,6 +45,8 @@ interface EchoRequest {
 }
 
 interface BuildFeedbackTxRequest {
+  // Network to submit on
+  network: "devnet" | "mainnet";
   // Same params from echo
   sasSchema: string;
   taskRef: string; // hex-encoded 32 bytes
@@ -69,14 +73,18 @@ interface BuildFeedbackTxRequest {
 // x402.org facilitator for devnet (PayAI has load-balancing bug with feePayers)
 const FACILITATOR_URL = "https://x402.org/facilitator";
 
-// Solana Devnet CAIP-2 network identifier
+// Solana Devnet CAIP-2 network identifier (used for x402 echo demo)
 const SOLANA_DEVNET_NETWORK = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const;
 
-// Get deployed config (feedback schema + lookup table)
-const deployedConfig = loadDeployedConfig("devnet");
-const FEEDBACK_SCHEMA = deployedConfig?.schemas?.feedback;
-const FEEDBACKPUBLIC_SCHEMA = deployedConfig?.schemas?.feedbackPublic;
-const LOOKUP_TABLE = deployedConfig?.lookupTable;
+// Helper to get deployed config for a network
+function getNetworkConfig(network: "devnet" | "mainnet") {
+  const config = loadDeployedConfig(network);
+  return {
+    feedbackSchema: config?.schemas?.feedback,
+    feedbackPublicSchema: config?.schemas?.feedbackPublic,
+    lookupTable: config?.lookupTable,
+  };
+}
 
 // =============================================================================
 // Helpers
@@ -119,9 +127,11 @@ function createApp(env: EchoEnv) {
   // Health check
   app.get("/api/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
 
-  // Demo agents list endpoint
+  // Demo agents list endpoint (accepts optional network query param)
   app.get("/api/demo-agents", (c) => {
-    const demoAgentMint = env.DEMO_AGENT_MINT;
+    const network = c.req.query("network") || "devnet";
+    const demoAgentMint =
+      network === "mainnet" ? env.DEMO_AGENT_MINT_MAINNET : env.DEMO_AGENT_MINT_DEVNET;
 
     if (!demoAgentMint) {
       return c.json({ agents: [] });
@@ -180,8 +190,8 @@ function createApp(env: EchoEnv) {
               price: "$0.01",
               payTo: agentAddress,
               extra: {
-                feedbackSchema: FEEDBACK_SCHEMA,
-                demoAgentMint: env.DEMO_AGENT_MINT,
+                feedbackSchema: getNetworkConfig("devnet").feedbackSchema,
+                demoAgentMint: env.DEMO_AGENT_MINT_DEVNET,
               },
             },
             description: "SATI Echo - Agent signature for feedback attestation",
@@ -280,6 +290,7 @@ function createApp(env: EchoEnv) {
 
     // Validate required fields (counterpartySignature optional for SingleSigner schemas)
     if (
+      !body.network ||
       !body.sasSchema ||
       !body.taskRef ||
       !body.tokenAccount ||
@@ -292,12 +303,20 @@ function createApp(env: EchoEnv) {
       return c.json({ error: "Missing required fields" }, 400);
     }
 
+    // Validate network
+    if (body.network !== "devnet" && body.network !== "mainnet") {
+      return c.json({ error: "Invalid network - must be 'devnet' or 'mainnet'" }, 400);
+    }
+
+    // Get network-specific config
+    const networkConfig = getNetworkConfig(body.network);
+
     // Validate addresses
     if (!isAddress(body.sasSchema)) {
       return c.json({ error: "Invalid sasSchema address" }, 400);
     }
     // Validate schema is one of the allowed feedback schemas (security check)
-    if (body.sasSchema !== FEEDBACK_SCHEMA && body.sasSchema !== FEEDBACKPUBLIC_SCHEMA) {
+    if (body.sasSchema !== networkConfig.feedbackSchema && body.sasSchema !== networkConfig.feedbackPublicSchema) {
       return c.json({ error: "Invalid schema - only feedback/feedbackPublic schemas supported" }, 400);
     }
     if (!isAddress(body.tokenAccount)) {
@@ -362,11 +381,14 @@ function createApp(env: EchoEnv) {
     }
 
     try {
+      // Select network-appropriate RPC URL
+      const rpcUrl = body.network === "mainnet" ? env.VITE_MAINNET_RPC : env.VITE_DEVNET_RPC;
+
       // Initialize Sati client with Helius RPC for Light Protocol
       const sati = new Sati({
-        network: "devnet",
-        rpcUrl: env.VITE_DEVNET_RPC,
-        photonRpcUrl: env.VITE_DEVNET_RPC,
+        network: body.network,
+        rpcUrl,
+        photonRpcUrl: rpcUrl,
       });
 
       if (isCounterpartySigned) {
@@ -397,7 +419,7 @@ function createApp(env: EchoEnv) {
           },
           // SIWS message bytes the user signed
           counterpartyMessage: counterpartyMessageBytes,
-          lookupTableAddress: LOOKUP_TABLE as Address,
+          lookupTableAddress: networkConfig.lookupTable as Address,
           // Optional content (JSON with tags/score/message)
           ...(body.content && {
             contentType: body.contentType ?? 1, // 1 = JSON
@@ -433,7 +455,7 @@ function createApp(env: EchoEnv) {
               signature: counterpartySigBytes,
             },
           }),
-          lookupTableAddress: LOOKUP_TABLE as Address,
+          lookupTableAddress: networkConfig.lookupTable as Address,
           // Optional content (JSON with tags/score/message)
           ...(body.content && {
             contentType: body.contentType ?? 1, // 1 = JSON
