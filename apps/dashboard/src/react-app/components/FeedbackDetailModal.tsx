@@ -58,7 +58,7 @@ function bytesToHex(bytes: Uint8Array): string {
 export function FeedbackDetailModal({ feedback, currentSlot, children }: FeedbackDetailModalProps) {
   const data = feedback.data as {
     outcome: number;
-    tokenAccount: string;
+    agentMint: string;
     counterparty: string;
     taskRef: Uint8Array;
     dataHash: Uint8Array;
@@ -134,7 +134,7 @@ export function FeedbackDetailModal({ feedback, currentSlot, children }: Feedbac
           <div className="space-y-3">
             <span className="text-sm font-medium text-muted-foreground block">On-Chain Data</span>
 
-            <AddressRow label="Agent (Token)" value={data.tokenAccount} solscanType="token" />
+            <AddressRow label="Agent Mint" value={data.agentMint} solscanType="token" />
             <AddressRow label="Counterparty" value={data.counterparty} solscanType="account" />
             {data.taskRef && <AddressRow label="Task Ref" value={bytesToHex(data.taskRef)} copyOnly />}
             {data.dataHash && <AddressRow label="Data Hash" value={bytesToHex(data.dataHash)} copyOnly />}

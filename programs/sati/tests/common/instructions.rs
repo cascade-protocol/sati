@@ -156,6 +156,7 @@ const TOKEN_2022_PROGRAM_ID: Pubkey =
 pub fn build_create_compressed_attestation_ix(
     payer: &Pubkey,
     schema_config: &Pubkey,
+    agent_mint: &Pubkey,
     agent_ata: Option<&Pubkey>,
     params: CreateParams,
     remaining_accounts: Vec<AccountMeta>,
@@ -167,6 +168,7 @@ pub fn build_create_compressed_attestation_ix(
         instructions_sysvar: solana_sdk::sysvar::instructions::ID,
         agent_ata: agent_ata.copied(),
         token_program: agent_ata.map(|_| TOKEN_2022_PROGRAM_ID),
+        agent_mint: *agent_mint,
         delegation_attestation: None,
         sati_credential: None,
         clock: None,
@@ -192,6 +194,7 @@ pub fn build_create_compressed_attestation_ix(
 pub fn build_close_compressed_attestation_ix(
     signer: &Pubkey,
     schema_config: &Pubkey,
+    agent_mint: &Pubkey,
     agent_ata: Option<&Pubkey>,
     params: CloseParams,
     remaining_accounts: Vec<AccountMeta>,
@@ -202,6 +205,7 @@ pub fn build_close_compressed_attestation_ix(
         schema_config: *schema_config,
         agent_ata: agent_ata.copied(),
         token_program: agent_ata.map(|_| TOKEN_2022_PROGRAM_ID),
+        agent_mint: *agent_mint,
         event_authority: derive_event_authority(),
         program: SATI_PROGRAM_ID,
     }

@@ -3,7 +3,7 @@
 //! # Naming Convention
 //!
 //! Throughout this module and the SATI codebase:
-//! - `token_account` = Agent's **MINT ADDRESS** (stable identity, named for SAS wire format compatibility)
+//! - `agent_mint` = Agent's **MINT ADDRESS** (stable Token-2022 NFT identity)
 //! - NOT an Associated Token Account (ATA)
 //!
 //! # Authorization Model
@@ -253,23 +253,23 @@ pub fn compute_interaction_hash(
 pub fn compute_attestation_nonce(
     task_ref: &[u8; 32],
     sas_schema: &Pubkey,
-    token_account: &Pubkey,
+    agent_mint: &Pubkey,
     counterparty: &Pubkey,
 ) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(task_ref);
     hasher.update(sas_schema.as_ref());
-    hasher.update(token_account.as_ref());
+    hasher.update(agent_mint.as_ref());
     hasher.update(counterparty.as_ref());
     hasher.finalize().into()
 }
 
 /// Compute the deterministic nonce for regular (SAS) attestation.
 /// One ReputationScore per (provider, agent) pair.
-pub fn compute_reputation_nonce(provider: &Pubkey, token_account: &Pubkey) -> [u8; 32] {
+pub fn compute_reputation_nonce(provider: &Pubkey, agent_mint: &Pubkey) -> [u8; 32] {
     let mut hasher = Keccak256::new();
     hasher.update(provider.as_ref());
-    hasher.update(token_account.as_ref());
+    hasher.update(agent_mint.as_ref());
     hasher.finalize().into()
 }
 
@@ -338,7 +338,7 @@ pub fn verify_secp256k1_signature(
 pub struct ParsedDelegation {
     /// Delegate pubkey (who is authorized to sign) - from counterparty field
     pub delegate: Pubkey,
-    /// Agent mint address (which agent this delegation is for) - from token_account field
+    /// Agent mint address (which agent this delegation is for) - from agent_mint field
     pub agent_mint: Pubkey,
     /// Delegator pubkey (owner at time of delegation) - from data_hash field
     pub delegator: Pubkey,
@@ -351,10 +351,10 @@ pub struct ParsedDelegation {
 /// SAS attestation layout:
 /// - header(101): discriminator(1) + nonce(32) + credential(32) + schema(32) + data_len(4)
 /// - data(variable): universal layout with delegation-specific fields
-/// - tail(72): signer(32) + expiry(8) + token_account(32)
+/// - tail(72): signer(32) + expiry(8) + agent_mint(32)
 ///
 /// Delegation fields in universal layout (within data section):
-/// - token_account (offset 33): agent mint
+/// - agent_mint (offset 33): agent mint address
 /// - counterparty (offset 65): delegate pubkey
 /// - data_hash (offset 98): delegator pubkey
 pub fn parse_delegation_attestation(data: &[u8]) -> Result<ParsedDelegation> {
@@ -379,9 +379,9 @@ pub fn parse_delegation_attestation(data: &[u8]) -> Result<ParsedDelegation> {
     );
 
     // Parse universal layout fields within data section
-    // agent_mint at offset 33 within data (token_account field)
+    // agent_mint at offset 33 within data
     let agent_mint = Pubkey::new_from_array(
-        data[data_start + offsets::TOKEN_ACCOUNT..data_start + offsets::COUNTERPARTY]
+        data[data_start + offsets::AGENT_MINT..data_start + offsets::COUNTERPARTY]
             .try_into()
             .map_err(|_| SatiError::InvalidSignature)?,
     );
@@ -424,7 +424,7 @@ pub fn parse_delegation_attestation(data: &[u8]) -> Result<ParsedDelegation> {
 ///
 /// # Arguments
 /// * `signer` - The pubkey that signed the attestation
-/// * `agent_mint` - The agent's mint address (token_account field)
+/// * `agent_mint` - The agent's mint address (Token-2022 NFT identity)
 /// * `agent_ata_owner` - The current owner of the agent ATA
 /// * `delegation_schema` - Schema for delegation verification (None = owner only)
 /// * `delegation_attestation` - Optional delegation attestation account
@@ -481,7 +481,7 @@ pub fn verify_agent_authorization(
     // 6. Delegate Binding: attestation.counterparty == signer
     require!(parsed.delegate == *signer, SatiError::DelegateMismatch);
 
-    // 7. Agent Binding: attestation.token_account == agent_mint
+    // 7. Agent Binding: attestation.agent_mint == agent_mint
     require!(
         parsed.agent_mint == *agent_mint,
         SatiError::AgentMintMismatch
@@ -538,12 +538,12 @@ mod tests {
     fn test_attestation_nonce_includes_counterparty() {
         let task_ref = [1u8; 32];
         let schema = Pubkey::new_unique();
-        let token_account = Pubkey::new_unique();
+        let agent_mint = Pubkey::new_unique();
         let counterparty1 = Pubkey::new_unique();
         let counterparty2 = Pubkey::new_unique();
 
-        let nonce1 = compute_attestation_nonce(&task_ref, &schema, &token_account, &counterparty1);
-        let nonce2 = compute_attestation_nonce(&task_ref, &schema, &token_account, &counterparty2);
+        let nonce1 = compute_attestation_nonce(&task_ref, &schema, &agent_mint, &counterparty1);
+        let nonce2 = compute_attestation_nonce(&task_ref, &schema, &agent_mint, &counterparty2);
 
         assert_ne!(nonce1, nonce2);
     }

@@ -32,12 +32,16 @@ pub struct CloseCompressedAttestation<'info> {
     pub schema_config: Account<'info, SchemaConfig>,
 
     /// Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
-    /// If provided, must hold the agent NFT (mint matches token_account from data).
-    /// Note: token_account in data is the MINT address; this is the holder's ATA.
+    /// If provided, must hold the agent NFT (mint matches agent_mint from data).
     pub agent_ata: Option<InterfaceAccount<'info, TokenAccount>>,
 
     /// Token-2022 program for ATA verification (optional, required with agent_ata)
     pub token_program: Option<Interface<'info, TokenInterface>>,
+
+    /// Agent mint (Token-2022 NFT) for Solscan indexing.
+    /// Must match agent_mint in attestation data (bytes 33-64).
+    /// CHECK: Validated against attestation data in handler.
+    pub agent_mint: AccountInfo<'info>,
     // Light Protocol accounts are passed via remaining_accounts
 }
 
@@ -47,23 +51,29 @@ pub fn handler<'info>(
 ) -> Result<()> {
     let schema_config = &ctx.accounts.schema_config;
 
-    // 1. Parse token_account and counterparty from current_data
+    // 1. Parse agent_mint and counterparty from current_data
     require!(
         params.current_data.len() >= 96,
         SatiError::AttestationDataTooSmall
     );
 
-    let token_account_bytes: [u8; 32] = params.current_data[32..64]
+    let agent_mint_bytes: [u8; 32] = params.current_data[32..64]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
     let counterparty_bytes: [u8; 32] = params.current_data[64..96]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
-    let token_account = Pubkey::new_from_array(token_account_bytes);
+    let agent_mint_pubkey = Pubkey::new_from_array(agent_mint_bytes);
     let counterparty = Pubkey::new_from_array(counterparty_bytes);
 
-    // 2. Authorization check based on signature mode
+    // 2. Validate agent_mint account matches attestation data
+    require!(
+        ctx.accounts.agent_mint.key() == agent_mint_pubkey,
+        SatiError::AgentMintAccountMismatch
+    );
+
+    // 3. Authorization check based on signature mode
     let signer_key = ctx.accounts.signer.key();
     let is_counterparty = signer_key == counterparty;
 
@@ -71,7 +81,7 @@ pub fn handler<'info>(
         crate::state::SignatureMode::DualSignature => {
             // DualSignature: Either party can close (both participated in creation)
             let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
-                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+                ata.mint == agent_mint_pubkey && ata.amount >= 1 && ata.owner == signer_key
             });
             require!(
                 is_counterparty || is_agent_owner,
@@ -87,26 +97,26 @@ pub fn handler<'info>(
             // AgentOwnerSigned (e.g., DelegateV1): Only agent owner can close
             // Agent controls their own delegations
             let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
-                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+                ata.mint == agent_mint_pubkey && ata.amount >= 1 && ata.owner == signer_key
             });
             require!(is_agent_owner, SatiError::UnauthorizedClose);
         }
     }
 
-    // 3. Initialize Light Protocol CPI accounts
+    // 4. Initialize Light Protocol CPI accounts
     let light_cpi_accounts = CpiAccounts::new(
         ctx.accounts.signer.as_ref(),
         ctx.remaining_accounts,
         LIGHT_CPI_SIGNER,
     );
 
-    // 4. Reconstruct the attestation for closing with actual data from params
+    // 5. Reconstruct the attestation for closing with actual data from params
     let attestation = LightAccount::<CompressedAttestation>::new_close(
         &ID,
         &params.account_meta,
         CompressedAttestation {
             sas_schema: schema_config.sas_schema.to_bytes(),
-            token_account: token_account_bytes,
+            agent_mint: agent_mint_bytes,
             data: params.current_data.clone(),
             num_signatures: params.num_signatures,
             signature1: params.signature1,
@@ -114,16 +124,16 @@ pub fn handler<'info>(
         },
     )?;
 
-    // 5. CPI to Light System Program to close
+    // 6. CPI to Light System Program to close
     LightSystemProgramCpi::new_cpi(LIGHT_CPI_SIGNER, params.proof)
         .with_light_account(attestation)?
         .invoke(light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
-    // 6. Emit event with actual address from params
+    // 7. Emit event with actual address from params
     emit_cpi!(AttestationClosed {
         sas_schema: schema_config.sas_schema,
-        token_account,
+        agent_mint: agent_mint_pubkey,
         address: params.address,
     });
 

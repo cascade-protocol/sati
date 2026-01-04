@@ -67,6 +67,7 @@ export type CloseCompressedAttestationInstruction<
   TAccountSchemaConfig extends string | AccountMeta<string> = string,
   TAccountAgentAta extends string | AccountMeta<string> = string,
   TAccountTokenProgram extends string | AccountMeta<string> = string,
+  TAccountAgentMint extends string | AccountMeta<string> = string,
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -87,6 +88,9 @@ export type CloseCompressedAttestationInstruction<
       TAccountTokenProgram extends string
         ? ReadonlyAccount<TAccountTokenProgram>
         : TAccountTokenProgram,
+      TAccountAgentMint extends string
+        ? ReadonlyAccount<TAccountAgentMint>
+        : TAccountAgentMint,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -179,6 +183,7 @@ export type CloseCompressedAttestationAsyncInput<
   TAccountSchemaConfig extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountAgentMint extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -188,12 +193,16 @@ export type CloseCompressedAttestationAsyncInput<
   schemaConfig: Address<TAccountSchemaConfig>;
   /**
    * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
-   * If provided, must hold the agent NFT (mint matches token_account from data).
-   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   * If provided, must hold the agent NFT (mint matches agent_mint from data).
    */
   agentAta?: Address<TAccountAgentAta>;
   /** Token-2022 program for ATA verification (optional, required with agent_ata) */
   tokenProgram?: Address<TAccountTokenProgram>;
+  /**
+   * Agent mint (Token-2022 NFT) for Solscan indexing.
+   * Must match agent_mint in attestation data (bytes 33-64).
+   */
+  agentMint: Address<TAccountAgentMint>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   currentData: CloseCompressedAttestationInstructionDataArgs["currentData"];
@@ -210,6 +219,7 @@ export async function getCloseCompressedAttestationInstructionAsync<
   TAccountSchemaConfig extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountAgentMint extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -219,6 +229,7 @@ export async function getCloseCompressedAttestationInstructionAsync<
     TAccountSchemaConfig,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -230,6 +241,7 @@ export async function getCloseCompressedAttestationInstructionAsync<
     TAccountSchemaConfig,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -243,6 +255,7 @@ export async function getCloseCompressedAttestationInstructionAsync<
     schemaConfig: { value: input.schemaConfig ?? null, isWritable: false },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -276,6 +289,7 @@ export async function getCloseCompressedAttestationInstructionAsync<
       getAccountMeta(accounts.schemaConfig),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -289,6 +303,7 @@ export async function getCloseCompressedAttestationInstructionAsync<
     TAccountSchemaConfig,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -299,6 +314,7 @@ export type CloseCompressedAttestationInput<
   TAccountSchemaConfig extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountAgentMint extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -308,12 +324,16 @@ export type CloseCompressedAttestationInput<
   schemaConfig: Address<TAccountSchemaConfig>;
   /**
    * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
-   * If provided, must hold the agent NFT (mint matches token_account from data).
-   * Note: token_account in data is the MINT address; this is the holder's ATA.
+   * If provided, must hold the agent NFT (mint matches agent_mint from data).
    */
   agentAta?: Address<TAccountAgentAta>;
   /** Token-2022 program for ATA verification (optional, required with agent_ata) */
   tokenProgram?: Address<TAccountTokenProgram>;
+  /**
+   * Agent mint (Token-2022 NFT) for Solscan indexing.
+   * Must match agent_mint in attestation data (bytes 33-64).
+   */
+  agentMint: Address<TAccountAgentMint>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
   currentData: CloseCompressedAttestationInstructionDataArgs["currentData"];
@@ -330,6 +350,7 @@ export function getCloseCompressedAttestationInstruction<
   TAccountSchemaConfig extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountAgentMint extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -339,6 +360,7 @@ export function getCloseCompressedAttestationInstruction<
     TAccountSchemaConfig,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -349,6 +371,7 @@ export function getCloseCompressedAttestationInstruction<
   TAccountSchemaConfig,
   TAccountAgentAta,
   TAccountTokenProgram,
+  TAccountAgentMint,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -361,6 +384,7 @@ export function getCloseCompressedAttestationInstruction<
     schemaConfig: { value: input.schemaConfig ?? null, isWritable: false },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -379,6 +403,7 @@ export function getCloseCompressedAttestationInstruction<
       getAccountMeta(accounts.schemaConfig),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -392,6 +417,7 @@ export function getCloseCompressedAttestationInstruction<
     TAccountSchemaConfig,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -409,14 +435,18 @@ export type ParsedCloseCompressedAttestationInstruction<
     schemaConfig: TAccountMetas[1];
     /**
      * Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
-     * If provided, must hold the agent NFT (mint matches token_account from data).
-     * Note: token_account in data is the MINT address; this is the holder's ATA.
+     * If provided, must hold the agent NFT (mint matches agent_mint from data).
      */
     agentAta?: TAccountMetas[2] | undefined;
     /** Token-2022 program for ATA verification (optional, required with agent_ata) */
     tokenProgram?: TAccountMetas[3] | undefined;
-    eventAuthority: TAccountMetas[4];
-    program: TAccountMetas[5];
+    /**
+     * Agent mint (Token-2022 NFT) for Solscan indexing.
+     * Must match agent_mint in attestation data (bytes 33-64).
+     */
+    agentMint: TAccountMetas[4];
+    eventAuthority: TAccountMetas[5];
+    program: TAccountMetas[6];
   };
   data: CloseCompressedAttestationInstructionData;
 };
@@ -429,7 +459,7 @@ export function parseCloseCompressedAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCloseCompressedAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 6) {
+  if (instruction.accounts.length < 7) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -452,6 +482,7 @@ export function parseCloseCompressedAttestationInstruction<
       schemaConfig: getNextAccount(),
       agentAta: getNextOptionalAccount(),
       tokenProgram: getNextOptionalAccount(),
+      agentMint: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },

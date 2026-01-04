@@ -314,15 +314,15 @@ export function getCreateSatiSchemaInstruction(params: {
 /**
  * Compute nonce for ReputationScore attestation
  *
- * One reputation score per (provider, agent token account) pair.
- * nonce = keccak256(provider + tokenAccount)
+ * One reputation score per (provider, agent) pair.
+ * nonce = keccak256(provider + agentMint)
  *
  * @param provider - Reputation provider address
- * @param tokenAccount - Agent's token account address
+ * @param agentMint - Agent's mint address
  * @returns Nonce as Address (base58)
  */
-export function computeReputationScoreNonce(provider: Address, tokenAccount: Address): Address {
-  const data = new TextEncoder().encode(`${provider}${tokenAccount}`);
+export function computeReputationScoreNonce(provider: Address, agentMint: Address): Address {
+  const data = new TextEncoder().encode(`${provider}${agentMint}`);
   const hash = keccak_256(data);
   return address(bs58.encode(hash));
 }

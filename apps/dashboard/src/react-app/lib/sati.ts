@@ -114,11 +114,8 @@ export type ParsedFeedback = ParsedAttestation;
 
 /**
  * List all feedbacks for a specific agent (by mint address).
- *
- * Note: The parameter is named tokenAccount for SAS wire format compatibility,
- * but it stores the agent's mint address, not an ATA.
  */
-export async function listAgentFeedbacks(tokenAccount: Address): Promise<ParsedFeedback[]> {
+export async function listAgentFeedbacks(agentMint: Address): Promise<ParsedFeedback[]> {
   const sati = getSatiClient();
   const { feedback, feedbackPublic } = getFeedbackSchemas();
   const schemas = [feedback, feedbackPublic].filter(Boolean) as Address[];
@@ -131,7 +128,7 @@ export async function listAgentFeedbacks(tokenAccount: Address): Promise<ParsedF
     const allFeedbacks: ParsedFeedback[] = [];
 
     for (const sasSchema of schemas) {
-      const result = await sati.listFeedbacks({ sasSchema, tokenAccount });
+      const result = await sati.listFeedbacks({ sasSchema, agentMint });
       allFeedbacks.push(...result.items);
     }
 

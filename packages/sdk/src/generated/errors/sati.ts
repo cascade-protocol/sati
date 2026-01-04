@@ -54,9 +54,9 @@ export const SATI_ERROR__ATTESTATION_DATA_TOO_LARGE = 0x1781; // 6017
 export const SATI_ERROR__CONTENT_TOO_LARGE = 0x1782; // 6018
 /** SignatureMismatch: Signature pubkey does not match expected account */
 export const SATI_ERROR__SIGNATURE_MISMATCH = 0x1783; // 6019
-/** SelfAttestationNotAllowed: Self-attestation is not allowed (token_account == counterparty) */
+/** SelfAttestationNotAllowed: Self-attestation is not allowed (agent_mint == counterparty) */
 export const SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED = 0x1784; // 6020
-/** AgentAtaMintMismatch: Agent ATA mint does not match token_account in attestation data */
+/** AgentAtaMintMismatch: Agent ATA mint does not match agent_mint in attestation data */
 export const SATI_ERROR__AGENT_ATA_MINT_MISMATCH = 0x1785; // 6021
 /** AgentAtaEmpty: Agent ATA is empty - signer does not own the agent NFT */
 export const SATI_ERROR__AGENT_ATA_EMPTY = 0x1786; // 6022
@@ -90,33 +90,36 @@ export const SATI_ERROR__ED25519_INSTRUCTION_NOT_FOUND = 0x1793; // 6035
 export const SATI_ERROR__AGENT_SIGNATURE_NOT_FOUND = 0x1794; // 6036
 /** CounterpartySignatureNotFound: Counterparty's Ed25519 signature not found (message content mismatch) */
 export const SATI_ERROR__COUNTERPARTY_SIGNATURE_NOT_FOUND = 0x1795; // 6037
+/** AgentMintAccountMismatch: Agent mint account does not match agent_mint in attestation data */
+export const SATI_ERROR__AGENT_MINT_ACCOUNT_MISMATCH = 0x1796; // 6038
 /** OwnerOnly: Schema requires owner signature but delegate attempted */
-export const SATI_ERROR__OWNER_ONLY = 0x1796; // 6038
+export const SATI_ERROR__OWNER_ONLY = 0x1797; // 6039
 /** DelegationAttestationRequired: Delegate signed but no delegation attestation provided */
-export const SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED = 0x1797; // 6039
+export const SATI_ERROR__DELEGATION_ATTESTATION_REQUIRED = 0x1798; // 6040
 /** InvalidDelegationPDA: Delegation attestation PDA doesn't match expected derivation */
-export const SATI_ERROR__INVALID_DELEGATION_P_D_A = 0x1798; // 6040
+export const SATI_ERROR__INVALID_DELEGATION_P_D_A = 0x1799; // 6041
 /** DelegateMismatch: Delegation attestation delegate doesn't match signer */
-export const SATI_ERROR__DELEGATE_MISMATCH = 0x1799; // 6041
+export const SATI_ERROR__DELEGATE_MISMATCH = 0x179a; // 6042
 /** AgentMintMismatch: Delegation attestation agent doesn't match target agent */
-export const SATI_ERROR__AGENT_MINT_MISMATCH = 0x179a; // 6042
+export const SATI_ERROR__AGENT_MINT_MISMATCH = 0x179b; // 6043
 /** DelegationOwnerMismatch: Delegation was created by different owner (NFT was transferred) */
-export const SATI_ERROR__DELEGATION_OWNER_MISMATCH = 0x179b; // 6043
+export const SATI_ERROR__DELEGATION_OWNER_MISMATCH = 0x179c; // 6044
 /** DelegationExpired: Delegation attestation has expired */
-export const SATI_ERROR__DELEGATION_EXPIRED = 0x179c; // 6044
+export const SATI_ERROR__DELEGATION_EXPIRED = 0x179d; // 6045
 /** InvalidSecp256k1Signature: Invalid secp256k1 signature */
-export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x179d; // 6045
+export const SATI_ERROR__INVALID_SECP256K1_SIGNATURE = 0x179e; // 6046
 /** Secp256k1RecoveryFailed: Secp256k1 recovery failed */
-export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x179e; // 6046
+export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x179f; // 6047
 /** EvmAddressMismatch: EVM address mismatch - recovered address does not match expected */
-export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x179f; // 6047
+export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x17a0; // 6048
 /** InvalidEvmAddressRecovery: Failed to extract EVM address from secp256k1 key recovery */
-export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x17a0; // 6048
+export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x17a1; // 6049
 
 export type SatiError =
   | typeof SATI_ERROR__AGENT_ATA_EMPTY
   | typeof SATI_ERROR__AGENT_ATA_MINT_MISMATCH
   | typeof SATI_ERROR__AGENT_ATA_REQUIRED
+  | typeof SATI_ERROR__AGENT_MINT_ACCOUNT_MISMATCH
   | typeof SATI_ERROR__AGENT_MINT_MISMATCH
   | typeof SATI_ERROR__AGENT_SIGNATURE_NOT_FOUND
   | typeof SATI_ERROR__ATTESTATION_DATA_TOO_LARGE
@@ -168,8 +171,9 @@ let satiErrorMessages: Record<SatiError, string> | undefined;
 if (process.env.NODE_ENV !== "production") {
   satiErrorMessages = {
     [SATI_ERROR__AGENT_ATA_EMPTY]: `Agent ATA is empty - signer does not own the agent NFT`,
-    [SATI_ERROR__AGENT_ATA_MINT_MISMATCH]: `Agent ATA mint does not match token_account in attestation data`,
+    [SATI_ERROR__AGENT_ATA_MINT_MISMATCH]: `Agent ATA mint does not match agent_mint in attestation data`,
     [SATI_ERROR__AGENT_ATA_REQUIRED]: `Agent ATA required for this signature mode`,
+    [SATI_ERROR__AGENT_MINT_ACCOUNT_MISMATCH]: `Agent mint account does not match agent_mint in attestation data`,
     [SATI_ERROR__AGENT_MINT_MISMATCH]: `Delegation attestation agent doesn't match target agent`,
     [SATI_ERROR__AGENT_SIGNATURE_NOT_FOUND]: `Agent's Ed25519 signature not found (message content mismatch)`,
     [SATI_ERROR__ATTESTATION_DATA_TOO_LARGE]: `Attestation data exceeds maximum size`,
@@ -207,7 +211,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__OWNER_ONLY]: `Schema requires owner signature but delegate attempted`,
     [SATI_ERROR__SCHEMA_CONFIG_NOT_FOUND]: `Schema config not found`,
     [SATI_ERROR__SECP256K1_RECOVERY_FAILED]: `Secp256k1 recovery failed`,
-    [SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED]: `Self-attestation is not allowed (token_account == counterparty)`,
+    [SATI_ERROR__SELF_ATTESTATION_NOT_ALLOWED]: `Self-attestation is not allowed (agent_mint == counterparty)`,
     [SATI_ERROR__SIGNATURE_MISMATCH]: `Signature pubkey does not match expected account`,
     [SATI_ERROR__STORAGE_TYPE_MISMATCH]: `Storage type mismatch`,
     [SATI_ERROR__STORAGE_TYPE_NOT_SUPPORTED]: `Storage type not supported for this operation`,

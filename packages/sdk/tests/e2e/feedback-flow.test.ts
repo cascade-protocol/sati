@@ -79,7 +79,6 @@ describe("E2E: Full Feedback Lifecycle", () => {
   let agentOwnerKeypair: TestKeypair;
   let sasSchema: Address;
   let agentMint: Address;
-  let tokenAccount: Address;
   let lookupTableAddress: Address;
 
   beforeAll(async () => {
@@ -123,10 +122,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         if (!agentMint) return;
 
-        // tokenAccount = agent's MINT address (stable identity)
+        // agentMint = agent's MINT address (stable identity)
         // The agent OWNER signs (verified via ATA ownership on-chain)
-        tokenAccount = agentMint;
-        expect(tokenAccount).toBeDefined();
+        expect(agentMint).toBeDefined();
       },
       TEST_TIMEOUT,
     );
@@ -163,7 +161,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "rejects feedback with self-attestation",
       async () => {
-        if (!tokenAccount) return;
+        if (!agentMint) return;
 
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -177,7 +175,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
           agentOwnerKeypair, // Same as agent! Self-attestation
           dataHash,
           Outcome.Positive,
-          tokenAccount,
+          agentMint,
         );
 
         // This should be rejected on-chain
@@ -185,7 +183,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
           sati.createFeedback({
             payer,
             sasSchema,
-            tokenAccount,
+            agentMint,
             counterparty: agentOwnerKeypair.address, // Self-attestation!
             taskRef,
             dataHash,
@@ -224,10 +222,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "queries feedbacks by token account",
       async () => {
-        if (!tokenAccount) return;
+        if (!agentMint) return;
 
-        // listFeedbacks takes filter object with tokenAccount
-        const result = await sati.listFeedbacks({ tokenAccount });
+        // listFeedbacks takes filter object with agentMint
+        const result = await sati.listFeedbacks({ agentMint });
 
         expect(Array.isArray(result.items)).toBe(true);
 
@@ -235,7 +233,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         if (result.items.length > 0) {
           const feedback = result.items[0];
           expect(feedback.data).toHaveProperty("outcome");
-          expect(feedback.data).toHaveProperty("tokenAccount");
+          expect(feedback.data).toHaveProperty("agentMint");
         }
       },
       TEST_TIMEOUT,
@@ -244,11 +242,11 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "queries feedbacks by outcome filter (memcmp at offset 129)",
       async () => {
-        if (!tokenAccount) return;
+        if (!agentMint) return;
 
         // Query positive feedbacks for this agent
         const result = await sati.listFeedbacks({
-          tokenAccount,
+          agentMint,
           outcome: Outcome.Positive,
         });
 
@@ -267,10 +265,10 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "queries feedbacks by schema filter",
       async () => {
-        if (!tokenAccount) return;
+        if (!agentMint) return;
 
         const result = await sati.listFeedbacks({
-          tokenAccount,
+          agentMint,
           sasSchema,
         });
 
@@ -288,9 +286,9 @@ describe("E2E: Full Feedback Lifecycle", () => {
     test(
       "verifies feedback data integrity",
       async () => {
-        if (!tokenAccount) return;
+        if (!agentMint) return;
 
-        const result = await sati.listFeedbacks({ tokenAccount });
+        const result = await sati.listFeedbacks({ agentMint });
 
         if (result.items.length > 0) {
           const feedback = result.items[0];
@@ -306,7 +304,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
           // Verify data structure
           const data = feedback.data;
           expect(data).toHaveProperty("taskRef");
-          expect(data).toHaveProperty("tokenAccount");
+          expect(data).toHaveProperty("agentMint");
           expect(data).toHaveProperty("counterparty");
           expect(data).toHaveProperty("dataHash");
           expect(data).toHaveProperty("outcome");
@@ -338,7 +336,7 @@ describe("E2E: Multiple Feedbacks Flow", () => {
     "creates multiple feedbacks with different outcomes",
     async () => {
       const { agentKeypair, sasSchema } = sigCtx;
-      const _tokenAccount = agentKeypair.address;
+      const _agentMint = agentKeypair.address;
 
       // Create feedbacks with different outcomes
       const outcomes = [Outcome.Positive, Outcome.Neutral, Outcome.Negative];
@@ -520,7 +518,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
   );
 
   test(
-    "signatures for wrong tokenAccount fail verification",
+    "signatures for wrong agentMint fail verification",
     async () => {
       const { agentKeypair, counterpartyKeypair, sasSchema } = sigCtx;
       const taskRef = randomBytes32();
@@ -537,7 +535,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
         Outcome.Positive,
       );
 
-      // Try to verify with wrong tokenAccount - agent signature still valid
+      // Try to verify with wrong agentMint - agent signature still valid
       // but the on-chain verification would fail because ATA ownership wouldn't match
       const result = await verifyFeedbackSignatures(
         sasSchema,
@@ -550,7 +548,7 @@ describe("E2E: Feedback Signature Edge Cases", () => {
       );
 
       // The agent's signature verifies against its own pubkey,
-      // but counterparty message contains different tokenAccount
+      // but counterparty message contains different agentMint
       expect(result.counterpartyValid).toBe(false);
     },
     TEST_TIMEOUT,
@@ -576,16 +574,16 @@ describe("E2E: Compressed Attestation Offset Verification", () => {
       // Note: Light Protocol returns discriminator as a separate field in the
       // response, NOT prefixed to the data bytes. Data bytes start directly:
       // [0-31]   sas_schema (32 bytes)
-      // [32-63]  token_account (32 bytes)
+      // [32-63]  agent_mint (32 bytes)
       // [64-67]  data length (4 bytes)
       // [68+]    data (variable)
 
       expect(COMPRESSED_OFFSETS.SAS_SCHEMA).toBe(0);
-      expect(COMPRESSED_OFFSETS.TOKEN_ACCOUNT).toBe(32);
+      expect(COMPRESSED_OFFSETS.AGENT_MINT).toBe(32);
 
       // Feedback-specific offsets within data:
       // data[0-31]   taskRef (32 bytes)
-      // data[32-63]  tokenAccount (32 bytes)
+      // data[32-63]  agentMint (32 bytes)
       // data[64-95]  counterparty (32 bytes)
       // data[96-127] dataHash (32 bytes)
       // data[128]    contentType (1 byte)

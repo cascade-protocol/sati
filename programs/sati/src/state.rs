@@ -126,15 +126,12 @@ pub struct CompressedAttestation {
     /// Determines attestation type (Feedback, Validation, etc.)
     #[hash]
     pub sas_schema: [u8; 32],
-    /// Agent's MINT ADDRESS (stable identity). Indexed via memcmp at offset 40.
+    /// Agent's MINT ADDRESS (Token-2022 NFT, stable identity). Indexed via memcmp at offset 40.
     ///
-    /// NAMING CONVENTION: Named `token_account` for SAS wire format compatibility,
-    /// but this is the agent's **MINT ADDRESS**, NOT an ATA.
-    ///
-    /// Authorization is verified via `agent_ata` account in the instruction, NOT by
-    /// checking `signature.pubkey == token_account`. The NFT owner signs.
+    /// This is the agent's **MINT ADDRESS**, NOT an ATA.
+    /// Authorization is verified via `agent_ata` account in the instruction.
     #[hash]
-    pub token_account: [u8; 32],
+    pub agent_mint: [u8; 32],
     /// Schema-conformant data bytes (130+ bytes, universal base layout)
     #[hash]
     pub data: Vec<u8>,
@@ -153,7 +150,7 @@ impl Default for CompressedAttestation {
     fn default() -> Self {
         Self {
             sas_schema: [0u8; 32],
-            token_account: [0u8; 32],
+            agent_mint: [0u8; 32],
             data: Vec::new(),
             num_signatures: 0,
             signature1: [0u8; 64],
@@ -301,7 +298,7 @@ mod tests {
         let attestation = CompressedAttestation::default();
 
         assert_eq!(attestation.sas_schema, [0u8; 32]);
-        assert_eq!(attestation.token_account, [0u8; 32]);
+        assert_eq!(attestation.agent_mint, [0u8; 32]);
         assert!(attestation.data.is_empty());
         assert_eq!(attestation.num_signatures, 0);
         assert_eq!(attestation.signature1, [0u8; 64]);

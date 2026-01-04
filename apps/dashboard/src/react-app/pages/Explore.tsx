@@ -93,11 +93,11 @@ export function Explore() {
     setFeedbackPage(0);
   };
 
-  // Compute feedback counts per agent (tokenAccount = agent mint)
+  // Compute feedback counts per agent (agentMint)
   // Note: Uses unfiltered feedbacks for accurate counts
   const feedbackCounts: Record<string, number> = {};
   for (const f of feedbacks) {
-    const mint = f.attestation.tokenAccount;
+    const mint = f.attestation.agentMint;
     feedbackCounts[mint] = (feedbackCounts[mint] || 0) + 1;
   }
 
@@ -253,17 +253,17 @@ export function Explore() {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <a
-                                  href={getSolscanUrl(data.tokenAccount, "account")}
+                                  href={getSolscanUrl(data.agentMint, "account")}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
                                 >
-                                  {truncateAddress(data.tokenAccount)}
+                                  {truncateAddress(data.agentMint)}
                                   <ExternalLink className="h-3 w-3 opacity-50" />
                                 </a>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <span className="font-mono text-xs">{data.tokenAccount}</span>
+                                <span className="font-mono text-xs">{data.agentMint}</span>
                               </TooltipContent>
                             </Tooltip>
                           </td>

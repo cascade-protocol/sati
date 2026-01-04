@@ -8,7 +8,7 @@
  * All schemas share identical first 131 bytes:
  *   - layout_version: 0 (1 byte) - version of the universal base layout
  *   - task_ref: 1-32 (32 bytes) - CAIP-220 tx hash or task ID
- *   - token_account: 33-64 (32 bytes) - agent's MINT ADDRESS
+ *   - agent_mint: 33-64 (32 bytes) - agent's MINT ADDRESS (Token-2022 NFT identity)
  *   - counterparty: 65-96 (32 bytes) - counterparty address
  *   - outcome: 97 (1 byte) - 0=Negative, 1=Neutral, 2=Positive
  *   - data_hash: 98-129 (32 bytes) - blind commitment (zeros for CounterpartySigned)
@@ -16,9 +16,9 @@
  *   - content: 131+ (variable) - up to 512 bytes
  *
  * ## Identity Model
- * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
- * - Named for SAS wire format compatibility (NOT an Associated Token Account)
- * - On-chain verification checks ATA ownership, not pubkey == mint
+ * - `agentMint` = agent's **MINT ADDRESS** (stable Token-2022 NFT identity)
+ * - NOT an Associated Token Account (ATA) - the ATA is used separately for ownership verification
+ * - On-chain verification checks ATA ownership for authorization
  */
 
 import { getAddressEncoder, getAddressDecoder, type Address } from "@solana/kit";
@@ -54,10 +54,8 @@ export const MAX_SINGLE_SIGNATURE_CONTENT_SIZE = 240;
 
 /**
  * Minimum universal base layout size.
- * All schemas share: layout_version(1) + task_ref(32) + token_account(32) + counterparty(32) +
+ * All schemas share: layout_version(1) + task_ref(32) + agent_mint(32) + counterparty(32) +
  * outcome(1) + data_hash(32) + content_type(1) = 131 bytes.
- *
- * Note: token_account stores the agent's mint address (named for SAS compatibility).
  */
 export const MIN_BASE_LAYOUT_SIZE = 131;
 
@@ -90,8 +88,8 @@ export const OFFSETS = {
   LAYOUT_VERSION: 0,
   /** CAIP-220 tx hash or task identifier (32 bytes) */
   TASK_REF: 1,
-  /** Agent's mint address (32 bytes) */
-  TOKEN_ACCOUNT: 33,
+  /** Agent's mint address (32 bytes) - Token-2022 NFT identity */
+  AGENT_MINT: 33,
   /** Counterparty address (32 bytes) */
   COUNTERPARTY: 65,
   /** Outcome: 0=Negative, 1=Neutral, 2=Positive */
@@ -185,7 +183,7 @@ import { StorageType } from "./generated/types/storageType";
 // ============================================================================
 
 /**
- * Universal base data layout (130 bytes)
+ * Universal base data layout (131 bytes)
  *
  * All schemas MUST use this layout. Program parses this for signature
  * verification; schema-specific data goes in JSON content.
@@ -193,8 +191,8 @@ import { StorageType } from "./generated/types/storageType";
 export interface BaseLayout {
   /** CAIP-220 tx hash or arbitrary task ID (32 bytes) */
   taskRef: Uint8Array;
-  /** Agent's mint address (32 bytes). Named tokenAccount for SAS wire format compatibility. */
-  tokenAccount: Address;
+  /** Agent's mint address (32 bytes) - Token-2022 NFT identity */
+  agentMint: Address;
   /** Counterparty address (32 bytes) */
   counterparty: Address;
   /** Outcome: 0=Negative, 1=Neutral, 2=Positive */
@@ -333,7 +331,7 @@ export function parseValidationContent(content: Uint8Array, contentType: Content
  * Provider-computed scores with direct on-chain queryability.
  * One ReputationScore per (provider, agent) pair - updates replace previous.
  *
- * Note: task_ref is deterministic: keccak256(counterparty, token_account)
+ * Note: task_ref is deterministic: keccak256(counterparty, agent_mint)
  *
  * Schema-specific fields (score, methodology) go in JSON content:
  * { "score": 85, "methodology": "weighted_average", "components": {...} }
@@ -402,8 +400,8 @@ export function parseReputationScoreContent(
 export interface CompressedAttestation {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent's mint address. Named tokenAccount for SAS wire format compatibility. */
-  tokenAccount: Address;
+  /** Agent's mint address (Token-2022 NFT identity) */
+  agentMint: Address;
   /** Schema-conformant data bytes */
   data: Uint8Array;
   /** Number of signatures stored (1 or 2) */
@@ -421,14 +419,14 @@ export interface CompressedAttestation {
  * response, NOT prefixed to the data bytes. The data bytes start directly
  * with the attestation fields:
  *   - bytes 0-31:  sasSchema (Pubkey)
- *   - bytes 32-63: tokenAccount (Pubkey)
+ *   - bytes 32-63: agentMint (Pubkey)
  *   - bytes 64+:   schemaData (Vec<u8>)
  */
 export const COMPRESSED_OFFSETS = {
   /** SAS schema pubkey offset for memcmp */
   SAS_SCHEMA: 0,
-  /** Agent mint address offset for memcmp (named tokenAccount for SAS compatibility) */
-  TOKEN_ACCOUNT: 32,
+  /** Agent mint address offset for memcmp */
+  AGENT_MINT: 32,
 } as const;
 
 // ============================================================================
@@ -543,8 +541,8 @@ export function serializeUniversalLayout(data: BaseLayout): Uint8Array {
   buffer.set(data.taskRef, offset);
   offset += 32;
 
-  // tokenAccount (32 bytes)
-  buffer.set(addressToBytes(data.tokenAccount), offset);
+  // agentMint (32 bytes)
+  buffer.set(addressToBytes(data.agentMint), offset);
   offset += 32;
 
   // counterparty (32 bytes)
@@ -584,8 +582,8 @@ export function deserializeUniversalLayout(bytes: Uint8Array): BaseLayout {
   const taskRef = bytes.slice(offset, offset + 32);
   offset += 32;
 
-  // tokenAccount (32 bytes)
-  const tokenAccount = bytesToAddress(bytes.slice(offset, offset + 32));
+  // agentMint (32 bytes)
+  const agentMint = bytesToAddress(bytes.slice(offset, offset + 32));
   offset += 32;
 
   // counterparty (32 bytes)
@@ -607,7 +605,7 @@ export function deserializeUniversalLayout(bytes: Uint8Array): BaseLayout {
 
   return {
     taskRef,
-    tokenAccount,
+    agentMint,
     counterparty,
     outcome,
     dataHash,

@@ -175,7 +175,7 @@ describe("createFeedbackSignatures", () => {
 
     const result = await createFeedbackSignatures(sasSchema, taskRef, agent, counterparty, dataHash, Outcome.Positive);
 
-    // Agent signs interaction hash (blind to outcome, no tokenAccount in hash)
+    // Agent signs interaction hash (blind to outcome, no agentMint in hash)
     const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
     const isValid = await verifySignature(interactionHash, result.signatures[0].sig, agent.publicKey);
@@ -344,12 +344,12 @@ describe("verifyFeedbackSignatures", () => {
       Outcome.Positive,
     );
 
-    // Try to verify with wrong tokenAccount
+    // Try to verify with wrong agentMint
     // The counterparty signed for agent.address, not wrongAgent.address
     const result = await verifyFeedbackSignatures(
       sasSchema,
       taskRef,
-      wrongAgent.address, // Wrong tokenAccount!
+      wrongAgent.address, // Wrong agentMint!
       dataHash,
       Outcome.Positive,
       signResult.signatures,
@@ -357,7 +357,7 @@ describe("verifyFeedbackSignatures", () => {
     );
 
     expect(result.agentValid).toBe(true); // Agent signature is still valid
-    expect(result.counterpartyValid).toBe(false); // Counterparty signed for different tokenAccount
+    expect(result.counterpartyValid).toBe(false); // Counterparty signed for different agentMint
     expect(result.valid).toBe(false);
   });
 });

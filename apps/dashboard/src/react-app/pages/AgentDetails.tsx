@@ -133,7 +133,7 @@ export function AgentDetails() {
   const navigate = useNavigate();
   const { agent, isLoading, error, refetch } = useAgentDetails(mint);
   const { metadata } = useAgentMetadata(agent?.uri);
-  // tokenAccount in feedbacks IS the agent mint (not ATA)
+  // agentMint in feedbacks IS the agent's stable mint address
   const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint);
   const { currentSlot } = useCurrentSlot();
 

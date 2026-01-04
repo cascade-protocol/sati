@@ -205,9 +205,8 @@ describe("E2E: Attestation Flow", () => {
         const dataHash = randomBytes32();
         const outcome = Outcome.Positive;
 
-        // tokenAccount = agent's MINT address (stable identity)
+        // agentMint = agent's MINT address (stable identity)
         // agentOwnerKeypair = NFT owner (signer) - on-chain verifies via ATA ownership
-        const tokenAccount = agentMint;
 
         // Create real Ed25519 signatures using the helper
         // Agent OWNER signs interaction hash (blind - doesn't know outcome)
@@ -220,14 +219,14 @@ describe("E2E: Attestation Flow", () => {
           counterpartyKeypair,
           dataHash,
           outcome,
-          tokenAccount, // Pass mint address explicitly
+          agentMint, // Pass mint address explicitly
         );
 
         // Submit attestation with real signatures
         const result = await sati.createFeedback({
           payer,
           sasSchema,
-          tokenAccount,
+          agentMint,
           counterparty: counterparty.address,
           taskRef,
           dataHash,
@@ -258,8 +257,7 @@ describe("E2E: Attestation Flow", () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
 
-        // tokenAccount = agent's MINT address (stable identity)
-        const tokenAccount = agentMint;
+        // agentMint = agent's MINT address (stable identity)
 
         // Sign for Positive outcome
         const signatures = await createFeedbackSignatures(
@@ -269,7 +267,7 @@ describe("E2E: Attestation Flow", () => {
           counterpartyKeypair,
           dataHash,
           Outcome.Positive,
-          tokenAccount, // Pass mint address explicitly
+          agentMint, // Pass mint address explicitly
         );
 
         // But submit with Negative outcome - should fail on-chain
@@ -277,7 +275,7 @@ describe("E2E: Attestation Flow", () => {
           sati.createFeedback({
             payer,
             sasSchema,
-            tokenAccount,
+            agentMint,
             counterparty: counterparty.address,
             taskRef,
             dataHash,
@@ -309,11 +307,10 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         if (!agentMint) return;
 
-        // tokenAccount = agent's MINT address (stable identity)
-        const tokenAccount = agentMint;
+        // agentMint = agent's MINT address (stable identity)
 
-        // listFeedbacks takes filter object with tokenAccount
-        const result = await sati.listFeedbacks({ tokenAccount });
+        // listFeedbacks takes filter object with agentMint
+        const result = await sati.listFeedbacks({ agentMint });
 
         expect(Array.isArray(result.items)).toBe(true);
       },
@@ -325,11 +322,10 @@ describe("E2E: Attestation Flow", () => {
       async () => {
         if (!agentMint) return;
 
-        // tokenAccount = agent's MINT address (stable identity)
-        const tokenAccount = agentMint;
+        // agentMint = agent's MINT address (stable identity)
 
         const result = await sati.listFeedbacks({
-          tokenAccount,
+          agentMint,
           outcome: Outcome.Positive,
         });
 

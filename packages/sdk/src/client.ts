@@ -208,8 +208,8 @@ export interface SignatureInput {
 /**
  * Parameters for creating a Feedback attestation
  *
- * Uses universal base layout (130 bytes):
- * - task_ref(32) + token_account(32) + counterparty(32) +
+ * Uses universal base layout (131 bytes):
+ * - task_ref(32) + agent_mint(32) + counterparty(32) +
  * - outcome(1) + data_hash(32) + content_type(1) + content(variable)
  */
 export interface CreateFeedbackParams {
@@ -219,8 +219,8 @@ export interface CreateFeedbackParams {
   sasSchema: Address;
   /** Task reference (CAIP-220 tx hash or arbitrary ID) */
   taskRef: Uint8Array;
-  /** Agent's token account (mint address) */
-  tokenAccount: Address;
+  /** Agent's mint address (Token-2022 NFT identity) */
+  agentMint: Address;
   /** Client (feedback giver) */
   counterparty: Address;
   /** Hash of request/interaction data for agent's blind signature */
@@ -270,8 +270,8 @@ export interface CreateFeedbackParams {
 /**
  * Parameters for building a Feedback transaction (without signing/sending)
  *
- * Uses universal base layout (130 bytes):
- * - task_ref(32) + token_account(32) + counterparty(32) +
+ * Uses universal base layout (131 bytes):
+ * - task_ref(32) + agent_mint(32) + counterparty(32) +
  * - outcome(1) + data_hash(32) + content_type(1) + content(variable)
  */
 export interface BuildFeedbackParams {
@@ -281,8 +281,8 @@ export interface BuildFeedbackParams {
   sasSchema: Address;
   /** Task reference (CAIP-220 tx hash or arbitrary ID) */
   taskRef: Uint8Array;
-  /** Agent's token account (mint address) */
-  tokenAccount: Address;
+  /** Agent's mint address (Token-2022 NFT identity) */
+  agentMint: Address;
   /** Client (feedback giver) */
   counterparty: Address;
   /** Hash of request/interaction data for agent's blind signature */
@@ -322,8 +322,8 @@ export interface CreateValidationParams {
   sasSchema: Address;
   /** Task reference */
   taskRef: Uint8Array;
-  /** Agent's token account (mint address) */
-  tokenAccount: Address;
+  /** Agent's mint address (Token-2022 NFT identity) */
+  agentMint: Address;
   /** Validator address */
   counterparty: Address;
   /** Hash of work being validated */
@@ -368,8 +368,8 @@ export interface CreateReputationScoreParams {
   sasSchema: Address;
   /** SATI credential address in SAS */
   satiCredential: Address;
-  /** Agent's token account (mint address) being scored */
-  tokenAccount: Address;
+  /** Agent's mint address (Token-2022 NFT identity) being scored */
+  agentMint: Address;
   /** Task reference (e.g., hash of provider identity or scoring context) */
   taskRef: Uint8Array;
   /** Hash of methodology/data used for scoring */
@@ -450,7 +450,7 @@ function unwrapOption<T>(option: { __option: "Some"; value: T } | { __option: "N
  *   payer,
  *   sasSchema,
  *   taskRef,
- *   tokenAccount,
+ *   agentMint,
  *   counterparty,
  *   outcome: Outcome.Positive,
  *   agentSignature,
@@ -458,7 +458,7 @@ function unwrapOption<T>(option: { __option: "Some"; value: T } | { __option: "N
  * });
  *
  * // List feedbacks
- * const feedbacks = await sati.listFeedbacks({ tokenAccount });
+ * const feedbacks = await sati.listFeedbacks({ agentMint });
  * ```
  */
 export class Sati {
@@ -1315,11 +1315,11 @@ export class Sati {
   /**
    * Create a Feedback attestation (compressed storage)
    *
-   * Note: tokenAccount is the agent's MINT address (stable identity).
+   * Note: agentMint is the agent's MINT address (stable Token-2022 NFT identity).
    * The agentSignature.pubkey should be the NFT owner who signed.
    * On-chain verification ensures the owner holds the NFT via ATA.
    *
-   * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if agentMint is not a registered SATI agent mint
    * @throws Error if content exceeds size limit for the signature mode
    * @throws Error if counterpartySignature is provided without counterpartyMessage
    */
@@ -1328,7 +1328,7 @@ export class Sati {
       payer,
       sasSchema,
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty,
       dataHash,
       contentType = ContentType.None,
@@ -1353,12 +1353,12 @@ export class Sati {
     const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.CounterpartySigned;
     validateContentSize(content, signatureMode);
 
-    // Validate tokenAccount is a registered agent mint
-    await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
+    // Validate agentMint is a registered agent mint
+    await this.validateAgentMintIsRegisteredAgent(agentMint);
 
     const feedbackData: FeedbackData = {
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty,
       dataHash,
       contentType,
@@ -1393,9 +1393,9 @@ export class Sati {
     // (DualSignature and AgentOwnerSigned modes)
     let agentAta: Address | undefined;
     if (!isCounterpartySigned) {
-      // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+      // agentMint is the agent's MINT address (identity), NOT a wallet address
       [agentAta] = await findAssociatedTokenAddress(
-        tokenAccount, // mint address (agent identity)
+        agentMint, // mint address (agent identity)
         agentSignature.pubkey, // owner who signed
       );
     }
@@ -1403,10 +1403,10 @@ export class Sati {
     const light = this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty);
     const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
-    const tokenAccountBytesForSeed = new Uint8Array(addressEncoder.encode(tokenAccount));
-    const seeds = [new TextEncoder().encode("attestation"), sasSchemaBytes, tokenAccountBytesForSeed, nonce];
+    const agentMintBytesForSeed = new Uint8Array(addressEncoder.encode(agentMint));
+    const seeds = [new TextEncoder().encode("attestation"), sasSchemaBytes, agentMintBytesForSeed, nonce];
 
     const {
       address: derivedAddress,
@@ -1437,6 +1437,7 @@ export class Sati {
       schemaConfig: schemaConfigPda,
       agentAta, // undefined for CounterpartySigned mode, required for other modes
       tokenProgram: agentAta ? TOKEN_2022_PROGRAM_ADDRESS : undefined, // Only needed when verifying ATA
+      agentMint, // Required for Solscan visibility
       program: SATI_PROGRAM_ADDRESS,
       data,
       outputStateTreeIndex,
@@ -1500,11 +1501,11 @@ export class Sati {
   /**
    * Build a Feedback transaction without signing or sending
    *
-   * Note: tokenAccount is the agent's MINT address (stable identity).
+   * Note: agentMint is the agent's MINT address (stable Token-2022 NFT identity).
    * The agentSignature.pubkey should be the NFT owner who signed.
    * On-chain verification ensures the owner holds the NFT via ATA.
    *
-   * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if agentMint is not a registered SATI agent mint
    * @throws Error if content exceeds size limit for the signature mode
    * @throws Error if counterpartySignature is provided without counterpartyMessage
    */
@@ -1513,7 +1514,7 @@ export class Sati {
       payer,
       sasSchema,
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty,
       dataHash,
       contentType = ContentType.None,
@@ -1538,12 +1539,12 @@ export class Sati {
     const signatureMode = counterpartySignature ? SignatureMode.DualSignature : SignatureMode.CounterpartySigned;
     validateContentSize(content, signatureMode);
 
-    // Validate tokenAccount is a registered agent mint
-    await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
+    // Validate agentMint is a registered agent mint
+    await this.validateAgentMintIsRegisteredAgent(agentMint);
 
     const feedbackData: FeedbackData = {
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty,
       dataHash,
       contentType,
@@ -1578,9 +1579,9 @@ export class Sati {
     // (DualSignature and AgentOwnerSigned modes)
     let agentAta: Address | undefined;
     if (!isCounterpartySigned) {
-      // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+      // agentMint is the agent's MINT address (identity), NOT a wallet address
       [agentAta] = await findAssociatedTokenAddress(
-        tokenAccount, // mint address (agent identity)
+        agentMint, // mint address (agent identity)
         agentSignature.pubkey, // owner who signed
       );
     }
@@ -1588,10 +1589,10 @@ export class Sati {
     const light = this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty);
     const sasSchemaBytes = new Uint8Array(addressEncoder.encode(sasSchema));
-    const tokenAccountBytesForSeed = new Uint8Array(addressEncoder.encode(tokenAccount));
-    const seeds = [new TextEncoder().encode("attestation"), sasSchemaBytes, tokenAccountBytesForSeed, nonce];
+    const agentMintBytesForSeed = new Uint8Array(addressEncoder.encode(agentMint));
+    const seeds = [new TextEncoder().encode("attestation"), sasSchemaBytes, agentMintBytesForSeed, nonce];
 
     const {
       address: derivedAddress,
@@ -1622,6 +1623,7 @@ export class Sati {
       schemaConfig: schemaConfigPda,
       agentAta, // undefined for CounterpartySigned mode, required for other modes
       tokenProgram: agentAta ? TOKEN_2022_PROGRAM_ADDRESS : undefined, // Only needed when verifying ATA
+      agentMint, // Required for Solscan visibility
       program: SATI_PROGRAM_ADDRESS,
       data,
       outputStateTreeIndex,
@@ -1719,11 +1721,11 @@ export class Sati {
   /**
    * Create a Validation attestation (compressed storage)
    *
-   * Note: tokenAccount is the agent's MINT address (stable identity).
+   * Note: agentMint is the agent's MINT address (stable identity).
    * The agentSignature.pubkey should be the NFT owner who signed.
    * On-chain verification ensures the owner holds the NFT via ATA.
    *
-   * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if agentMint is not a registered SATI agent mint
    * @throws Error if content exceeds size limit for DualSignature mode (~70 bytes)
    * @throws Error if counterpartyMessage is not provided
    */
@@ -1732,7 +1734,7 @@ export class Sati {
       payer,
       sasSchema,
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty,
       dataHash,
       outcome,
@@ -1755,12 +1757,12 @@ export class Sati {
     // Validation attestations are always DualSignature (agent + validator)
     validateContentSize(content, SignatureMode.DualSignature);
 
-    // Validate tokenAccount is a registered agent mint
-    await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
+    // Validate agentMint is a registered agent mint
+    await this.validateAgentMintIsRegisteredAgent(agentMint);
 
     const validationData: ValidationData = {
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty,
       dataHash,
       outcome,
@@ -1771,21 +1773,21 @@ export class Sati {
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
-    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (tokenAccount mint)
-    // tokenAccount is the agent's MINT address (identity), NOT a wallet address
+    // Derive agent's ATA - verifies signer (agentSignature.pubkey) owns the agent NFT (agentMint)
+    // agentMint is the agent's MINT address (identity), NOT a wallet address
     const [agentAta] = await findAssociatedTokenAddress(
-      tokenAccount, // mint address (agent identity)
+      agentMint, // mint address (agent identity)
       agentSignature.pubkey, // owner who signed
     );
 
     const light = this.getLightClient();
 
     const addressEncoder = getAddressEncoder();
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty);
     const seeds = [
       new TextEncoder().encode("attestation"),
       new Uint8Array(addressEncoder.encode(sasSchema)),
-      new Uint8Array(addressEncoder.encode(tokenAccount)),
+      new Uint8Array(addressEncoder.encode(agentMint)),
       nonce,
     ];
 
@@ -1818,6 +1820,7 @@ export class Sati {
       schemaConfig: schemaConfigPda,
       agentAta, // Proves signer owns the agent NFT
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS, // Agent NFTs use Token-2022
+      agentMint, // Required for Solscan visibility
       program: SATI_PROGRAM_ADDRESS,
       data,
       outputStateTreeIndex,
@@ -1920,6 +1923,7 @@ export class Sati {
     const baseCloseIx = await getCloseCompressedAttestationInstructionAsync({
       signer: counterparty,
       schemaConfig: schemaConfigPda,
+      agentMint: parsedAttestation.attestation.agentMint,
       program: SATI_PROGRAM_ADDRESS,
       currentData: parsedAttestation.attestation.data,
       numSignatures: parsedAttestation.attestation.numSignatures,
@@ -1953,7 +1957,7 @@ export class Sati {
   /**
    * Create a ReputationScore attestation (regular SAS storage)
    *
-   * @throws Error if tokenAccount is not a registered SATI agent mint
+   * @throws Error if agentMint is not a registered SATI agent mint
    */
   async createReputationScore(params: CreateReputationScoreParams): Promise<AttestationResult> {
     const {
@@ -1962,7 +1966,7 @@ export class Sati {
       providerSignature,
       sasSchema,
       satiCredential,
-      tokenAccount,
+      agentMint,
       taskRef,
       dataHash,
       outcome,
@@ -1975,14 +1979,14 @@ export class Sati {
       throw new Error("Provider signature must be 64 bytes");
     }
 
-    // Validate tokenAccount is a registered agent mint
-    await this.validateTokenAccountIsRegisteredAgent(tokenAccount);
+    // Validate agentMint is a registered agent mint
+    await this.validateAgentMintIsRegisteredAgent(agentMint);
 
-    const nonce = computeReputationNonce(provider, tokenAccount);
+    const nonce = computeReputationNonce(provider, agentMint);
 
     const reputationData: ReputationScoreData = {
       taskRef,
-      tokenAccount,
+      agentMint,
       counterparty: provider,
       dataHash,
       outcome,
@@ -2010,6 +2014,7 @@ export class Sati {
     const createIx = await getCreateRegularAttestationInstructionAsync({
       payer,
       schemaConfig: schemaConfigPda,
+      agentMint,
       satiCredential,
       sasSchema,
       attestation: attestationPda,
@@ -2030,7 +2035,7 @@ export class Sati {
    * Close a regular SAS attestation (ReputationScore)
    */
   async closeRegularAttestation(params: CloseRegularAttestationParams): Promise<CloseAttestationResult> {
-    const { payer, provider, sasSchema, satiCredential, attestation } = params;
+    const { payer, provider, sasSchema, satiCredential, agentMint, attestation } = params;
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
@@ -2038,6 +2043,7 @@ export class Sati {
       payer,
       signer: provider,
       schemaConfig: schemaConfigPda,
+      agentMint,
       satiCredential,
       attestation,
       program: SATI_PROGRAM_ADDRESS,
@@ -2073,8 +2079,8 @@ export class Sati {
   /**
    * Get a ReputationScore for an agent from a specific provider
    */
-  async getReputationScore(provider: Address, tokenAccount: Address): Promise<ReputationScoreData | null> {
-    const nonce = computeReputationNonce(provider, tokenAccount);
+  async getReputationScore(provider: Address, agentMint: Address): Promise<ReputationScoreData | null> {
+    const nonce = computeReputationNonce(provider, agentMint);
 
     const [attestationPda] = await deriveReputationAttestationPda(nonce);
 
@@ -2103,7 +2109,7 @@ export class Sati {
   /**
    * List ReputationScore attestations for an agent
    */
-  async listReputationScores(tokenAccount: Address, sasSchema: Address): Promise<ReputationScoreData[]> {
+  async listReputationScores(agentMint: Address, sasSchema: Address): Promise<ReputationScoreData[]> {
     const accounts = await this.rpc
       .getProgramAccounts(address(SATI_PROGRAM_ADDRESS), {
         encoding: "base64",
@@ -2118,7 +2124,7 @@ export class Sati {
           {
             memcmp: {
               offset: BigInt(40),
-              bytes: addressToBase58Bytes(tokenAccount),
+              bytes: addressToBase58Bytes(agentMint),
               encoding: "base58",
             },
           },
@@ -2183,7 +2189,7 @@ export class Sati {
     const { attestation: compressed, data } = attestation;
     const addressEncoder = getAddressEncoder();
 
-    // sasSchema and tokenAccount are now Address strings
+    // sasSchema and agentMint are now Address strings
     const sasSchema = compressed.sasSchema;
 
     const signature1 = compressed.signature1;
@@ -2204,7 +2210,7 @@ export class Sati {
       // For counterparty verification, we need the schema name to build the SIWS message
       if (!schemaName) {
         // Without schema name, we can only verify agent signature
-        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.tokenAccount));
+        const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.agentMint));
         const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
         const agentValid = await verifySignature(agentKey, signatureBytes(signature1), interactionHash);
 
@@ -2219,7 +2225,7 @@ export class Sati {
       // Use the raw compressed data directly since it's already in universal layout
       const counterpartyMessageObj = buildCounterpartyMessage({ schemaName, data: compressed.data });
 
-      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.tokenAccount));
+      const agentPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.agentMint));
       const agentKey = await importEd25519PublicKey(agentPubkeyBytes);
 
       const counterpartyPubkeyBytes = new Uint8Array(addressEncoder.encode(baseData.counterparty));
@@ -2261,19 +2267,19 @@ export class Sati {
   // ============================================================
 
   /**
-   * Validate that tokenAccount is a registered SATI agent mint.
+   * Validate that agentMint is a registered SATI agent mint.
    *
    * This validation runs at SDK level to fail fast with clear errors
    * before attempting on-chain operations.
    *
-   * @param tokenAccount - Address to validate as a registered agent mint
-   * @throws Error if tokenAccount is not a registered SATI agent
+   * @param agentMint - Address to validate as a registered agent mint
+   * @throws Error if agentMint is not a registered SATI agent
    */
-  private async validateTokenAccountIsRegisteredAgent(tokenAccount: Address): Promise<void> {
+  private async validateAgentMintIsRegisteredAgent(agentMint: Address): Promise<void> {
     try {
-      const agent = await this.loadAgent(tokenAccount);
+      const agent = await this.loadAgent(agentMint);
       if (!agent) {
-        throw new Error(`tokenAccount ${tokenAccount} is not a registered SATI agent mint`);
+        throw new Error(`agentMint ${agentMint} is not a registered SATI agent mint`);
       }
     } catch (error) {
       // Re-throw with consistent error message for any lookup failure
@@ -2283,7 +2289,7 @@ export class Sati {
         throw error;
       }
       // Wrap other errors (account not found, decode errors, etc.)
-      throw new Error(`tokenAccount ${tokenAccount} is not a registered SATI agent mint`);
+      throw new Error(`agentMint ${agentMint} is not a registered SATI agent mint`);
     }
   }
 

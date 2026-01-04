@@ -36,7 +36,7 @@ interface EchoRequest {
   // Parameters for computing interaction hash
   sasSchema: string;
   taskRef: string; // hex-encoded 32 bytes
-  tokenAccount: string;
+  agentMint: string;
   dataHash: string; // hex-encoded 32 bytes
 }
 
@@ -46,7 +46,7 @@ interface BuildFeedbackTxRequest {
   // Same params from echo
   sasSchema: string;
   taskRef: string; // hex-encoded 32 bytes
-  tokenAccount: string;
+  agentMint: string;
   dataHash: string; // hex-encoded 32 bytes
   // Feedback-specific
   outcome: number; // 0=Negative, 1=Neutral, 2=Positive
@@ -216,10 +216,10 @@ function createApp(bindings: WorkerBindings) {
     }
 
     // Validate required fields
-    if (!body.sasSchema || !body.taskRef || !body.tokenAccount || !body.dataHash) {
+    if (!body.sasSchema || !body.taskRef || !body.agentMint || !body.dataHash) {
       return c.json(
         {
-          error: "Missing required fields: sasSchema, taskRef, tokenAccount, dataHash",
+          error: "Missing required fields: sasSchema, taskRef, agentMint, dataHash",
         },
         400,
       );
@@ -229,8 +229,8 @@ function createApp(bindings: WorkerBindings) {
     if (!isAddress(body.sasSchema)) {
       return c.json({ error: "Invalid sasSchema address" }, 400);
     }
-    if (!isAddress(body.tokenAccount)) {
-      return c.json({ error: "Invalid tokenAccount address" }, 400);
+    if (!isAddress(body.agentMint)) {
+      return c.json({ error: "Invalid agentMint address" }, 400);
     }
 
     // Validate hex field lengths
@@ -289,7 +289,7 @@ function createApp(bindings: WorkerBindings) {
       !body.network ||
       !body.sasSchema ||
       !body.taskRef ||
-      !body.tokenAccount ||
+      !body.agentMint ||
       !body.dataHash ||
       body.outcome === undefined ||
       !body.counterparty ||
@@ -315,8 +315,8 @@ function createApp(bindings: WorkerBindings) {
     if (body.sasSchema !== networkConfig.feedbackSchema && body.sasSchema !== networkConfig.feedbackPublicSchema) {
       return c.json({ error: "Invalid schema - only feedback/feedbackPublic schemas supported" }, 400);
     }
-    if (!isAddress(body.tokenAccount)) {
-      return c.json({ error: "Invalid tokenAccount address" }, 400);
+    if (!isAddress(body.agentMint)) {
+      return c.json({ error: "Invalid agentMint address" }, 400);
     }
     if (!isAddress(body.counterparty)) {
       return c.json({ error: "Invalid counterparty address" }, 400);
@@ -405,7 +405,7 @@ function createApp(bindings: WorkerBindings) {
           payer: serverPayer, // Server pays gas!
           sasSchema: body.sasSchema as Address,
           taskRef: taskRefBytes,
-          tokenAccount: body.tokenAccount as Address,
+          agentMint: body.agentMint as Address,
           counterparty: body.counterparty as Address,
           dataHash: dataHashBytes,
           outcome: body.outcome as Outcome,
@@ -437,7 +437,7 @@ function createApp(bindings: WorkerBindings) {
           payer: body.counterparty as Address, // counterparty is the payer
           sasSchema: body.sasSchema as Address,
           taskRef: taskRefBytes,
-          tokenAccount: body.tokenAccount as Address,
+          agentMint: body.agentMint as Address,
           counterparty: body.counterparty as Address,
           dataHash: dataHashBytes,
           outcome: body.outcome as Outcome,

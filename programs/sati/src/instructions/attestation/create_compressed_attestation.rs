@@ -48,14 +48,18 @@ pub struct CreateCompressedAttestation<'info> {
     /// Required for DualSignature and AgentOwnerSigned modes.
     /// Optional for CounterpartySigned mode (not validated).
     ///
-    /// The mint must match token_account from attestation data (the agent's MINT address),
+    /// The mint must match agent_mint from attestation data,
     /// amount must be >= 1, and owner must match signatures[0].pubkey.
-    /// Note: token_account in data is the MINT address; this is the holder's ATA.
     pub agent_ata: Option<InterfaceAccount<'info, TokenAccount>>,
 
     /// Token-2022 program for ATA verification.
     /// Required when agent_ata is provided.
     pub token_program: Option<Interface<'info, TokenInterface>>,
+
+    /// Agent mint (Token-2022 NFT) for Solscan indexing.
+    /// Must match agent_mint in attestation data (bytes 33-64).
+    /// CHECK: Validated against attestation data in handler.
+    pub agent_mint: AccountInfo<'info>,
 
     /// Delegation attestation (optional).
     /// Required when signer != agent ATA owner for AgentOwnerSigned mode.
@@ -99,28 +103,34 @@ pub fn handler<'info>(
     );
 
     // 3. Parse base layout for signature binding
-    // token_account stores the agent's MINT ADDRESS (stable identity),
-    // NOT a wallet address. Authorization is verified via agent_ata account.
-    let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT]
+    // agent_mint stores the agent's MINT ADDRESS (Token-2022 NFT, stable identity).
+    // Authorization is verified via agent_ata account ownership.
+    let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::AGENT_MINT]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let token_account_bytes: [u8; 32] = params.data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY]
+    let agent_mint_bytes: [u8; 32] = params.data[offsets::AGENT_MINT..offsets::COUNTERPARTY]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
     let counterparty_bytes: [u8; 32] = params.data[offsets::COUNTERPARTY..offsets::OUTCOME]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
-    let token_account_pubkey = Pubkey::new_from_array(token_account_bytes);
+    let agent_mint_pubkey = Pubkey::new_from_array(agent_mint_bytes);
     let counterparty_pubkey = Pubkey::new_from_array(counterparty_bytes);
 
-    // 4. Self-attestation prevention
+    // 4. Validate agent_mint account matches attestation data
     require!(
-        token_account_pubkey != counterparty_pubkey,
+        ctx.accounts.agent_mint.key() == agent_mint_pubkey,
+        SatiError::AgentMintAccountMismatch
+    );
+
+    // 5. Self-attestation prevention
+    require!(
+        agent_mint_pubkey != counterparty_pubkey,
         SatiError::SelfAttestationNotAllowed
     );
 
-    // 5. Determine expected pubkeys for signature extraction
+    // 6. Determine expected pubkeys for signature extraction
     let expected_agent_pubkey = match schema_config.signature_mode {
         SignatureMode::DualSignature | SignatureMode::AgentOwnerSigned => {
             let agent_ata = ctx
@@ -129,7 +139,7 @@ pub fn handler<'info>(
                 .as_ref()
                 .ok_or(SatiError::AgentAtaRequired)?;
             require!(
-                agent_ata.mint == token_account_pubkey,
+                agent_ata.mint == agent_mint_pubkey,
                 SatiError::AgentAtaMintMismatch
             );
             require!(agent_ata.amount >= 1, SatiError::AgentAtaEmpty);
@@ -138,13 +148,13 @@ pub fn handler<'info>(
         SignatureMode::CounterpartySigned => None,
     };
 
-    // 6. Validate universal base layout fields
+    // 7. Validate universal base layout fields
     validate_universal_base(&params.data)?;
 
-    // 7. Construct expected message hashes for signature verification
+    // 8. Construct expected message hashes for signature verification
     let expected_messages = build_expected_messages(&params, schema_config, &task_ref)?;
 
-    // 8. Extract and verify Ed25519 signatures
+    // 9. Extract and verify Ed25519 signatures
     let extracted_signatures = extract_ed25519_signatures(
         &ctx.accounts.instructions_sysvar,
         expected_agent_pubkey.as_ref(),
@@ -153,7 +163,7 @@ pub fn handler<'info>(
         &expected_messages,
     )?;
 
-    // 9. Additional authorization for delegation (AgentOwnerSigned only)
+    // 10. Additional authorization for delegation (AgentOwnerSigned only)
     if schema_config.signature_mode == SignatureMode::AgentOwnerSigned {
         let agent_ata = ctx.accounts.agent_ata.as_ref().unwrap(); // Already validated above
         let signer_pubkey = &extracted_signatures[0].pubkey;
@@ -179,7 +189,7 @@ pub fn handler<'info>(
         // Verify agent authorization (owner fast path or delegation)
         verify_agent_authorization(
             signer_pubkey,
-            &token_account_pubkey,
+            &agent_mint_pubkey,
             &agent_ata.owner,
             schema_config.delegation_schema.as_ref(),
             ctx.accounts.delegation_attestation.as_ref(),
@@ -188,22 +198,22 @@ pub fn handler<'info>(
         )?;
     }
 
-    // 10. Derive deterministic address
+    // 11. Derive deterministic address
     let nonce = compute_attestation_nonce(
         &task_ref,
         &schema_config.sas_schema,
-        &token_account_pubkey,
+        &agent_mint_pubkey,
         &counterparty_pubkey,
     );
 
-    // 11. Initialize Light Protocol CPI accounts
+    // 12. Initialize Light Protocol CPI accounts
     let light_cpi_accounts = CpiAccounts::new(
         ctx.accounts.payer.as_ref(),
         ctx.remaining_accounts,
         LIGHT_CPI_SIGNER,
     );
 
-    // 12. Get address tree pubkey from params
+    // 13. Get address tree pubkey from params
     let address_tree_pubkey = params
         .address_tree_info
         .get_tree_pubkey(&light_cpi_accounts)
@@ -213,14 +223,14 @@ pub fn handler<'info>(
         &[
             b"attestation",
             schema_config.sas_schema.as_ref(),
-            token_account_pubkey.as_ref(),
+            agent_mint_pubkey.as_ref(),
             &nonce,
         ],
         &address_tree_pubkey,
         &ID,
     );
 
-    // 13. Initialize compressed account with proper tree index
+    // 14. Initialize compressed account with proper tree index
     let mut attestation = LightAccount::<CompressedAttestation>::new_init(
         &ID,
         Some(address),
@@ -228,7 +238,7 @@ pub fn handler<'info>(
     );
 
     attestation.sas_schema = schema_config.sas_schema.to_bytes();
-    attestation.token_account = token_account_bytes;
+    attestation.agent_mint = agent_mint_bytes;
     attestation.data = params.data.clone();
     attestation.num_signatures = extracted_signatures.len() as u8;
     attestation.signature1 = extracted_signatures
@@ -240,12 +250,12 @@ pub fn handler<'info>(
         .map(|s| s.sig)
         .unwrap_or([0u8; 64]);
 
-    // 14. Compute new address params from params
+    // 15. Compute new address params from params
     let new_address_params = params
         .address_tree_info
         .into_new_address_params_assigned_packed(address_seed, Some(0));
 
-    // 15. CPI to Light System Program with proof from params
+    // 16. CPI to Light System Program with proof from params
     InstructionDataInvokeCpiWithReadOnly::new_cpi(LIGHT_CPI_SIGNER, params.proof)
         .mode_v1()
         .with_light_account(attestation)?
@@ -253,10 +263,10 @@ pub fn handler<'info>(
         .invoke(light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
-    // 16. Emit event
+    // 17. Emit event
     emit_cpi!(AttestationCreated {
         sas_schema: schema_config.sas_schema,
-        token_account: token_account_pubkey,
+        agent_mint: agent_mint_pubkey,
         counterparty: counterparty_pubkey,
         storage_type: StorageType::Compressed,
         address: Pubkey::new_from_array(address),
@@ -334,7 +344,7 @@ fn build_expected_messages(
 /// ```text
 /// SATI {schema_name}
 ///
-/// Agent: {token_account_base58}
+/// Agent: {agent_mint_base58}
 /// Task: {task_ref_base58}
 /// Outcome: {Negative|Neutral|Positive}
 /// Details: {content_text}
@@ -345,14 +355,14 @@ fn build_siws_message(schema_name: &str, data: &[u8]) -> Result<Vec<u8>> {
     use bs58;
 
     // Extract fields from universal layout
-    let task_ref = &data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT];
-    let token_account = &data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY];
+    let task_ref = &data[offsets::TASK_REF..offsets::AGENT_MINT];
+    let agent_mint = &data[offsets::AGENT_MINT..offsets::COUNTERPARTY];
     let outcome = data[offsets::OUTCOME];
     let content_type = data[offsets::CONTENT_TYPE];
     let content = &data[offsets::CONTENT..];
 
     // Convert to base58
-    let token_account_b58 = bs58::encode(token_account).into_string();
+    let agent_mint_b58 = bs58::encode(agent_mint).into_string();
     let task_ref_b58 = bs58::encode(task_ref).into_string();
 
     // Map outcome to label
@@ -368,7 +378,7 @@ fn build_siws_message(schema_name: &str, data: &[u8]) -> Result<Vec<u8>> {
 
     // Build SIWS message (must match SDK exactly!)
     let message = format!(
-        "SATI {schema_name}\n\nAgent: {token_account_b58}\nTask: {task_ref_b58}\nOutcome: {outcome_label}\nDetails: {details_text}\n\nSign to create this attestation."
+        "SATI {schema_name}\n\nAgent: {agent_mint_b58}\nTask: {task_ref_b58}\nOutcome: {outcome_label}\nDetails: {details_text}\n\nSign to create this attestation."
     );
 
     Ok(message.into_bytes())
@@ -401,7 +411,7 @@ mod tests {
     use light_sdk::instruction::PackedAddressTreeInfo;
 
     /// Create minimal test CreateParams with universal layout (131 bytes)
-    /// Layout: layout_version(1) + task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1)
+    /// Layout: layout_version(1) + task_ref(32) + agent_mint(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1)
     fn make_test_params(outcome: u8) -> CreateParams {
         let mut data = vec![0u8; 141]; // 131 min + some content
 
@@ -527,7 +537,7 @@ mod tests {
             .try_into()
             .unwrap();
 
-        // Compute expected interaction hash (now 3 params, no token_account)
+        // Compute expected interaction hash (3 params: schema, task_ref, data_hash)
         let expected_hash =
             compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
 
@@ -548,7 +558,7 @@ mod tests {
         use bs58;
 
         let schema_name = "Feedback";
-        let token_account = Pubkey::new_unique();
+        let agent_mint = Pubkey::new_unique();
         let task_ref = [1u8; 32];
         let outcome: u8 = 2; // Positive
         let content_type: u8 = 0; // None
@@ -556,8 +566,8 @@ mod tests {
         // Build data array matching test setup (131 bytes minimum)
         let mut data = vec![0u8; 131];
         data[offsets::LAYOUT_VERSION] = CURRENT_LAYOUT_VERSION;
-        data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT].copy_from_slice(&task_ref);
-        data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY].copy_from_slice(token_account.as_ref());
+        data[offsets::TASK_REF..offsets::AGENT_MINT].copy_from_slice(&task_ref);
+        data[offsets::AGENT_MINT..offsets::COUNTERPARTY].copy_from_slice(agent_mint.as_ref());
         data[offsets::COUNTERPARTY..offsets::OUTCOME]
             .copy_from_slice(Pubkey::new_unique().as_ref()); // counterparty
         data[offsets::OUTCOME] = outcome;
@@ -570,7 +580,7 @@ mod tests {
         // Build test helper message manually (same logic as ed25519.rs test helper)
         let outcome_label = "Positive";
         let task_b58 = bs58::encode(&task_ref).into_string();
-        let agent_b58 = token_account.to_string();
+        let agent_b58 = agent_mint.to_string();
         let details_text = "(none)";
 
         let test_msg_str = format!(

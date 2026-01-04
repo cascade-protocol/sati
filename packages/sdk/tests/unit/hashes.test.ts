@@ -135,10 +135,10 @@ describe("computeAttestationNonce", () => {
   test("produces 32-byte nonce", () => {
     const taskRef = randomBytes(32);
     const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
     const counterparty = randomAddress();
 
-    const nonce = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty);
 
     expect(nonce).toBeInstanceOf(Uint8Array);
     expect(nonce.length).toBe(32);
@@ -147,11 +147,11 @@ describe("computeAttestationNonce", () => {
   test("is deterministic with same inputs", () => {
     const taskRef = randomBytes(32);
     const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
     const counterparty = randomAddress();
 
-    const nonce1 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
-    const nonce2 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty);
+    const nonce1 = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty);
+    const nonce2 = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty);
 
     expect(nonce1).toEqual(nonce2);
   });
@@ -159,22 +159,22 @@ describe("computeAttestationNonce", () => {
   test("produces unique nonces per (task, agent, counterparty) tuple", () => {
     const taskRef = randomBytes(32);
     const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
     const counterparty1 = randomAddress();
     const counterparty2 = randomAddress();
 
-    const nonce1 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty1);
-    const nonce2 = computeAttestationNonce(taskRef, sasSchema, tokenAccount, counterparty2);
+    const nonce1 = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty1);
+    const nonce2 = computeAttestationNonce(taskRef, sasSchema, agentMint, counterparty2);
 
     expect(nonce1).not.toEqual(nonce2);
   });
 
   test("throws on invalid taskRef length", () => {
     const sasSchema = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
     const counterparty = randomAddress();
 
-    expect(() => computeAttestationNonce(randomBytes(16), sasSchema, tokenAccount, counterparty)).toThrow(
+    expect(() => computeAttestationNonce(randomBytes(16), sasSchema, agentMint, counterparty)).toThrow(
       "taskRef must be 32 bytes",
     );
   });
@@ -187,9 +187,9 @@ describe("computeAttestationNonce", () => {
 describe("computeReputationNonce", () => {
   test("produces 32-byte nonce", () => {
     const provider = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
 
-    const nonce = computeReputationNonce(provider, tokenAccount);
+    const nonce = computeReputationNonce(provider, agentMint);
 
     expect(nonce).toBeInstanceOf(Uint8Array);
     expect(nonce.length).toBe(32);
@@ -197,10 +197,10 @@ describe("computeReputationNonce", () => {
 
   test("is deterministic with same inputs", () => {
     const provider = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
 
-    const nonce1 = computeReputationNonce(provider, tokenAccount);
-    const nonce2 = computeReputationNonce(provider, tokenAccount);
+    const nonce1 = computeReputationNonce(provider, agentMint);
+    const nonce2 = computeReputationNonce(provider, agentMint);
 
     expect(nonce1).toEqual(nonce2);
   });
@@ -208,10 +208,10 @@ describe("computeReputationNonce", () => {
   test("produces unique nonces per (provider, agent) pair", () => {
     const provider1 = randomAddress();
     const provider2 = randomAddress();
-    const tokenAccount = randomAddress();
+    const agentMint = randomAddress();
 
-    const nonce1 = computeReputationNonce(provider1, tokenAccount);
-    const nonce2 = computeReputationNonce(provider2, tokenAccount);
+    const nonce1 = computeReputationNonce(provider1, agentMint);
+    const nonce2 = computeReputationNonce(provider2, agentMint);
 
     expect(nonce1).not.toEqual(nonce2);
   });

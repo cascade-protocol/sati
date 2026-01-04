@@ -82,7 +82,7 @@ export function isValidValidationType(validationType: number): boolean {
 
 export interface FeedbackDataParams {
   taskRef: Uint8Array;
-  tokenAccount: Address;
+  agentMint: Address;
   counterparty: Address;
   outcome: Outcome;
   dataHash: Uint8Array;
@@ -96,7 +96,7 @@ export interface FeedbackDataParams {
  * Layout (131 bytes base + variable content):
  *   - 0: layout_version (1 byte) = 1
  *   - 1-32: taskRef (32 bytes)
- *   - 33-64: tokenAccount (32 bytes)
+ *   - 33-64: agentMint (32 bytes)
  *   - 65-96: counterparty (32 bytes)
  *   - 97: outcome (1 byte)
  *   - 98-129: dataHash (32 bytes)
@@ -119,8 +119,8 @@ export function buildFeedbackData(params: FeedbackDataParams): Uint8Array {
   // taskRef (32 bytes) at offset 1
   data.set(params.taskRef, OFFSETS.TASK_REF);
 
-  // tokenAccount (32 bytes) at offset 33
-  data.set(new Uint8Array(encoder.encode(params.tokenAccount)), OFFSETS.TOKEN_ACCOUNT);
+  // agentMint (32 bytes) at offset 33
+  data.set(new Uint8Array(encoder.encode(params.agentMint)), OFFSETS.AGENT_MINT);
 
   // counterparty (32 bytes) at offset 65
   data.set(new Uint8Array(encoder.encode(params.counterparty)), OFFSETS.COUNTERPARTY);
@@ -144,7 +144,7 @@ export function buildFeedbackData(params: FeedbackDataParams): Uint8Array {
 
 export interface ValidationDataParams {
   taskRef: Uint8Array;
-  tokenAccount: Address;
+  agentMint: Address;
   counterparty: Address;
   outcome: Outcome;
   dataHash: Uint8Array;
@@ -165,7 +165,7 @@ export function buildValidationData(params: ValidationDataParams): Uint8Array {
 
 export interface ReputationScoreDataParams {
   taskRef: Uint8Array;
-  tokenAccount: Address;
+  agentMint: Address;
   counterparty: Address;
   outcome: Outcome;
   dataHash: Uint8Array;

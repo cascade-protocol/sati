@@ -16,7 +16,7 @@ use solana_sdk::pubkey::Pubkey;
 /// MUST match on-chain build_siws_message() in create_attestation.rs exactly!
 fn build_counterparty_message(
     schema_name: &str,
-    token_account: &Pubkey,
+    agent_mint: &Pubkey,
     task_ref: &[u8; 32],
     outcome: u8,
     details: Option<&str>,
@@ -29,7 +29,7 @@ fn build_counterparty_message(
     };
 
     let task_b58 = bs58::encode(task_ref).into_string();
-    let agent_b58 = token_account.to_string();
+    let agent_b58 = agent_mint.to_string();
 
     // Must match on-chain format: always includes "Details:" line
     let details_text = details.map_or("(none)".to_string(), |d| d.to_string());
@@ -46,8 +46,8 @@ struct Vector {
     name: String,
     #[serde(rename = "schemaName")]
     schema_name: String,
-    #[serde(rename = "tokenAccountHex")]
-    token_account_hex: String,
+    #[serde(rename = "agentMintHex")]
+    agent_mint_hex: String,
     #[serde(rename = "taskRefHex")]
     task_ref_hex: String,
     outcome: u8,
@@ -98,14 +98,14 @@ fn siws_message_matches_test_vectors() {
 
     for vector in vectors_file.vectors {
         // Parse inputs
-        let token_account_bytes = hex_to_bytes(&vector.token_account_hex);
+        let agent_mint_bytes = hex_to_bytes(&vector.agent_mint_hex);
         let task_ref_bytes = hex_to_bytes(&vector.task_ref_hex);
         let content_bytes = hex_to_bytes(&vector.content_hex);
 
-        let token_account = Pubkey::new_from_array(
-            token_account_bytes
+        let agent_mint = Pubkey::new_from_array(
+            agent_mint_bytes
                 .try_into()
-                .expect("token_account must be 32 bytes"),
+                .expect("agent_mint must be 32 bytes"),
         );
         let task_ref: [u8; 32] = task_ref_bytes
             .try_into()
@@ -122,7 +122,7 @@ fn siws_message_matches_test_vectors() {
         // Build SIWS message using test helper
         let result = build_counterparty_message(
             &vector.schema_name,
-            &token_account,
+            &agent_mint,
             &task_ref,
             vector.outcome,
             details_opt,
@@ -154,14 +154,14 @@ fn generate_vector_expected() {
         serde_json::from_str(vectors_json).expect("Failed to parse siws-vectors.json");
 
     for vector in vectors_file.vectors {
-        let token_account_bytes = hex_to_bytes(&vector.token_account_hex);
+        let agent_mint_bytes = hex_to_bytes(&vector.agent_mint_hex);
         let task_ref_bytes = hex_to_bytes(&vector.task_ref_hex);
         let content_bytes = hex_to_bytes(&vector.content_hex);
 
-        let token_account = Pubkey::new_from_array(
-            token_account_bytes
+        let agent_mint = Pubkey::new_from_array(
+            agent_mint_bytes
                 .try_into()
-                .expect("token_account must be 32 bytes"),
+                .expect("agent_mint must be 32 bytes"),
         );
         let task_ref: [u8; 32] = task_ref_bytes
             .try_into()
@@ -176,7 +176,7 @@ fn generate_vector_expected() {
 
         let result = build_counterparty_message(
             &vector.schema_name,
-            &token_account,
+            &agent_mint,
             &task_ref,
             vector.outcome,
             details_opt,

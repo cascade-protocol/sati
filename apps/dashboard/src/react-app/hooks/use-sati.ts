@@ -425,16 +425,13 @@ export function useMyFeedbacks() {
  * Hook for feedbacks on a specific agent (Agent Details page)
  *
  * Uses helius-sdk zk.getCompressedAccountsByOwner with memcmp filters
- * on sasSchema and tokenAccount (which stores the agent's mint address).
- *
- * Note: tokenAccount in feedbacks IS the agent mint address, not an ATA.
+ * on sasSchema and agentMint.
  */
 export function useAgentFeedbacks(mint: Address | string | undefined) {
   const feedbacksQuery = useQuery({
     queryKey: [...FEEDBACKS_KEY, "agent", mint],
     queryFn: async () => {
       if (!mint) return [];
-      // tokenAccount in feedbacks stores the agent mint directly (not ATA)
       return listAgentFeedbacks(mint as Address);
     },
     // Sort by slotCreated descending (most recent first)

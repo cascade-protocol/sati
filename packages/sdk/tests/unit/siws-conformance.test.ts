@@ -24,7 +24,7 @@ import { OFFSETS } from "../../src/schemas";
 interface Vector {
   name: string;
   schemaName: string;
-  tokenAccountHex: string;
+  agentMintHex: string;
   taskRefHex: string;
   outcome: number;
   contentType: number;
@@ -65,11 +65,11 @@ function hexToBytes(hex: string): Uint8Array {
 
 /**
  * Build universal layout data from vector fields.
- * Layout: task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content
+ * Layout: task_ref(32) + agent_mint(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content
  */
 function buildDataFromVector(vector: Vector): Uint8Array {
   const taskRef = hexToBytes(vector.taskRefHex);
-  const tokenAccount = hexToBytes(vector.tokenAccountHex);
+  const agentMint = hexToBytes(vector.agentMintHex);
   const content = hexToBytes(vector.contentHex);
 
   // Universal layout is 130 bytes minimum + content
@@ -78,8 +78,8 @@ function buildDataFromVector(vector: Vector): Uint8Array {
   // task_ref (0-32)
   data.set(taskRef, OFFSETS.TASK_REF);
 
-  // token_account (32-64)
-  data.set(tokenAccount, OFFSETS.TOKEN_ACCOUNT);
+  // agent_mint (32-64)
+  data.set(agentMint, OFFSETS.AGENT_MINT);
 
   // counterparty (64-96) - use zeros for test (not used in SIWS message)
   // data.set(new Uint8Array(32), OFFSETS.COUNTERPARTY); // already zeros

@@ -2,7 +2,7 @@
  * Unit Tests for Schema Serialization
  *
  * Tests universal base layout serialization and deserialization for all schemas.
- * Universal layout (131 bytes): layout_version + task_ref + token_account + counterparty +
+ * Universal layout (131 bytes): layout_version + task_ref + agent_mint + counterparty +
  * outcome + data_hash + content_type + content
  */
 
@@ -141,7 +141,7 @@ describe("Universal Layout Constants", () => {
   test("OFFSETS has correct values", () => {
     expect(OFFSETS.LAYOUT_VERSION).toBe(0);
     expect(OFFSETS.TASK_REF).toBe(1);
-    expect(OFFSETS.TOKEN_ACCOUNT).toBe(33);
+    expect(OFFSETS.AGENT_MINT).toBe(33);
     expect(OFFSETS.COUNTERPARTY).toBe(65);
     expect(OFFSETS.OUTCOME).toBe(97);
     expect(OFFSETS.DATA_HASH).toBe(98);
@@ -164,7 +164,7 @@ describe("Universal Layout Constants", () => {
 describe("Universal Layout Serialization", () => {
   const createBaseLayout = (overrides?: Partial<BaseLayout>): BaseLayout => ({
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     outcome: Outcome.Positive,
     dataHash: randomBytes(32),
@@ -186,7 +186,7 @@ describe("Universal Layout Serialization", () => {
     const deserialized = deserializeUniversalLayout(serialized);
 
     expect(deserialized.taskRef).toEqual(data.taskRef);
-    expect(deserialized.tokenAccount).toBe(data.tokenAccount);
+    expect(deserialized.agentMint).toBe(data.agentMint);
     expect(deserialized.counterparty).toBe(data.counterparty);
     expect(deserialized.outcome).toBe(data.outcome);
     expect(deserialized.dataHash).toEqual(data.dataHash);
@@ -248,7 +248,7 @@ describe("Universal Layout Serialization", () => {
 describe("Feedback Serialization", () => {
   const createFeedbackData = (overrides?: Partial<FeedbackData>): FeedbackData => ({
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     outcome: Outcome.Positive,
     dataHash: randomBytes(32),
@@ -263,7 +263,7 @@ describe("Feedback Serialization", () => {
     const deserialized = deserializeFeedback(serialized);
 
     expect(deserialized.taskRef).toEqual(feedback.taskRef);
-    expect(deserialized.tokenAccount).toBe(feedback.tokenAccount);
+    expect(deserialized.agentMint).toBe(feedback.agentMint);
     expect(deserialized.counterparty).toBe(feedback.counterparty);
     expect(deserialized.outcome).toBe(feedback.outcome);
     expect(deserialized.dataHash).toEqual(feedback.dataHash);
@@ -301,7 +301,7 @@ describe("Feedback Serialization", () => {
 describe("Validation Serialization", () => {
   const createValidationData = (overrides?: Partial<ValidationData>): ValidationData => ({
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     outcome: Outcome.Positive,
     dataHash: randomBytes(32),
@@ -316,7 +316,7 @@ describe("Validation Serialization", () => {
     const deserialized = deserializeValidation(serialized);
 
     expect(deserialized.taskRef).toEqual(validation.taskRef);
-    expect(deserialized.tokenAccount).toBe(validation.tokenAccount);
+    expect(deserialized.agentMint).toBe(validation.agentMint);
     expect(deserialized.counterparty).toBe(validation.counterparty);
     expect(deserialized.outcome).toBe(validation.outcome);
     expect(deserialized.dataHash).toEqual(validation.dataHash);
@@ -354,7 +354,7 @@ describe("Validation Serialization", () => {
 describe("ReputationScore Serialization", () => {
   const createReputationScoreData = (overrides?: Partial<ReputationScoreData>): ReputationScoreData => ({
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     outcome: Outcome.Positive,
     dataHash: zeroDataHash(), // SingleSigner uses zero data hash
@@ -369,7 +369,7 @@ describe("ReputationScore Serialization", () => {
     const deserialized = deserializeReputationScore(serialized);
 
     expect(deserialized.taskRef).toEqual(reputationScore.taskRef);
-    expect(deserialized.tokenAccount).toBe(reputationScore.tokenAccount);
+    expect(deserialized.agentMint).toBe(reputationScore.agentMint);
     expect(deserialized.counterparty).toBe(reputationScore.counterparty);
     expect(deserialized.outcome).toBe(reputationScore.outcome);
     expect(deserialized.dataHash).toEqual(reputationScore.dataHash);
@@ -686,7 +686,7 @@ describe("Roundtrip Consistency", () => {
   test("feedback roundtrip is byte-identical", () => {
     const original: FeedbackData = {
       taskRef: randomBytes(32),
-      tokenAccount: randomAddress(),
+      agentMint: randomAddress(),
       counterparty: randomAddress(),
       outcome: Outcome.Positive,
       dataHash: randomBytes(32),
@@ -704,7 +704,7 @@ describe("Roundtrip Consistency", () => {
   test("validation roundtrip is byte-identical", () => {
     const original: ValidationData = {
       taskRef: randomBytes(32),
-      tokenAccount: randomAddress(),
+      agentMint: randomAddress(),
       counterparty: randomAddress(),
       outcome: Outcome.Positive,
       dataHash: randomBytes(32),
@@ -722,7 +722,7 @@ describe("Roundtrip Consistency", () => {
   test("reputation score roundtrip is byte-identical", () => {
     const original: ReputationScoreData = {
       taskRef: randomBytes(32),
-      tokenAccount: randomAddress(),
+      agentMint: randomAddress(),
       counterparty: randomAddress(),
       outcome: Outcome.Positive,
       dataHash: zeroDataHash(),

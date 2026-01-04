@@ -152,10 +152,10 @@ export function Dashboard() {
                   </thead>
                   <tbody>
                     {myFeedbacks.map((feedback) => {
-                      // tokenAccount is the agent's mint address (named for SAS wire format compatibility)
+                      // agentMint is the agent's mint address (stable identity)
                       const data = feedback.data as {
                         outcome: number;
-                        tokenAccount: string;
+                        agentMint: string;
                         content: Uint8Array;
                         contentType: number;
                       };
@@ -173,17 +173,17 @@ export function Dashboard() {
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <a
-                                  href={getSolscanUrl(data.tokenAccount, "account")}
+                                  href={getSolscanUrl(data.agentMint, "account")}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
                                 >
-                                  {truncateAddress(data.tokenAccount)}
+                                  {truncateAddress(data.agentMint)}
                                   <ExternalLink className="h-3 w-3 opacity-50" />
                                 </a>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <span className="font-mono text-xs">{data.tokenAccount}</span>
+                                <span className="font-mono text-xs">{data.agentMint}</span>
                               </TooltipContent>
                             </Tooltip>
                           </td>

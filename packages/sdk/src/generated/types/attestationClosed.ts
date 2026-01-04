@@ -22,8 +22,8 @@ import {
 export type AttestationClosed = {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility. */
-  tokenAccount: Address;
+  /** Agent's MINT ADDRESS (Token-2022 NFT, stable identity) */
+  agentMint: Address;
   /** Attestation address that was closed */
   address: Address;
 };
@@ -33,7 +33,7 @@ export type AttestationClosedArgs = AttestationClosed;
 export function getAttestationClosedEncoder(): FixedSizeEncoder<AttestationClosedArgs> {
   return getStructEncoder([
     ["sasSchema", getAddressEncoder()],
-    ["tokenAccount", getAddressEncoder()],
+    ["agentMint", getAddressEncoder()],
     ["address", getAddressEncoder()],
   ]);
 }
@@ -41,7 +41,7 @@ export function getAttestationClosedEncoder(): FixedSizeEncoder<AttestationClose
 export function getAttestationClosedDecoder(): FixedSizeDecoder<AttestationClosed> {
   return getStructDecoder([
     ["sasSchema", getAddressDecoder()],
-    ["tokenAccount", getAddressDecoder()],
+    ["agentMint", getAddressDecoder()],
     ["address", getAddressDecoder()],
   ]);
 }

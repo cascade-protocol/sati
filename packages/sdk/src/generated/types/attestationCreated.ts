@@ -28,8 +28,8 @@ import {
 export type AttestationCreated = {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility. */
-  tokenAccount: Address;
+  /** Agent's MINT ADDRESS (Token-2022 NFT, stable identity) */
+  agentMint: Address;
   /** Counterparty (client for Feedback, validator for Validation, provider for ReputationScore) */
   counterparty: Address;
   /** Storage type used */
@@ -41,8 +41,8 @@ export type AttestationCreated = {
 export type AttestationCreatedArgs = {
   /** SAS schema address */
   sasSchema: Address;
-  /** Agent's MINT ADDRESS (stable identity). Named `token_account` for SAS compatibility. */
-  tokenAccount: Address;
+  /** Agent's MINT ADDRESS (Token-2022 NFT, stable identity) */
+  agentMint: Address;
   /** Counterparty (client for Feedback, validator for Validation, provider for ReputationScore) */
   counterparty: Address;
   /** Storage type used */
@@ -54,7 +54,7 @@ export type AttestationCreatedArgs = {
 export function getAttestationCreatedEncoder(): FixedSizeEncoder<AttestationCreatedArgs> {
   return getStructEncoder([
     ["sasSchema", getAddressEncoder()],
-    ["tokenAccount", getAddressEncoder()],
+    ["agentMint", getAddressEncoder()],
     ["counterparty", getAddressEncoder()],
     ["storageType", getStorageTypeEncoder()],
     ["address", getAddressEncoder()],
@@ -64,7 +64,7 @@ export function getAttestationCreatedEncoder(): FixedSizeEncoder<AttestationCrea
 export function getAttestationCreatedDecoder(): FixedSizeDecoder<AttestationCreated> {
   return getStructDecoder([
     ["sasSchema", getAddressDecoder()],
-    ["tokenAccount", getAddressDecoder()],
+    ["agentMint", getAddressDecoder()],
     ["counterparty", getAddressDecoder()],
     ["storageType", getStorageTypeDecoder()],
     ["address", getAddressDecoder()],

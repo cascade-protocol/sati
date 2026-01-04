@@ -5,7 +5,7 @@
  * Web Crypto implementation.
  *
  * ## Identity Model
- * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
+ * - `agentMint` = agent's **MINT ADDRESS** (stable identity)
  * - `agentKeypair` = NFT **OWNER**'s keypair (the signer)
  * - signature[0].pubkey = owner address (NOT mint)
  * - On-chain verifies owner via ATA ownership
@@ -137,11 +137,11 @@ export async function createFeedbackSignatures(
   counterpartyKeypair: TestKeypair,
   dataHash: Uint8Array,
   outcome: Outcome,
-  tokenAccount?: Address,
+  agentMint?: Address,
   schemaName: string = "Feedback",
 ): Promise<{ signatures: SignatureData[]; counterpartyMessage: Uint8Array }> {
-  // Use explicit tokenAccount if provided, otherwise use agent's address
-  const tokenAddr = tokenAccount ?? agentKeypair.address;
+  // Use explicit agentMint if provided, otherwise use agent's address
+  const mintAddr = agentMint ?? agentKeypair.address;
 
   // Agent signs interaction hash (blind - doesn't know outcome)
   const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
@@ -150,7 +150,7 @@ export async function createFeedbackSignatures(
   // Build feedback data for SIWS message
   const feedbackData: FeedbackData = {
     taskRef,
-    tokenAccount: tokenAddr,
+    agentMint: mintAddr,
     counterparty: counterpartyKeypair.address,
     dataHash,
     outcome,
@@ -178,12 +178,12 @@ export async function createFeedbackSignatures(
  *
  * Note: This rebuilds the expected counterpartyMessage from the parameters
  * and verifies the counterparty signed that exact message. This catches
- * attempts to use signatures from a different tokenAccount or outcome.
+ * attempts to use signatures from a different agentMint or outcome.
  */
 export async function verifyFeedbackSignatures(
   sasSchema: Address,
   taskRef: Uint8Array,
-  tokenAccount: Address,
+  agentMint: Address,
   dataHash: Uint8Array,
   outcome: Outcome,
   signatures: SignatureData[],
@@ -205,10 +205,10 @@ export async function verifyFeedbackSignatures(
   );
 
   // Rebuild expected counterparty message from parameters to verify
-  // the signature was for THIS specific tokenAccount and outcome
+  // the signature was for THIS specific agentMint and outcome
   const feedbackData: FeedbackData = {
     taskRef,
-    tokenAccount,
+    agentMint,
     counterparty: signatures[1].pubkey,
     dataHash,
     outcome,
@@ -250,11 +250,11 @@ export async function createValidationSignatures(
   validatorKeypair: TestKeypair,
   dataHash: Uint8Array,
   outcome: Outcome,
-  tokenAccount?: Address,
+  agentMint?: Address,
   schemaName: string = "Validation",
 ): Promise<{ signatures: SignatureData[]; counterpartyMessage: Uint8Array }> {
-  // Use explicit tokenAccount if provided, otherwise use agent's address
-  const tokenAddr = tokenAccount ?? agentKeypair.address;
+  // Use explicit agentMint if provided, otherwise use agent's address
+  const mintAddr = agentMint ?? agentKeypair.address;
 
   // Agent signs interaction hash (blind)
   const interactionHash = computeInteractionHash(sasSchema, taskRef, dataHash);
@@ -263,7 +263,7 @@ export async function createValidationSignatures(
   // Build validation data for SIWS message
   const validationData: ValidationData = {
     taskRef,
-    tokenAccount: tokenAddr,
+    agentMint: mintAddr,
     counterparty: validatorKeypair.address,
     dataHash,
     outcome,

@@ -14,9 +14,8 @@
  * - Counterparty signs: SIWS human-readable message (built in offchain-signing.ts)
  *
  * ## Identity Model
- * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
+ * - `agentMint` = agent's **MINT ADDRESS** (stable identity)
  * - The agent NFT **OWNER** signs (verified via ATA ownership on-chain)
- * - Naming is for SAS wire format compatibility (NOT an Associated Token Account)
  */
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
@@ -77,28 +76,28 @@ export function computeInteractionHash(sasSchema: Address, taskRef: Uint8Array, 
  *
  * @param taskRef - 32-byte task reference
  * @param sasSchema - SAS schema address
- * @param tokenAccount - Agent's mint address (named for SAS compatibility)
+ * @param agentMint - Agent's mint address
  * @param counterparty - Counterparty's address
  * @returns 32-byte keccak256 nonce
  */
 export function computeAttestationNonce(
   taskRef: Uint8Array,
   sasSchema: Address,
-  tokenAccount: Address,
+  agentMint: Address,
   counterparty: Address,
 ): Uint8Array {
   if (taskRef.length !== 32) {
     throw new Error("taskRef must be 32 bytes");
   }
 
-  const data = new Uint8Array(32 + 32 + 32 + 32); // taskRef + schema + tokenAccount + counterparty
+  const data = new Uint8Array(32 + 32 + 32 + 32); // taskRef + schema + agentMint + counterparty
 
   let offset = 0;
   data.set(taskRef, offset);
   offset += 32;
   data.set(addressToBytes(sasSchema), offset);
   offset += 32;
-  data.set(addressToBytes(tokenAccount), offset);
+  data.set(addressToBytes(agentMint), offset);
   offset += 32;
   data.set(addressToBytes(counterparty), offset);
 
@@ -110,14 +109,14 @@ export function computeAttestationNonce(
  * One ReputationScore per (provider, agent) pair.
  *
  * @param provider - Reputation provider's address
- * @param tokenAccount - Agent's mint address (named for SAS compatibility)
+ * @param agentMint - Agent's mint address
  * @returns 32-byte keccak256 nonce
  */
-export function computeReputationNonce(provider: Address, tokenAccount: Address): Uint8Array {
-  const data = new Uint8Array(32 + 32); // provider + tokenAccount
+export function computeReputationNonce(provider: Address, agentMint: Address): Uint8Array {
+  const data = new Uint8Array(32 + 32); // provider + agentMint
 
   data.set(addressToBytes(provider), 0);
-  data.set(addressToBytes(tokenAccount), 32);
+  data.set(addressToBytes(agentMint), 32);
 
   return keccak_256(data);
 }

@@ -16,7 +16,7 @@
  * ```
  * SATI {schema_name}
  *
- * Agent: {token_account}
+ * Agent: {agent_mint}
  * Task: {task_ref}
  * Outcome: {Negative|Neutral|Positive}
  * Details: {content}
@@ -177,7 +177,7 @@ export interface CounterpartyMessageParams {
  * // Build attestation data
  * const data = serializeFeedback({
  *   taskRef: new Uint8Array(32),
- *   tokenAccount: agentMint,
+ *   agentMint: agentMintAddress,
  *   counterparty: clientAddress,
  *   outcome: Outcome.Positive,
  *   dataHash: dataHash,
@@ -205,8 +205,8 @@ export function buildCounterpartyMessage(params: CounterpartyMessageParams): Sig
   }
 
   // Extract fields from universal layout
-  const taskRef = data.slice(OFFSETS.TASK_REF, OFFSETS.TOKEN_ACCOUNT);
-  const tokenAccount = data.slice(OFFSETS.TOKEN_ACCOUNT, OFFSETS.COUNTERPARTY);
+  const taskRef = data.slice(OFFSETS.TASK_REF, OFFSETS.AGENT_MINT);
+  const agentMint = data.slice(OFFSETS.AGENT_MINT, OFFSETS.COUNTERPARTY);
   const outcome = data[OFFSETS.OUTCOME] as Outcome;
   const contentType = data[OFFSETS.CONTENT_TYPE] as ContentType;
   const content = data.slice(OFFSETS.CONTENT);
@@ -217,7 +217,7 @@ export function buildCounterpartyMessage(params: CounterpartyMessageParams): Sig
   }
 
   // Format addresses as base58
-  const tokenAccountB58 = bytesToBase58(tokenAccount);
+  const agentMintB58 = bytesToBase58(agentMint);
   const taskRefB58 = bytesToBase58(taskRef);
 
   // Decode content for display
@@ -227,7 +227,7 @@ export function buildCounterpartyMessage(params: CounterpartyMessageParams): Sig
   // Build SIWS-style message
   const text = `SATI ${schemaName}
 
-Agent: ${tokenAccountB58}
+Agent: ${agentMintB58}
 Task: ${taskRefB58}
 Outcome: ${outcomeLabel}
 Details: ${detailsText}
@@ -328,14 +328,14 @@ export interface FeedbackSigningParams {
  * import { buildFeedbackSigningMessage, computeFeedbackHash } from "@cascade-fyi/sati-sdk";
  *
  * // Compute the feedback hash
- * const feedbackHash = computeFeedbackHash(sasSchema, taskRef, tokenAccount, outcome);
+ * const feedbackHash = computeFeedbackHash(sasSchema, taskRef, agentMint, outcome);
  *
  * // SIWS-style (recommended)
  * const { messageBytes } = buildFeedbackSigningMessage({
  *   feedbackHash,
  *   outcome,
  *   ownerAddress: wallet.publicKey,
- *   agentMint: tokenAccount,
+ *   agentMint,
  *   network: "mainnet",
  * });
  *

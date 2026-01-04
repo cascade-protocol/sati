@@ -45,7 +45,7 @@ const deployedConfig = loadDeployedConfig(getNetwork());
 const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
 
 interface GiveFeedbackDialogProps {
-  /** Agent mint address (used as tokenAccount in attestations) */
+  /** Agent mint address */
   agentMint: Address;
   /** Agent name for display */
   agentName: string;
@@ -60,7 +60,7 @@ interface SubmitFeedbackRequest {
   network: "devnet" | "mainnet"; // Network to submit on
   sasSchema: string;
   taskRef: string;
-  tokenAccount: string;
+  agentMint: string;
   dataHash: string;
   outcome: number;
   counterparty: string;
@@ -153,7 +153,7 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         // 2. Build feedback data for SIWS message
         const feedbackData: FeedbackData = {
           taskRef,
-          tokenAccount: agentMint,
+          agentMint: agentMint,
           counterparty: session.account.address as Address,
           dataHash,
           outcome: selectedOutcome,
@@ -193,7 +193,7 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
           network: getNetwork(),
           sasSchema: FEEDBACK_SCHEMA_ADDRESS,
           taskRef: bytesToHex(taskRef),
-          tokenAccount: agentMint,
+          agentMint: agentMint,
           dataHash: bytesToHex(dataHash),
           outcome: selectedOutcome,
           counterparty: session.account.address,

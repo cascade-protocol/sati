@@ -6,8 +6,7 @@
  * attestations.
  *
  * ## Identity Model
- * - `tokenAccount` = agent's **MINT ADDRESS** (stable identity)
- * - Named for SAS wire format compatibility (NOT an Associated Token Account)
+ * - `agentMint` = agent's **MINT ADDRESS** (stable identity)
  */
 
 import {
@@ -47,7 +46,7 @@ import { deserializeFeedback, deserializeValidation } from "./schemas";
 // Note: The `data` field is a Vec<u8> which has a 4-byte length prefix
 const BORSH_OFFSETS = {
   SAS_SCHEMA: 0,
-  TOKEN_ACCOUNT: 32,
+  AGENT_MINT: 32,
   DATA_LEN: 64, // 4-byte u32 LE length prefix for Vec<u8>
   DATA_START: 68, // Actual data bytes start after length prefix
 } as const;
@@ -66,12 +65,11 @@ export interface PublicKeyLike {
 
 /**
  * Filter options for querying compressed attestations.
- * Note: tokenAccount refers to the agent's mint address (named for SAS wire format compatibility).
  */
 export interface AttestationFilter {
   sasSchema?: Address;
-  /** Agent's mint address to filter by (named tokenAccount for SAS compatibility) */
-  tokenAccount?: Address;
+  /** Agent's mint address to filter by */
+  agentMint?: Address;
   counterparty?: Address;
   outcome?: Outcome;
   responseMin?: number;
@@ -625,7 +623,7 @@ export class SATILightClientImpl implements SATILightClient {
 
         // Apply filters
         if (parsed.attestation.sasSchema !== filter.sasSchema) continue;
-        if (filter.tokenAccount && parsed.attestation.tokenAccount !== filter.tokenAccount) continue;
+        if (filter.agentMint && parsed.attestation.agentMint !== filter.agentMint) continue;
 
         attestations.push(parsed);
       } catch {
@@ -648,15 +646,15 @@ export class SATILightClientImpl implements SATILightClient {
     const rawData = account.data.data;
     const data = rawData instanceof Uint8Array ? new Uint8Array(rawData) : new Uint8Array(rawData as ArrayLike<number>);
 
-    // Minimum: sasSchema(32) + tokenAccount(32) + dataLen(4) = 68 bytes
+    // Minimum: sasSchema(32) + agentMint(32) + dataLen(4) = 68 bytes
     if (data.length < BORSH_OFFSETS.DATA_START) return null;
 
     // Parse fixed fields and convert to Address
     const addressDecoder = getAddressDecoder();
     const sasSchemaBytes = data.slice(BORSH_OFFSETS.SAS_SCHEMA, BORSH_OFFSETS.SAS_SCHEMA + 32);
-    const tokenAccountBytes = data.slice(BORSH_OFFSETS.TOKEN_ACCOUNT, BORSH_OFFSETS.TOKEN_ACCOUNT + 32);
+    const agentMintBytes = data.slice(BORSH_OFFSETS.AGENT_MINT, BORSH_OFFSETS.AGENT_MINT + 32);
     const sasSchema = addressDecoder.decode(sasSchemaBytes);
-    const tokenAccount = addressDecoder.decode(tokenAccountBytes);
+    const agentMint = addressDecoder.decode(agentMintBytes);
 
     // Parse Vec length (4-byte u32 LE at offset 64)
     const dataLen =
@@ -676,7 +674,7 @@ export class SATILightClientImpl implements SATILightClient {
 
     const attestation: CompressedAttestation = {
       sasSchema,
-      tokenAccount,
+      agentMint,
       numSignatures,
       data: schemaData,
       signature1,

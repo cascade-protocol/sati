@@ -50,12 +50,16 @@ pub struct CloseRegularAttestation<'info> {
     pub sas_program: AccountInfo<'info>,
 
     /// Optional: Agent's ATA (required if signer is NFT owner, not counterparty).
-    /// If provided, must hold the agent NFT (mint matches token_account from data).
-    /// Note: token_account in data is the MINT address; this is the holder's ATA.
+    /// If provided, must hold the agent NFT (mint matches agent_mint from data).
     pub agent_ata: Option<InterfaceAccount<'info, TokenAccount>>,
 
     /// Token-2022 program for ATA verification (optional, required with agent_ata)
     pub token_program: Option<Interface<'info, TokenInterface>>,
+
+    /// Agent mint (Token-2022 NFT) for Solscan indexing.
+    /// Must match agent_mint in attestation data (bytes 33-64).
+    /// CHECK: Validated against attestation data in handler.
+    pub agent_mint: AccountInfo<'info>,
 }
 
 pub fn handler<'info>(
@@ -65,7 +69,7 @@ pub fn handler<'info>(
 
     // 1. Parse attestation data to verify authorization
     // SAS layout: discriminator(1) + nonce(32) + credential(32) + schema(32) + data_len(4) + data
-    // Data layout: task_ref(32) + token_account(32) + counterparty(32) + ...
+    // Data layout: layout_version(1) + task_ref(32) + agent_mint(32) + counterparty(32) + ...
     let attestation_data = ctx.accounts.attestation.try_borrow_data()?;
 
     require!(
@@ -73,21 +77,26 @@ pub fn handler<'info>(
         SatiError::AttestationDataTooSmall
     );
 
-    let token_account_bytes: [u8; 32] = attestation_data
-        [SAS_DATA_OFFSET + 32..SAS_DATA_OFFSET + 64]
+    let agent_mint_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 32..SAS_DATA_OFFSET + 64]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
     let counterparty_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 64..SAS_DATA_OFFSET + 96]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
-    let token_account = Pubkey::new_from_array(token_account_bytes);
+    let agent_mint_pubkey = Pubkey::new_from_array(agent_mint_bytes);
     let counterparty = Pubkey::new_from_array(counterparty_bytes);
 
     // Drop borrow before CPI
     drop(attestation_data);
 
-    // 2. Authorization check based on signature mode
+    // 2. Validate agent_mint account matches attestation data
+    require!(
+        ctx.accounts.agent_mint.key() == agent_mint_pubkey,
+        SatiError::AgentMintAccountMismatch
+    );
+
+    // 3. Authorization check based on signature mode
     // Signing party controls closure
     let signer_key = ctx.accounts.signer.key();
     let is_counterparty = signer_key == counterparty;
@@ -96,7 +105,7 @@ pub fn handler<'info>(
         crate::state::SignatureMode::DualSignature => {
             // DualSignature: Either party can close (both participated in creation)
             let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
-                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+                ata.mint == agent_mint_pubkey && ata.amount >= 1 && ata.owner == signer_key
             });
             require!(
                 is_counterparty || is_agent_owner,
@@ -112,13 +121,13 @@ pub fn handler<'info>(
             // AgentOwnerSigned (e.g., DelegateV1): Only agent owner can close
             // Agent controls their own delegations
             let is_agent_owner = ctx.accounts.agent_ata.as_ref().is_some_and(|ata| {
-                ata.mint == token_account && ata.amount >= 1 && ata.owner == signer_key
+                ata.mint == agent_mint_pubkey && ata.amount >= 1 && ata.owner == signer_key
             });
             require!(is_agent_owner, SatiError::UnauthorizedClose);
         }
     }
 
-    // 3. CPI to SAS CloseAttestation
+    // 4. CPI to SAS CloseAttestation
     let sati_pda_seeds: &[&[u8]] = &[b"sati_attestation", &[ctx.bumps.sati_pda]];
 
     CloseAttestationCpiBuilder::new(&ctx.accounts.sas_program)
@@ -128,10 +137,10 @@ pub fn handler<'info>(
         .attestation(&ctx.accounts.attestation)
         .invoke_signed(&[sati_pda_seeds])?;
 
-    // 4. Emit event
+    // 5. Emit event
     emit_cpi!(AttestationClosed {
         sas_schema: schema_config.sas_schema,
-        token_account,
+        agent_mint: agent_mint_pubkey,
         address: ctx.accounts.attestation.key(),
     });
 

@@ -3,17 +3,10 @@
  *
  * Core types for agent identity, reputation, and validation.
  *
- * ## Naming Convention: tokenAccount vs agentMint
+ * ## Naming Convention: agentMint
  *
- * The on-chain program and SAS wire format use `tokenAccount` to store the
- * agent's **mint address** (not an ATA). This naming is inherited from SAS
- * for wire format efficiency.
- *
- * In the SDK, we use two conventions:
- * - `tokenAccount` - For wire format compatibility (internal/low-level)
- * - `agentMint` - For public API clarity (preferred in user-facing code)
- *
- * Both refer to the same thing: the agent's NFT mint address (stable identity).
+ * The `agentMint` field stores the agent's **mint address** (not an ATA).
+ * This is the agent's NFT mint address (stable identity).
  */
 
 import type { Address, KeyPairSigner } from "@solana/kit";
@@ -23,14 +16,11 @@ import type { ParsedAttestation } from "./compression";
  * Agent mint address type alias for clarity.
  *
  * This is the agent's NFT mint address (stable identity), NOT an Associated
- * Token Account. Named `tokenAccount` in on-chain code and wire format for
- * SAS compatibility, but `agentMint` in SDK public APIs for clarity.
+ * Token Account.
  *
  * @example
  * ```typescript
  * const agentMint: AgentMint = "SATIAgent1111...";
- * // Same as:
- * const tokenAccount: Address = "SATIAgent1111...";
  * ```
  */
 export type AgentMint = Address;
@@ -187,6 +177,8 @@ export interface CloseRegularAttestationParams {
   sasSchema: Address;
   /** SATI credential address */
   satiCredential: Address;
+  /** Agent mint address (for Solscan visibility) */
+  agentMint: Address;
   /** SAS attestation address */
   attestation: Address;
 }

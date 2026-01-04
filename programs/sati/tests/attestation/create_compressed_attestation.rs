@@ -263,6 +263,7 @@ async fn test_create_attestation_feedback_success() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -418,6 +419,7 @@ async fn test_create_attestation_missing_signature() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -567,6 +569,7 @@ async fn test_create_attestation_invalid_signature() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -728,6 +731,7 @@ async fn test_create_attestation_wrong_signer() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -881,6 +885,7 @@ async fn test_create_attestation_self_attestation() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &self_mint,
         Some(&self_ata),
         params,
         system_accounts,
@@ -1027,6 +1032,7 @@ async fn test_create_attestation_data_too_small() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -1183,6 +1189,7 @@ async fn test_create_attestation_wrong_storage_type() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -1357,6 +1364,7 @@ async fn test_create_attestation_wrong_mint_ata() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &actual_agent_mint,
         Some(&wrong_ata), // Pass ATA with WRONG mint
         params,
         system_accounts,
@@ -1516,6 +1524,7 @@ async fn test_create_attestation_wrong_owner_ata() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&victim_ata), // Victim's ATA, but attacker signed
         params,
         system_accounts,
@@ -1670,6 +1679,7 @@ async fn test_create_attestation_empty_ata() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata), // ATA with zero balance
         params,
         system_accounts,
@@ -1821,6 +1831,7 @@ async fn test_dual_signature_with_one_sig() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -1971,6 +1982,7 @@ async fn test_counterparty_signed_with_two_sigs() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -2124,6 +2136,7 @@ async fn test_dual_signature_duplicate_pubkeys() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -2267,6 +2280,7 @@ async fn test_data_exactly_129_bytes() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -2419,6 +2433,7 @@ async fn test_content_513_bytes() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -2572,6 +2587,7 @@ async fn test_invalid_outcome_value_3() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,
@@ -2721,6 +2737,7 @@ async fn test_invalid_content_type_value_16() {
     let attestation_ix = build_create_compressed_attestation_ix(
         &payer.pubkey(),
         &schema_config_pda,
+        &agent_mint,
         Some(&agent_ata),
         params,
         system_accounts,

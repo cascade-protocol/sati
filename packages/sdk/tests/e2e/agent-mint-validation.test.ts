@@ -1,19 +1,19 @@
 /**
- * E2E Tests: tokenAccount Validation
+ * E2E Tests: agentMint Validation
  *
- * Tests that SDK methods validate tokenAccount is a registered SATI agent mint
+ * Tests that SDK methods validate agentMint is a registered SATI agent mint
  * before building/creating attestations.
  *
  * ## Test Isolation Strategy
  *
  * This file uses TWO isolation patterns:
  *
- * 1. **Main validation tests** ("E2E: tokenAccount validation"):
+ * 1. **Main validation tests** ("E2E: agentMint validation"):
  *    - Share a single `E2ETestContext` (agent, schemas, lookup table)
  *    - Tests validation across multiple SDK methods (feedback, validation, reputation)
  *    - Context is expensive to create (~5-10s)
  *
- * 2. **CounterpartySigned mode tests** ("E2E: tokenAccount validation - CounterpartySigned mode"):
+ * 2. **CounterpartySigned mode tests** ("E2E: agentMint validation - CounterpartySigned mode"):
  *    - Has its own isolated `E2ETestContext`
  *    - Tests CounterpartySigned schema registration and validation
  *    - Complete isolation from main validation tests
@@ -24,7 +24,7 @@
  * 3. Implement validation in SDK
  * 4. Verify tests pass
  *
- * Run: pnpm test:e2e -- --grep "tokenAccount validation"
+ * Run: pnpm test:e2e -- --grep "agentMint validation"
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
@@ -56,15 +56,15 @@ import deployedConfig from "../../src/deployed/localnet.json";
 const TEST_TIMEOUT = 60000;
 
 // =============================================================================
-// tokenAccount Validation Tests
+// agentMint Validation Tests
 // =============================================================================
 
 /**
  * Main E2E validation tests sharing a single context.
- * Tests tokenAccount validation across multiple SDK methods.
+ * Tests agentMint validation across multiple SDK methods.
  * Nested describes share state - they use the same registered agent.
  */
-describe("E2E: tokenAccount validation", () => {
+describe("E2E: agentMint validation", () => {
   let ctx: GlobalTestContext;
 
   // Aliases for cleaner test code
@@ -120,7 +120,7 @@ describe("E2E: tokenAccount validation", () => {
 
   describe("buildFeedbackTransaction", () => {
     test(
-      "rejects non-registered mint as tokenAccount",
+      "rejects non-registered mint as agentMint",
       async () => {
         // Generate a random address that is NOT a registered agent
         const nonRegisteredKeypair = await createTestKeypair();
@@ -144,7 +144,7 @@ describe("E2E: tokenAccount validation", () => {
           sati.buildFeedbackTransaction({
             payer: payer.address,
             sasSchema: feedbackSchema,
-            tokenAccount: nonRegisteredMint, // NOT a registered agent!
+            agentMint: nonRegisteredMint, // NOT a registered agent!
             counterparty: counterpartyKeypair.address,
             taskRef,
             dataHash,
@@ -166,7 +166,7 @@ describe("E2E: tokenAccount validation", () => {
     );
 
     test(
-      "accepts registered agent mint as tokenAccount",
+      "accepts registered agent mint as agentMint",
       async () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -186,7 +186,7 @@ describe("E2E: tokenAccount validation", () => {
         const result = await sati.buildFeedbackTransaction({
           payer: payer.address,
           sasSchema: feedbackSchema,
-          tokenAccount: registeredAgentMint, // IS a registered agent!
+          agentMint: registeredAgentMint, // IS a registered agent!
           counterparty: counterpartyKeypair.address,
           taskRef,
           dataHash,
@@ -217,7 +217,7 @@ describe("E2E: tokenAccount validation", () => {
 
   describe("createFeedback", () => {
     test(
-      "rejects non-registered mint as tokenAccount",
+      "rejects non-registered mint as agentMint",
       async () => {
         const nonRegisteredKeypair = await createTestKeypair();
         const nonRegisteredMint = nonRegisteredKeypair.address;
@@ -238,7 +238,7 @@ describe("E2E: tokenAccount validation", () => {
           sati.createFeedback({
             payer,
             sasSchema: feedbackSchema,
-            tokenAccount: nonRegisteredMint, // NOT a registered agent!
+            agentMint: nonRegisteredMint, // NOT a registered agent!
             counterparty: counterpartyKeypair.address,
             taskRef,
             dataHash,
@@ -268,7 +268,7 @@ describe("E2E: tokenAccount validation", () => {
 
   describe("createValidation", () => {
     test(
-      "rejects non-registered mint as tokenAccount",
+      "rejects non-registered mint as agentMint",
       async () => {
         const nonRegisteredKeypair = await createTestKeypair();
         const nonRegisteredMint = nonRegisteredKeypair.address;
@@ -289,7 +289,7 @@ describe("E2E: tokenAccount validation", () => {
           sati.createValidation({
             payer,
             sasSchema: validationSchema,
-            tokenAccount: nonRegisteredMint, // NOT a registered agent!
+            agentMint: nonRegisteredMint, // NOT a registered agent!
             counterparty: validatorKeypair.address,
             taskRef,
             dataHash,
@@ -313,7 +313,7 @@ describe("E2E: tokenAccount validation", () => {
     // TODO: Re-enable when lookup table extension is implemented
     // This test fails due to transaction size - validationSchema PDA is not in ctx.lookupTableAddress
     test.skip(
-      "accepts registered agent mint as tokenAccount",
+      "accepts registered agent mint as agentMint",
       async () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -332,7 +332,7 @@ describe("E2E: tokenAccount validation", () => {
         const result = await sati.createValidation({
           payer,
           sasSchema: validationSchema,
-          tokenAccount: registeredAgentMint, // IS a registered agent!
+          agentMint: registeredAgentMint, // IS a registered agent!
           counterparty: validatorKeypair.address,
           taskRef,
           dataHash,
@@ -362,7 +362,7 @@ describe("E2E: tokenAccount validation", () => {
 
   describe("createReputationScore", () => {
     test(
-      "rejects non-registered mint as tokenAccount",
+      "rejects non-registered mint as agentMint",
       async () => {
         const nonRegisteredKeypair = await createTestKeypair();
         const nonRegisteredMint = nonRegisteredKeypair.address;
@@ -379,7 +379,7 @@ describe("E2E: tokenAccount validation", () => {
             providerSignature: signatures[0].sig,
             sasSchema: reputationSchema,
             satiCredential,
-            tokenAccount: nonRegisteredMint, // NOT a registered agent!
+            agentMint: nonRegisteredMint, // NOT a registered agent!
             taskRef,
             dataHash,
             outcome: Outcome.Positive,
@@ -392,7 +392,7 @@ describe("E2E: tokenAccount validation", () => {
 
     // Skip: Regular attestations require SAS program deployed on localnet
     test.skip(
-      "accepts registered agent mint as tokenAccount",
+      "accepts registered agent mint as agentMint",
       async () => {
         const taskRef = randomBytes32();
         const dataHash = randomBytes32();
@@ -405,7 +405,7 @@ describe("E2E: tokenAccount validation", () => {
           providerSignature: signatures[0].sig,
           sasSchema: reputationSchema,
           satiCredential,
-          tokenAccount: registeredAgentMint, // IS a registered agent!
+          agentMint: registeredAgentMint, // IS a registered agent!
           taskRef,
           dataHash,
           outcome: Outcome.Positive,
@@ -425,7 +425,7 @@ describe("E2E: tokenAccount validation", () => {
 
   describe("Edge Cases", () => {
     test(
-      "rejects zero address as tokenAccount",
+      "rejects zero address as agentMint",
       async () => {
         const zeroAddress = address("11111111111111111111111111111111");
 
@@ -445,7 +445,7 @@ describe("E2E: tokenAccount validation", () => {
           sati.buildFeedbackTransaction({
             payer: payer.address,
             sasSchema: feedbackSchema,
-            tokenAccount: zeroAddress, // System program address, definitely not an agent
+            agentMint: zeroAddress, // System program address, definitely not an agent
             counterparty: counterpartyKeypair.address,
             taskRef,
             dataHash,
@@ -467,7 +467,7 @@ describe("E2E: tokenAccount validation", () => {
     );
 
     test(
-      "rejects program address as tokenAccount",
+      "rejects program address as agentMint",
       async () => {
         // Use the SATI program address itself - definitely not an agent
         const programAddress = address("SATi9Rsp7RhKRdXgCxMu28TvF9ULQjBFLfJPsmN5KEs");
@@ -488,7 +488,7 @@ describe("E2E: tokenAccount validation", () => {
           sati.createFeedback({
             payer,
             sasSchema: feedbackSchema,
-            tokenAccount: programAddress, // Program address, not an agent
+            agentMint: programAddress, // Program address, not an agent
             counterparty: counterpartyKeypair.address,
             taskRef,
             dataHash,
@@ -527,7 +527,7 @@ describe("E2E: tokenAccount validation", () => {
       "created feedbacks can be queried by registered agent mint",
       async () => {
         // Query feedbacks for the registered agent
-        const result = await sati.listFeedbacks({ tokenAccount: registeredAgentMint });
+        const result = await sati.listFeedbacks({ agentMint: registeredAgentMint });
 
         expect(Array.isArray(result.items)).toBe(true);
 
@@ -535,9 +535,9 @@ describe("E2E: tokenAccount validation", () => {
         if (result.items.length > 0) {
           const feedback = result.items[0];
           expect(feedback.data).toHaveProperty("outcome");
-          expect(feedback.data).toHaveProperty("tokenAccount");
-          // The tokenAccount in the data should match the registered agent mint
-          expect(feedback.data.tokenAccount).toBe(registeredAgentMint);
+          expect(feedback.data).toHaveProperty("agentMint");
+          // The agentMint in the data should match the registered agent mint
+          expect(feedback.data.agentMint).toBe(registeredAgentMint);
         }
       },
       TEST_TIMEOUT,
@@ -552,9 +552,9 @@ describe("E2E: tokenAccount validation", () => {
 /**
  * E2E tests for CounterpartySigned mode validation.
  * Uses shared GlobalTestContext - CounterpartySigned schema is pre-registered in globalSetup.
- * Tests tokenAccount validation for CounterpartySigned attestations.
+ * Tests agentMint validation for CounterpartySigned attestations.
  */
-describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
+describe("E2E: agentMint validation - CounterpartySigned mode", () => {
   let ctx: GlobalTestContext;
   let sati: Sati;
   let payer: KeyPairSigner;
@@ -600,7 +600,7 @@ describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
         sati.createFeedback({
           payer,
           sasSchema: feedbackPublicSchema,
-          tokenAccount: nonRegisteredMint,
+          agentMint: nonRegisteredMint,
           counterparty: agentOwnerKeypair.address,
           taskRef,
           dataHash,
@@ -642,7 +642,7 @@ describe("E2E: tokenAccount validation - CounterpartySigned mode", () => {
       const result = await sati.createFeedback({
         payer,
         sasSchema: feedbackPublicSchema,
-        tokenAccount: registeredAgentMint,
+        agentMint: registeredAgentMint,
         counterparty: agentOwnerKeypair.address,
         taskRef,
         dataHash,

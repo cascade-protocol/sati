@@ -67,6 +67,7 @@ export type CreateCompressedAttestationInstruction<
     "Sysvar1nstructions1111111111111111111111111",
   TAccountAgentAta extends string | AccountMeta<string> = string,
   TAccountTokenProgram extends string | AccountMeta<string> = string,
+  TAccountAgentMint extends string | AccountMeta<string> = string,
   TAccountDelegationAttestation extends string | AccountMeta<string> = string,
   TAccountSatiCredential extends string | AccountMeta<string> = string,
   TAccountClock extends string | AccountMeta<string> =
@@ -94,6 +95,9 @@ export type CreateCompressedAttestationInstruction<
       TAccountTokenProgram extends string
         ? ReadonlyAccount<TAccountTokenProgram>
         : TAccountTokenProgram,
+      TAccountAgentMint extends string
+        ? ReadonlyAccount<TAccountAgentMint>
+        : TAccountAgentMint,
       TAccountDelegationAttestation extends string
         ? ReadonlyAccount<TAccountDelegationAttestation>
         : TAccountDelegationAttestation,
@@ -178,6 +182,7 @@ export type CreateCompressedAttestationAsyncInput<
   TAccountInstructionsSysvar extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountAgentMint extends string = string,
   TAccountDelegationAttestation extends string = string,
   TAccountSatiCredential extends string = string,
   TAccountClock extends string = string,
@@ -195,9 +200,8 @@ export type CreateCompressedAttestationAsyncInput<
    * Required for DualSignature and AgentOwnerSigned modes.
    * Optional for CounterpartySigned mode (not validated).
    *
-   * The mint must match token_account from attestation data (the agent's MINT address),
+   * The mint must match agent_mint from attestation data,
    * amount must be >= 1, and owner must match signatures[0].pubkey.
-   * Note: token_account in data is the MINT address; this is the holder's ATA.
    */
   agentAta?: Address<TAccountAgentAta>;
   /**
@@ -205,6 +209,11 @@ export type CreateCompressedAttestationAsyncInput<
    * Required when agent_ata is provided.
    */
   tokenProgram?: Address<TAccountTokenProgram>;
+  /**
+   * Agent mint (Token-2022 NFT) for Solscan indexing.
+   * Must match agent_mint in attestation data (bytes 33-64).
+   */
+  agentMint: Address<TAccountAgentMint>;
   /**
    * Delegation attestation (optional).
    * Required when signer != agent ATA owner for AgentOwnerSigned mode.
@@ -235,6 +244,7 @@ export async function getCreateCompressedAttestationInstructionAsync<
   TAccountInstructionsSysvar extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountAgentMint extends string,
   TAccountDelegationAttestation extends string,
   TAccountSatiCredential extends string,
   TAccountClock extends string,
@@ -248,6 +258,7 @@ export async function getCreateCompressedAttestationInstructionAsync<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountSatiCredential,
     TAccountClock,
@@ -263,6 +274,7 @@ export async function getCreateCompressedAttestationInstructionAsync<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountSatiCredential,
     TAccountClock,
@@ -283,6 +295,7 @@ export async function getCreateCompressedAttestationInstructionAsync<
     },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
     delegationAttestation: {
       value: input.delegationAttestation ?? null,
       isWritable: false,
@@ -331,6 +344,7 @@ export async function getCreateCompressedAttestationInstructionAsync<
       getAccountMeta(accounts.instructionsSysvar),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.delegationAttestation),
       getAccountMeta(accounts.satiCredential),
       getAccountMeta(accounts.clock),
@@ -348,6 +362,7 @@ export async function getCreateCompressedAttestationInstructionAsync<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountSatiCredential,
     TAccountClock,
@@ -362,6 +377,7 @@ export type CreateCompressedAttestationInput<
   TAccountInstructionsSysvar extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountAgentMint extends string = string,
   TAccountDelegationAttestation extends string = string,
   TAccountSatiCredential extends string = string,
   TAccountClock extends string = string,
@@ -379,9 +395,8 @@ export type CreateCompressedAttestationInput<
    * Required for DualSignature and AgentOwnerSigned modes.
    * Optional for CounterpartySigned mode (not validated).
    *
-   * The mint must match token_account from attestation data (the agent's MINT address),
+   * The mint must match agent_mint from attestation data,
    * amount must be >= 1, and owner must match signatures[0].pubkey.
-   * Note: token_account in data is the MINT address; this is the holder's ATA.
    */
   agentAta?: Address<TAccountAgentAta>;
   /**
@@ -389,6 +404,11 @@ export type CreateCompressedAttestationInput<
    * Required when agent_ata is provided.
    */
   tokenProgram?: Address<TAccountTokenProgram>;
+  /**
+   * Agent mint (Token-2022 NFT) for Solscan indexing.
+   * Must match agent_mint in attestation data (bytes 33-64).
+   */
+  agentMint: Address<TAccountAgentMint>;
   /**
    * Delegation attestation (optional).
    * Required when signer != agent ATA owner for AgentOwnerSigned mode.
@@ -419,6 +439,7 @@ export function getCreateCompressedAttestationInstruction<
   TAccountInstructionsSysvar extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountAgentMint extends string,
   TAccountDelegationAttestation extends string,
   TAccountSatiCredential extends string,
   TAccountClock extends string,
@@ -432,6 +453,7 @@ export function getCreateCompressedAttestationInstruction<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountSatiCredential,
     TAccountClock,
@@ -446,6 +468,7 @@ export function getCreateCompressedAttestationInstruction<
   TAccountInstructionsSysvar,
   TAccountAgentAta,
   TAccountTokenProgram,
+  TAccountAgentMint,
   TAccountDelegationAttestation,
   TAccountSatiCredential,
   TAccountClock,
@@ -465,6 +488,7 @@ export function getCreateCompressedAttestationInstruction<
     },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
     delegationAttestation: {
       value: input.delegationAttestation ?? null,
       isWritable: false,
@@ -500,6 +524,7 @@ export function getCreateCompressedAttestationInstruction<
       getAccountMeta(accounts.instructionsSysvar),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.delegationAttestation),
       getAccountMeta(accounts.satiCredential),
       getAccountMeta(accounts.clock),
@@ -517,6 +542,7 @@ export function getCreateCompressedAttestationInstruction<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountSatiCredential,
     TAccountClock,
@@ -542,9 +568,8 @@ export type ParsedCreateCompressedAttestationInstruction<
      * Required for DualSignature and AgentOwnerSigned modes.
      * Optional for CounterpartySigned mode (not validated).
      *
-     * The mint must match token_account from attestation data (the agent's MINT address),
+     * The mint must match agent_mint from attestation data,
      * amount must be >= 1, and owner must match signatures[0].pubkey.
-     * Note: token_account in data is the MINT address; this is the holder's ATA.
      */
     agentAta?: TAccountMetas[3] | undefined;
     /**
@@ -553,23 +578,28 @@ export type ParsedCreateCompressedAttestationInstruction<
      */
     tokenProgram?: TAccountMetas[4] | undefined;
     /**
+     * Agent mint (Token-2022 NFT) for Solscan indexing.
+     * Must match agent_mint in attestation data (bytes 33-64).
+     */
+    agentMint: TAccountMetas[5];
+    /**
      * Delegation attestation (optional).
      * Required when signer != agent ATA owner for AgentOwnerSigned mode.
      * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
      */
-    delegationAttestation?: TAccountMetas[5] | undefined;
+    delegationAttestation?: TAccountMetas[6] | undefined;
     /**
      * SATI SAS credential for delegation PDA derivation.
      * Required when delegation_attestation is provided.
      */
-    satiCredential?: TAccountMetas[6] | undefined;
+    satiCredential?: TAccountMetas[7] | undefined;
     /**
      * Clock sysvar for delegation expiry verification.
      * Required when delegation_attestation is provided.
      */
-    clock?: TAccountMetas[7] | undefined;
-    eventAuthority: TAccountMetas[8];
-    program: TAccountMetas[9];
+    clock?: TAccountMetas[8] | undefined;
+    eventAuthority: TAccountMetas[9];
+    program: TAccountMetas[10];
   };
   data: CreateCompressedAttestationInstructionData;
 };
@@ -582,7 +612,7 @@ export function parseCreateCompressedAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCreateCompressedAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 10) {
+  if (instruction.accounts.length < 11) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -606,6 +636,7 @@ export function parseCreateCompressedAttestationInstruction<
       instructionsSysvar: getNextAccount(),
       agentAta: getNextOptionalAccount(),
       tokenProgram: getNextOptionalAccount(),
+      agentMint: getNextAccount(),
       delegationAttestation: getNextOptionalAccount(),
       satiCredential: getNextOptionalAccount(),
       clock: getNextOptionalAccount(),

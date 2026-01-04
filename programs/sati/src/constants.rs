@@ -47,10 +47,10 @@ pub const MAX_CONTENT_SIZE: usize = 512;
 pub const MAX_ATTESTATION_DATA_SIZE: usize = 768;
 
 /// Minimum size for universal base layout (bytes).
-/// All schemas use: layout_version(1) + task_ref(32) + token_account(32) + counterparty(32) +
+/// All schemas use: layout_version(1) + task_ref(32) + agent_mint(32) + counterparty(32) +
 /// outcome(1) + data_hash(32) + content_type(1) = 131 bytes.
 ///
-/// NAMING CONVENTION: `token_account` = agent's **MINT ADDRESS** (stable identity).
+/// `agent_mint` = agent's **MINT ADDRESS** (Token-2022 NFT, stable identity).
 /// Authorization for agent signatures is verified via ATA ownership, not pubkey == mint.
 pub const MIN_BASE_LAYOUT_SIZE: usize = 131;
 
@@ -97,7 +97,7 @@ pub const SAS_DATA_OFFSET: usize = SAS_HEADER_SIZE;
 /// SAS attestation tail layout (after data payload):
 /// - signer: 32 bytes
 /// - expiry: 8 bytes (i64)
-/// - token_account_field: 32 bytes (redundant, for indexing)
+/// - agent_mint_field: 32 bytes (redundant, for indexing)
 pub const SAS_SIGNER_SIZE: usize = 32;
 
 /// Size of expiry field in SAS attestation (8 bytes, i64).
@@ -122,8 +122,8 @@ pub mod offsets {
     pub const LAYOUT_VERSION: usize = 0;
     /// task_ref offset (32 bytes) - CAIP-220 tx hash or task identifier
     pub const TASK_REF: usize = 1;
-    /// token_account (agent mint address) offset (32 bytes)
-    pub const TOKEN_ACCOUNT: usize = 33;
+    /// agent_mint offset (32 bytes) - Token-2022 NFT mint address identifying the agent
+    pub const AGENT_MINT: usize = 33;
     /// counterparty offset (32 bytes)
     pub const COUNTERPARTY: usize = 65;
     /// outcome offset (1 byte) - 0=Negative, 1=Neutral, 2=Positive (only 0-2 valid)

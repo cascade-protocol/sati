@@ -82,7 +82,7 @@ export async function deriveReputationSchemaPda(): Promise<readonly [Address, Pr
 /**
  * Derive a ReputationScore attestation PDA in SAS.
  *
- * The nonce is computed from (provider, tokenAccount) to ensure
+ * The nonce is computed from (provider, agentMint) to ensure
  * one score per (provider, agent) pair.
  *
  * Seeds: ["attestation", credential, schema, nonce_as_address]

@@ -45,16 +45,16 @@ function buildTestData(
   const contentType = options.contentType ?? ContentType.JSON;
   const content = options.content ?? new TextEncoder().encode('{"score": 95}');
 
-  // Universal layout: task_ref(32) + token_account(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content
+  // Universal layout: task_ref(32) + agent_mint(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content
   const data = new Uint8Array(OFFSETS.CONTENT + content.length);
 
   // Fill task_ref (0-32)
   const taskRef = randomBytes32();
   data.set(taskRef, OFFSETS.TASK_REF);
 
-  // Fill token_account (32-64)
-  const tokenAccount = randomBytes32();
-  data.set(tokenAccount, OFFSETS.TOKEN_ACCOUNT);
+  // Fill agent_mint (32-64)
+  const agentMint = randomBytes32();
+  data.set(agentMint, OFFSETS.AGENT_MINT);
 
   // Fill counterparty (64-96)
   const counterparty = randomBytes32();

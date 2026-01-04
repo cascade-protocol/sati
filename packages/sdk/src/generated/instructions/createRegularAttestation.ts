@@ -62,6 +62,7 @@ export type CreateRegularAttestationInstruction<
     "Sysvar1nstructions1111111111111111111111111",
   TAccountAgentAta extends string | AccountMeta<string> = string,
   TAccountTokenProgram extends string | AccountMeta<string> = string,
+  TAccountAgentMint extends string | AccountMeta<string> = string,
   TAccountDelegationAttestation extends string | AccountMeta<string> = string,
   TAccountClock extends string | AccountMeta<string> =
     "SysvarC1ock11111111111111111111111111111111",
@@ -104,6 +105,9 @@ export type CreateRegularAttestationInstruction<
       TAccountTokenProgram extends string
         ? ReadonlyAccount<TAccountTokenProgram>
         : TAccountTokenProgram,
+      TAccountAgentMint extends string
+        ? ReadonlyAccount<TAccountAgentMint>
+        : TAccountAgentMint,
       TAccountDelegationAttestation extends string
         ? ReadonlyAccount<TAccountDelegationAttestation>
         : TAccountDelegationAttestation,
@@ -183,6 +187,7 @@ export type CreateRegularAttestationAsyncInput<
   TAccountInstructionsSysvar extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountAgentMint extends string = string,
   TAccountDelegationAttestation extends string = string,
   TAccountClock extends string = string,
   TAccountSasProgram extends string = string,
@@ -216,6 +221,11 @@ export type CreateRegularAttestationAsyncInput<
    */
   tokenProgram?: Address<TAccountTokenProgram>;
   /**
+   * Agent mint (Token-2022 NFT) for Solscan indexing.
+   * Must match agent_mint in attestation data (bytes 33-64).
+   */
+  agentMint: Address<TAccountAgentMint>;
+  /**
    * Delegation attestation (optional).
    * Required when signer != agent ATA owner for AgentOwnerSigned mode.
    * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
@@ -245,6 +255,7 @@ export async function getCreateRegularAttestationInstructionAsync<
   TAccountInstructionsSysvar extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountAgentMint extends string,
   TAccountDelegationAttestation extends string,
   TAccountClock extends string,
   TAccountSasProgram extends string,
@@ -263,6 +274,7 @@ export async function getCreateRegularAttestationInstructionAsync<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountClock,
     TAccountSasProgram,
@@ -283,6 +295,7 @@ export async function getCreateRegularAttestationInstructionAsync<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountClock,
     TAccountSasProgram,
@@ -308,6 +321,7 @@ export async function getCreateRegularAttestationInstructionAsync<
     },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
     delegationAttestation: {
       value: input.delegationAttestation ?? null,
       isWritable: false,
@@ -382,6 +396,7 @@ export async function getCreateRegularAttestationInstructionAsync<
       getAccountMeta(accounts.instructionsSysvar),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.delegationAttestation),
       getAccountMeta(accounts.clock),
       getAccountMeta(accounts.sasProgram),
@@ -404,6 +419,7 @@ export async function getCreateRegularAttestationInstructionAsync<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountClock,
     TAccountSasProgram,
@@ -423,6 +439,7 @@ export type CreateRegularAttestationInput<
   TAccountInstructionsSysvar extends string = string,
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
+  TAccountAgentMint extends string = string,
   TAccountDelegationAttestation extends string = string,
   TAccountClock extends string = string,
   TAccountSasProgram extends string = string,
@@ -456,6 +473,11 @@ export type CreateRegularAttestationInput<
    */
   tokenProgram?: Address<TAccountTokenProgram>;
   /**
+   * Agent mint (Token-2022 NFT) for Solscan indexing.
+   * Must match agent_mint in attestation data (bytes 33-64).
+   */
+  agentMint: Address<TAccountAgentMint>;
+  /**
    * Delegation attestation (optional).
    * Required when signer != agent ATA owner for AgentOwnerSigned mode.
    * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
@@ -485,6 +507,7 @@ export function getCreateRegularAttestationInstruction<
   TAccountInstructionsSysvar extends string,
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
+  TAccountAgentMint extends string,
   TAccountDelegationAttestation extends string,
   TAccountClock extends string,
   TAccountSasProgram extends string,
@@ -503,6 +526,7 @@ export function getCreateRegularAttestationInstruction<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountClock,
     TAccountSasProgram,
@@ -522,6 +546,7 @@ export function getCreateRegularAttestationInstruction<
   TAccountInstructionsSysvar,
   TAccountAgentAta,
   TAccountTokenProgram,
+  TAccountAgentMint,
   TAccountDelegationAttestation,
   TAccountClock,
   TAccountSasProgram,
@@ -546,6 +571,7 @@ export function getCreateRegularAttestationInstruction<
     },
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
+    agentMint: { value: input.agentMint ?? null, isWritable: false },
     delegationAttestation: {
       value: input.delegationAttestation ?? null,
       isWritable: false,
@@ -594,6 +620,7 @@ export function getCreateRegularAttestationInstruction<
       getAccountMeta(accounts.instructionsSysvar),
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
+      getAccountMeta(accounts.agentMint),
       getAccountMeta(accounts.delegationAttestation),
       getAccountMeta(accounts.clock),
       getAccountMeta(accounts.sasProgram),
@@ -616,6 +643,7 @@ export function getCreateRegularAttestationInstruction<
     TAccountInstructionsSysvar,
     TAccountAgentAta,
     TAccountTokenProgram,
+    TAccountAgentMint,
     TAccountDelegationAttestation,
     TAccountClock,
     TAccountSasProgram,
@@ -657,21 +685,26 @@ export type ParsedCreateRegularAttestationInstruction<
      */
     tokenProgram?: TAccountMetas[8] | undefined;
     /**
+     * Agent mint (Token-2022 NFT) for Solscan indexing.
+     * Must match agent_mint in attestation data (bytes 33-64).
+     */
+    agentMint: TAccountMetas[9];
+    /**
      * Delegation attestation (optional).
      * Required when signer != agent ATA owner for AgentOwnerSigned mode.
      * Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
      */
-    delegationAttestation?: TAccountMetas[9] | undefined;
+    delegationAttestation?: TAccountMetas[10] | undefined;
     /**
      * Clock sysvar for delegation expiry verification.
      * Required when delegation_attestation is provided.
      */
-    clock?: TAccountMetas[10] | undefined;
+    clock?: TAccountMetas[11] | undefined;
     /** SAS program */
-    sasProgram: TAccountMetas[11];
-    systemProgram: TAccountMetas[12];
-    eventAuthority: TAccountMetas[13];
-    program: TAccountMetas[14];
+    sasProgram: TAccountMetas[12];
+    systemProgram: TAccountMetas[13];
+    eventAuthority: TAccountMetas[14];
+    program: TAccountMetas[15];
   };
   data: CreateRegularAttestationInstructionData;
 };
@@ -684,7 +717,7 @@ export function parseCreateRegularAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCreateRegularAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 15) {
+  if (instruction.accounts.length < 16) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -712,6 +745,7 @@ export function parseCreateRegularAttestationInstruction<
       instructionsSysvar: getNextAccount(),
       agentAta: getNextOptionalAccount(),
       tokenProgram: getNextOptionalAccount(),
+      agentMint: getNextAccount(),
       delegationAttestation: getNextOptionalAccount(),
       clock: getNextOptionalAccount(),
       sasProgram: getNextAccount(),

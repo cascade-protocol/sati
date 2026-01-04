@@ -68,10 +68,10 @@ pub enum SatiError {
     #[msg("Signature pubkey does not match expected account")]
     SignatureMismatch,
 
-    #[msg("Self-attestation is not allowed (token_account == counterparty)")]
+    #[msg("Self-attestation is not allowed (agent_mint == counterparty)")]
     SelfAttestationNotAllowed,
 
-    #[msg("Agent ATA mint does not match token_account in attestation data")]
+    #[msg("Agent ATA mint does not match agent_mint in attestation data")]
     AgentAtaMintMismatch,
 
     #[msg("Agent ATA is empty - signer does not own the agent NFT")]
@@ -121,6 +121,9 @@ pub enum SatiError {
 
     #[msg("Counterparty's Ed25519 signature not found (message content mismatch)")]
     CounterpartySignatureNotFound,
+
+    #[msg("Agent mint account does not match agent_mint in attestation data")]
+    AgentMintAccountMismatch,
 
     // ========================================================================
     // Delegation Errors

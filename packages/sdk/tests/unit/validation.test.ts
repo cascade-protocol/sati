@@ -51,7 +51,7 @@ function randomBytes(length: number): Uint8Array {
 describe("buildFeedbackData - Universal Base Layout v1", () => {
   const baseParams = {
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     dataHash: randomBytes(32),
     contentType: ContentType.None,
@@ -71,10 +71,10 @@ describe("buildFeedbackData - Universal Base Layout v1", () => {
       expect(extracted).toEqual(taskRef);
     });
 
-    test("tokenAccount is at offset 33-64", () => {
+    test("agentMint is at offset 33-64", () => {
       const data = buildFeedbackData(baseParams);
       // Token account is an address encoded at offset 33
-      expect(data.slice(OFFSETS.TOKEN_ACCOUNT, OFFSETS.TOKEN_ACCOUNT + 32).length).toBe(32);
+      expect(data.slice(OFFSETS.AGENT_MINT, OFFSETS.AGENT_MINT + 32).length).toBe(32);
     });
 
     test("counterparty is at offset 65-96", () => {
@@ -129,7 +129,7 @@ describe("buildFeedbackData - Universal Base Layout v1", () => {
 describe("buildValidationData - Same Universal Layout", () => {
   const baseParams = {
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     dataHash: randomBytes(32),
     contentType: ContentType.None,
@@ -147,7 +147,7 @@ describe("buildValidationData - Same Universal Layout", () => {
 describe("buildReputationScoreData - Same Universal Layout", () => {
   const baseParams = {
     taskRef: randomBytes(32),
-    tokenAccount: randomAddress(),
+    agentMint: randomAddress(),
     counterparty: randomAddress(),
     dataHash: randomBytes(32),
     contentType: ContentType.None,

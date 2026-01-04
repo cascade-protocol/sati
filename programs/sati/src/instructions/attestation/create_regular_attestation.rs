@@ -65,6 +65,11 @@ pub struct CreateRegularAttestation<'info> {
     /// Required when agent_ata is provided.
     pub token_program: Option<Interface<'info, TokenInterface>>,
 
+    /// Agent mint (Token-2022 NFT) for Solscan indexing.
+    /// Must match agent_mint in attestation data (bytes 33-64).
+    /// CHECK: Validated against attestation data in handler.
+    pub agent_mint: AccountInfo<'info>,
+
     /// Delegation attestation (optional).
     /// Required when signer != agent ATA owner for AgentOwnerSigned mode.
     /// Must be a valid DelegateV1 SAS attestation proving the signer's delegation.
@@ -107,26 +112,32 @@ pub fn handler<'info>(
     );
 
     // 2. Parse base layout (universal offsets)
-    let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::TOKEN_ACCOUNT]
+    let task_ref: [u8; 32] = params.data[offsets::TASK_REF..offsets::AGENT_MINT]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let token_account_bytes: [u8; 32] = params.data[offsets::TOKEN_ACCOUNT..offsets::COUNTERPARTY]
+    let agent_mint_bytes: [u8; 32] = params.data[offsets::AGENT_MINT..offsets::COUNTERPARTY]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
     let counterparty_bytes: [u8; 32] = params.data[offsets::COUNTERPARTY..offsets::OUTCOME]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
-    let token_account_pubkey = Pubkey::new_from_array(token_account_bytes);
+    let agent_mint_pubkey = Pubkey::new_from_array(agent_mint_bytes);
     let counterparty_pubkey = Pubkey::new_from_array(counterparty_bytes);
 
-    // 3. Self-attestation prevention
+    // 3. Validate agent_mint account matches attestation data
     require!(
-        token_account_pubkey != counterparty_pubkey,
+        ctx.accounts.agent_mint.key() == agent_mint_pubkey,
+        SatiError::AgentMintAccountMismatch
+    );
+
+    // 4. Self-attestation prevention
+    require!(
+        agent_mint_pubkey != counterparty_pubkey,
         SatiError::SelfAttestationNotAllowed
     );
 
-    // 4. Determine expected pubkeys for signature extraction
+    // 5. Determine expected pubkeys for signature extraction
     let expected_agent_pubkey = match schema_config.signature_mode {
         SignatureMode::AgentOwnerSigned => {
             let agent_ata = ctx
@@ -135,7 +146,7 @@ pub fn handler<'info>(
                 .as_ref()
                 .ok_or(SatiError::AgentAtaRequired)?;
             require!(
-                agent_ata.mint == token_account_pubkey,
+                agent_ata.mint == agent_mint_pubkey,
                 SatiError::AgentAtaMintMismatch
             );
             require!(agent_ata.amount >= 1, SatiError::AgentAtaEmpty);
@@ -149,7 +160,7 @@ pub fn handler<'info>(
         }
     };
 
-    // 5. Validate universal base layout fields
+    // 6. Validate universal base layout fields
     // Validate outcome (0-2 for ReputationScore: 0=Poor, 1=Average, 2=Good)
     let outcome = params.data[offsets::OUTCOME];
     require!(outcome <= MAX_OUTCOME_VALUE, SatiError::InvalidOutcome);
@@ -165,7 +176,7 @@ pub fn handler<'info>(
     let content_len = params.data.len().saturating_sub(offsets::CONTENT);
     require!(content_len <= MAX_CONTENT_SIZE, SatiError::ContentTooLarge);
 
-    // 6. Build expected message hash (owner/delegate signs interaction_hash)
+    // 7. Build expected message hash (owner/delegate signs interaction_hash)
     // data_hash should be zero-filled for single-signature schemas (CounterpartySigned/AgentOwnerSigned)
     let data_hash: [u8; 32] = params.data[offsets::DATA_HASH..offsets::CONTENT_TYPE]
         .try_into()
@@ -173,7 +184,7 @@ pub fn handler<'info>(
     let expected_message =
         compute_interaction_hash(&schema_config.sas_schema, &task_ref, &data_hash);
 
-    // 7. Extract and verify Ed25519 signature
+    // 8. Extract and verify Ed25519 signature
     let extracted_signatures = extract_ed25519_signatures(
         &ctx.accounts.instructions_sysvar,
         expected_agent_pubkey.as_ref(),
@@ -182,7 +193,7 @@ pub fn handler<'info>(
         &[expected_message.to_vec()],
     )?;
 
-    // 8. Additional authorization for delegation (AgentOwnerSigned only)
+    // 9. Additional authorization for delegation (AgentOwnerSigned only)
     if schema_config.signature_mode == SignatureMode::AgentOwnerSigned {
         let agent_ata = ctx.accounts.agent_ata.as_ref().unwrap(); // Already validated above
         let signer_pubkey = &extracted_signatures[0].pubkey;
@@ -201,7 +212,7 @@ pub fn handler<'info>(
         // Verify agent authorization (owner fast path or delegation)
         verify_agent_authorization(
             signer_pubkey,
-            &token_account_pubkey,
+            &agent_mint_pubkey,
             &agent_ata.owner,
             schema_config.delegation_schema.as_ref(),
             ctx.accounts.delegation_attestation.as_ref(),
@@ -210,10 +221,10 @@ pub fn handler<'info>(
         )?;
     }
 
-    // 9. Compute deterministic nonce
-    let nonce = compute_reputation_nonce(&counterparty_pubkey, &token_account_pubkey);
+    // 10. Compute deterministic nonce
+    let nonce = compute_reputation_nonce(&counterparty_pubkey, &agent_mint_pubkey);
 
-    // 10. CPI to SAS using SATI PDA as authorized signer
+    // 11. CPI to SAS using SATI PDA as authorized signer
     let sati_pda_seeds: &[&[u8]] = &[b"sati_attestation", &[ctx.bumps.sati_pda]];
 
     CreateAttestationCpiBuilder::new(&ctx.accounts.sas_program)
@@ -228,10 +239,10 @@ pub fn handler<'info>(
         .expiry(params.expiry)
         .invoke_signed(&[sati_pda_seeds])?;
 
-    // 11. Emit event
+    // 12. Emit event
     emit_cpi!(AttestationCreated {
         sas_schema: schema_config.sas_schema,
-        token_account: token_account_pubkey,
+        agent_mint: agent_mint_pubkey,
         counterparty: counterparty_pubkey,
         storage_type: StorageType::Regular,
         address: ctx.accounts.attestation.key(),

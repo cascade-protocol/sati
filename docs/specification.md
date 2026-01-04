@@ -212,7 +212,7 @@ pub struct CompressedAttestation { /* fields below */ }
 | Field | Type | Offset | Description |
 |-------|------|--------|-------------|
 | `sas_schema` | Pubkey | 0 | Schema (memcmp filter) |
-| `token_account` | Pubkey | 32 | Agent mint address (memcmp filter) |
+| `agent_mint` | Pubkey | 32 | Agent mint address (memcmp filter) |
 | `data` | Vec&lt;u8&gt; | 64+ | Schema-conformant bytes (universal base layout) |
 | `num_signatures` | u8 | varies | Number of signatures (1 or 2) |
 | `signature1` | [u8; 64] | varies | First Ed25519 signature |
@@ -226,7 +226,7 @@ All schemas MUST use this universal layout:
 |--------|------|-------|-------------|
 | 0 | 1 | `layout_version` | Layout version (currently `1`) |
 | 1 | 32 | `task_ref` | CAIP-220 tx hash or task identifier |
-| 33 | 32 | `token_account` | Agent mint address |
+| 33 | 32 | `agent_mint` | Agent mint address |
 | 65 | 32 | `counterparty` | Attester pubkey (Ed25519) |
 | 97 | 1 | `outcome` | Universal: 0=Negative, 1=Neutral, 2=Positive |
 | 98 | 32 | `data_hash` | Agent's blind commitment (zeros for AgentOwnerSigned/CounterpartySigned) |
@@ -245,9 +245,7 @@ All schemas MUST use this universal layout:
 
 Program parses offsets 0-130 for signature binding and base validation. Content structure parsed by SDK/indexers.
 
-> **Note on `token_account` naming**: This field stores the **agent's mint address** (the stable identity), not an Associated Token Account (ATA). The name `token_account` is inherited from the SAS specification for wire format efficiency (avoids adding 32 bytes per attestation).
->
-> **SDK convention**: Use `agentMint` in SDK types and public APIs for clarity. The SDK handles the mapping to `token_account` in wire format internally. On-chain programs and wire format retain `token_account` for SAS compatibility.
+> **Note on `agent_mint` naming**: This field stores the **agent's mint address** (the stable identity), not an Associated Token Account (ATA). The agent mint is the Token-2022 NFT mint that serves as the agent's unique identifier in the SATI registry.
 
 **Note on timestamps**: Attestation creation time is tracked via Photon's `slotCreated` field. For interaction time (when the original event occurred), clients can look up the transaction referenced in `task_ref`.
 
@@ -261,7 +259,7 @@ Verification differs by `SignatureMode`:
 1. Extract 2 signatures from Ed25519 instructions by matching expected messages
 2. **Agent authorization**: `verify_agent_authorization()` for signer of interaction_hash message
 3. **Counterparty binding**: Verify SIWS message signer matches pubkey from `data[65..97]`
-4. **Self-attestation**: `token_account != counterparty`
+4. **Self-attestation**: `agent_mint != counterparty`
 
 **AgentOwnerSigned** (DelegateV1):
 1. Extract 1 signature matching interaction_hash message
@@ -272,9 +270,9 @@ Verification differs by `SignatureMode`:
 1. Extract 1 signature matching interaction_hash message
 2. **No agent authorization** — anyone can submit about any agent
 3. **Counterparty binding**: Verify extracted signer matches pubkey from `data[65..97]`
-4. **Self-attestation**: `token_account != counterparty`
+4. **Self-attestation**: `agent_mint != counterparty`
 
-> **Note**: `token_account` is the agent's MINT ADDRESS. For DualSignature/AgentOwnerSigned, the agent OWNER (or delegate) signs the interaction_hash. For DualSignature, counterparty signs the SIWS message. For CounterpartySigned, only the counterparty signs the interaction_hash.
+> **Note**: `agent_mint` is the agent's MINT ADDRESS. For DualSignature/AgentOwnerSigned, the agent OWNER (or delegate) signs the interaction_hash. For DualSignature, counterparty signs the SIWS message. For CounterpartySigned, only the counterparty signs the interaction_hash.
 
 #### verify_agent_authorization()
 
@@ -285,7 +283,7 @@ Verification steps for agent authorization:
 3. **Attestation required**: Delegation attestation must be provided
 4. **PDA verification**: Derive expected PDA using `keccak256(schema || signer || agent_mint)` as nonce with SATI credential; reject if attestation key doesn't match (prevents schema confusion)
 5. **Delegate binding**: Verify `counterparty` field equals signer
-6. **Agent binding**: Verify `token_account` field equals agent mint
+6. **Agent binding**: Verify `agent_mint` field equals agent mint account
 7. **Owner binding**: Verify `data_hash` field equals current ATA owner (invalidates delegation after NFT transfer)
 8. **Expiration check**: Verify `expiry == 0` OR `expiry > current_timestamp`
 
@@ -298,7 +296,7 @@ Counterparty signs a human-readable SIWS-inspired message for Phantom/Solflare:
 ```
 SATI {schema_name}
 
-Agent: {base58(token_account)}
+Agent: {base58(agent_mint)}
 Task: {base58(task_ref)}
 Outcome: {Negative|Neutral|Positive}
 Details: {content as UTF-8, or "[Encrypted]"}
@@ -354,8 +352,8 @@ Sign to create this attestation.
 | Event | Fields |
 |-------|--------|
 | `SchemaConfigRegistered` | schema, signature_mode, storage_type, delegation_schema, closeable, name |
-| `AttestationCreated` | sas_schema, token_account, counterparty, storage_type, address |
-| `AttestationClosed` | sas_schema, token_account, address |
+| `AttestationCreated` | sas_schema, agent_mint, counterparty, storage_type, address |
+| `AttestationClosed` | sas_schema, agent_mint, address |
 
 #### Errors
 
@@ -465,7 +463,7 @@ Uses universal base layout (131 bytes) + JSON content for extensibility.
 |-------|--------|-------------|
 | layout_version | 0 | `1` (current layout version) |
 | task_ref | 1-32 | CAIP-220 tx hash or task identifier |
-| token_account | 33-64 | Agent mint address |
+| agent_mint | 33-64 | Agent mint address |
 | counterparty | 65-96 | Client pubkey |
 | outcome | 97 | 0=Negative, 1=Neutral, 2=Positive |
 | data_hash | 98-129 | Agent's blind commitment (`keccak256(request \|\| response)`) |
@@ -496,7 +494,7 @@ Public feedback that anyone can submit about an agent without agent participatio
 |-------|--------|-------------|
 | layout_version | 0 | `1` (current layout version) |
 | task_ref | 1-32 | CAIP-220 tx hash or task identifier |
-| token_account | 33-64 | Agent mint address |
+| agent_mint | 33-64 | Agent mint address |
 | counterparty | 65-96 | Feedback author pubkey |
 | outcome | 97 | 0=Negative, 1=Neutral, 2=Positive |
 | data_hash | 98-129 | Zero-filled (CounterpartySigned mode, no blind commitment) |
@@ -520,7 +518,7 @@ Uses universal base layout (131 bytes) + JSON content for validation details.
 |-------|--------|-------------|
 | layout_version | 0 | `1` (current layout version) |
 | task_ref | 1-32 | Task reference |
-| token_account | 33-64 | Agent mint address |
+| agent_mint | 33-64 | Agent mint address |
 | counterparty | 65-96 | Validator pubkey |
 | outcome | 97 | 0=Fail, 1=Inconclusive, 2=Pass |
 | data_hash | 98-129 | Agent's work commitment |
@@ -550,8 +548,8 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 | Field | Offset | Description |
 |-------|--------|-------------|
 | layout_version | 0 | `1` (current layout version) |
-| task_ref | 1-32 | Deterministic: `keccak256(counterparty \|\| token_account)` |
-| token_account | 33-64 | Agent mint address being scored |
+| task_ref | 1-32 | Deterministic: `keccak256(counterparty \|\| agent_mint)` |
+| agent_mint | 33-64 | Agent mint address being scored |
 | counterparty | 65-96 | Provider (reputation scorer) |
 | outcome | 97 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
 | data_hash | 98-129 | Zero-filled (CounterpartySigned mode, no blind commitment) |
@@ -581,7 +579,7 @@ Authorization attestation allowing a delegate to sign on behalf of an agent owne
 |-------|--------|-------------|
 | layout_version | 0 | `1` (current layout version) |
 | task_ref | 1-32 | Reserved (zeros) |
-| token_account | 33-64 | Agent mint address |
+| agent_mint | 33-64 | Agent mint address |
 | counterparty | 65-96 | Delegate pubkey (who receives authorization) |
 | outcome | 97 | Reserved (0) |
 | data_hash | 98-129 | Delegator pubkey (owner at delegation time) |
@@ -596,7 +594,7 @@ export const DELEGATE_SAS_SCHEMA: SASSchemaDefinition = {
   description: "Delegation authorization for hot wallet signing",
   // Layout types: u8=0, pubkey=7, blob=9
   layout: [0, 7, 7, 7, 0, 7, 0, 9],
-  fieldNames: ["layout_version", "task_ref", "token_account", "counterparty", "outcome", "data_hash", "content_type", "content"],
+  fieldNames: ["layout_version", "task_ref", "agent_mint", "counterparty", "outcome", "data_hash", "content_type", "content"],
 };
 ```
 
@@ -636,7 +634,7 @@ let nonce = keccak256(delegate_schema.as_ref(), delegate, agent_mint);
 │         - If signer == owner → OK (fast path, ~100 CU)         │
 │         - Else lookup DelegateV1 attestation                   │
 │         - Verify: counterparty == signer (delegate)            │
-│         - Verify: token_account == agent mint                  │
+│         - Verify: agent_mint account matches data              │
 │         - Verify: data_hash == current owner (transfer safety) │
 │         - Verify: not expired                                   │
 │         - If valid → OK (slow path, ~5-10k CU)                 │
@@ -654,9 +652,9 @@ let nonce = keccak256(delegate_schema.as_ref(), delegate, agent_mint);
 **Compressed Attestations (Light Protocol):**
 
 ```rust
-let nonce = keccak256(&[task_ref, sas_schema, token_account, counterparty].concat());
+let nonce = keccak256(&[task_ref, sas_schema, agent_mint, counterparty].concat());
 let (address, seed) = derive_address(
-    &[b"attestation", sas_schema, token_account, &nonce],
+    &[b"attestation", sas_schema, agent_mint, &nonce],
     &address_tree_pubkey, &program_id
 );
 ```
@@ -668,7 +666,7 @@ let (address, seed) = derive_address(
 ```rust
 // Nonce is deterministic: one ReputationScore per (provider, agent) pair
 // Note: For ReputationScore, counterparty = provider (the reputation scorer)
-let nonce = keccak256(&[counterparty, token_account]);  // counterparty = provider
+let nonce = keccak256(&[counterparty, agent_mint]);  // counterparty = provider
 
 // SAS PDA derivation
 let (attestation_pda, _) = Pubkey::find_program_address(
@@ -844,7 +842,7 @@ Reconstructs compressed accounts from Noop logs. Free via Helius RPC.
 | `getValidityProof` | Get ZK proof for on-chain verification |
 | `getCompressedAccountProof` | Merkle proof for escrow |
 
-**Filters**: `sas_schema` (offset 0), `token_account` (offset 32), `outcome` (offset 68 + 97 = 165, within data field)
+**Filters**: `sas_schema` (offset 0), `agent_mint` (offset 32), `outcome` (offset 68 + 97 = 165, within data field)
 
 ### SAS (Regular Storage)
 
@@ -866,7 +864,7 @@ Regular attestations use standard Solana RPC methods:
 | Method | Purpose |
 |--------|---------|
 | `getAccountInfo` | Fetch single attestation by PDA |
-| `getProgramAccounts` | Query by filters (schema, token_account) |
+| `getProgramAccounts` | Query by filters (schema, agent_mint) |
 
 **Filters**: `credential` (offset 33), `schema` (offset 65), custom data filters
 
@@ -987,7 +985,7 @@ await sati.createFeedback({
 | Blind feedback | Agent signs before outcome known |
 | Agent authorization | ATA ownership OR valid delegation |
 | Counterparty binding | Verify signature using pubkey from `data[65..97]` |
-| Self-attestation prevention | `token_account ≠ counterparty` |
+| Self-attestation prevention | `agent_mint ≠ counterparty` |
 | Duplicate prevention | Deterministic address from task_ref |
 | Outcome range | Verified ∈ {0, 1, 2} before storage |
 | Content type range | Verified ≤ 15 before storage (0-5 defined, 6-15 reserved) |
