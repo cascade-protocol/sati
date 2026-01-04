@@ -29,24 +29,8 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import { EditMetadataDialog } from "@/components/EditMetadataDialog";
 import { FeedbackDetailModal } from "@/components/FeedbackDetailModal";
 import { GiveFeedbackDialog } from "@/components/GiveFeedbackDialog";
-import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAgentDetails, useAgentMetadata, useAgentFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
-
-// Hook to check if agent is a demo agent (can receive feedback via echo service)
-function useDemoAgents() {
-  return useQuery({
-    queryKey: ["demo-agents"],
-    queryFn: async () => {
-      const response = await fetch("/api/demo-agents");
-      if (!response.ok) return { agents: [] };
-      return response.json() as Promise<{
-        agents: Array<{ mint: string; name: string; echoEnabled: boolean }>;
-      }>;
-    },
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-  });
-}
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { formatMemberNumber, formatSlotTime, getSolscanUrl, truncateAddress, parseFeedback } from "@/lib/sati";
 
@@ -112,12 +96,10 @@ export function AgentDetails() {
   // tokenAccount in feedbacks IS the agent mint (not ATA)
   const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint);
   const { currentSlot } = useCurrentSlot();
-  const { data: demoAgentsData } = useDemoAgents();
 
-  // Check if this agent can receive feedback via echo service
-  const canGiveFeedback = demoAgentsData?.agents?.some(
-    (demoAgent) => demoAgent.mint === agent?.mint && demoAgent.echoEnabled,
-  );
+  // FeedbackPublic (CounterpartySigned) works for ALL registered agents
+  // User signs SIWS message, server pays gas and submits
+  const canGiveFeedback = !!agent;
 
   if (isLoading) {
     return (

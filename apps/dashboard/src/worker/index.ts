@@ -7,7 +7,7 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { type Address, isAddress, createKeyPairFromBytes, signBytes } from "@solana/kit";
+import { type Address, isAddress, createKeyPairFromBytes, createKeyPairSignerFromBytes, signBytes } from "@solana/kit";
 import {
   computeInteractionHash,
   loadDeployedConfig,
@@ -54,7 +54,9 @@ interface BuildFeedbackTxRequest {
   // Signatures (hex-encoded 64 bytes each)
   agentSignature: string;
   agentAddress: string;
-  counterpartySignature?: string; // Optional for SingleSigner schemas
+  counterpartySignature?: string; // Optional for DualSignature schemas
+  // For CounterpartySigned mode (FeedbackPublic): SIWS message bytes user signed
+  counterpartyMessage?: string; // hex-encoded - triggers server-paid submission
   // Optional content (JSON string with tags/score/message)
   content?: string;
   contentType?: number; // ContentType enum (1 = JSON)
@@ -73,6 +75,7 @@ const SOLANA_DEVNET_NETWORK = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const
 // Get deployed config (feedback schema + lookup table)
 const deployedConfig = loadDeployedConfig("devnet");
 const FEEDBACK_SCHEMA = deployedConfig?.schemas?.feedback;
+const FEEDBACKPUBLIC_SCHEMA = deployedConfig?.schemas?.feedbackPublic;
 const LOOKUP_TABLE = deployedConfig?.lookupTable;
 
 // =============================================================================
@@ -293,9 +296,9 @@ function createApp(env: EchoEnv) {
     if (!isAddress(body.sasSchema)) {
       return c.json({ error: "Invalid sasSchema address" }, 400);
     }
-    // Validate schema is the expected feedback schema (security check)
-    if (body.sasSchema !== FEEDBACK_SCHEMA) {
-      return c.json({ error: "Invalid schema - only feedback schema supported" }, 400);
+    // Validate schema is one of the allowed feedback schemas (security check)
+    if (body.sasSchema !== FEEDBACK_SCHEMA && body.sasSchema !== FEEDBACKPUBLIC_SCHEMA) {
+      return c.json({ error: "Invalid schema - only feedback/feedbackPublic schemas supported" }, 400);
     }
     if (!isAddress(body.tokenAccount)) {
       return c.json({ error: "Invalid tokenAccount address" }, 400);
@@ -349,6 +352,15 @@ function createApp(env: EchoEnv) {
       }
     }
 
+    // Detect CounterpartySigned mode (FeedbackPublic) by presence of counterpartyMessage
+    const isCounterpartySigned = !!body.counterpartyMessage;
+
+    // Validate counterpartyMessage if provided
+    let counterpartyMessageBytes: Uint8Array | undefined;
+    if (body.counterpartyMessage) {
+      counterpartyMessageBytes = hexToBytes(body.counterpartyMessage);
+    }
+
     try {
       // Initialize Sati client with Helius RPC for Light Protocol
       const sati = new Sati({
@@ -357,50 +369,94 @@ function createApp(env: EchoEnv) {
         photonRpcUrl: env.VITE_DEVNET_RPC,
       });
 
-      // Build the transaction (server-side Light Protocol calls)
-      // Use Light Protocol's devnet ALT to reduce transaction size
-      const result = await sati.buildFeedbackTransaction({
-        payer: body.counterparty as Address, // counterparty is the payer
-        sasSchema: body.sasSchema as Address,
-        taskRef: taskRefBytes,
-        tokenAccount: body.tokenAccount as Address,
-        counterparty: body.counterparty as Address,
-        dataHash: dataHashBytes,
-        outcome: body.outcome as Outcome,
-        agentSignature: {
-          pubkey: body.agentAddress as Address,
-          signature: agentSigBytes,
-        },
-        // Only include counterpartySignature for DualSignature schemas
-        ...(counterpartySigBytes && {
-          counterpartySignature: {
-            pubkey: body.counterparty as Address,
-            signature: counterpartySigBytes,
-          },
-        }),
-        lookupTableAddress: LOOKUP_TABLE as Address,
-        // Optional content (JSON with tags/score/message)
-        ...(body.content && {
-          contentType: body.contentType ?? 1, // 1 = JSON
-          content: new TextEncoder().encode(body.content),
-        }),
-      });
+      if (isCounterpartySigned) {
+        // =================================================================
+        // CounterpartySigned mode (FeedbackPublic): Server pays and submits
+        // =================================================================
+        // User only signed SIWS message, server pays gas and submits tx
 
-      return c.json({
-        success: true,
-        data: {
-          attestationAddress: result.attestationAddress,
-          messageBytes: result.messageBytes,
-          signers: result.signers,
-          blockhash: result.blockhash,
-          lastValidBlockHeight: result.lastValidBlockHeight.toString(),
-        },
-      });
+        if (!agentSignerBytes) {
+          return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
+        }
+
+        // Create signer from server's key to pay for transaction
+        const serverPayer = await createKeyPairSignerFromBytes(agentSignerBytes);
+
+        const result = await sati.createFeedback({
+          payer: serverPayer, // Server pays gas!
+          sasSchema: body.sasSchema as Address,
+          taskRef: taskRefBytes,
+          tokenAccount: body.tokenAccount as Address,
+          counterparty: body.counterparty as Address,
+          dataHash: dataHashBytes,
+          outcome: body.outcome as Outcome,
+          // For CounterpartySigned: user's SIWS signature goes as agentSignature
+          agentSignature: {
+            pubkey: body.agentAddress as Address,
+            signature: agentSigBytes,
+          },
+          // SIWS message bytes the user signed
+          counterpartyMessage: counterpartyMessageBytes,
+          lookupTableAddress: LOOKUP_TABLE as Address,
+          // Optional content (JSON with tags/score/message)
+          ...(body.content && {
+            contentType: body.contentType ?? 1, // 1 = JSON
+            content: new TextEncoder().encode(body.content),
+          }),
+        });
+
+        return c.json({
+          success: true,
+          attestationAddress: result.address,
+          signature: result.signature,
+        });
+      } else {
+        // =================================================================
+        // DualSignature mode: Build unsigned tx, user pays and submits
+        // =================================================================
+        const result = await sati.buildFeedbackTransaction({
+          payer: body.counterparty as Address, // counterparty is the payer
+          sasSchema: body.sasSchema as Address,
+          taskRef: taskRefBytes,
+          tokenAccount: body.tokenAccount as Address,
+          counterparty: body.counterparty as Address,
+          dataHash: dataHashBytes,
+          outcome: body.outcome as Outcome,
+          agentSignature: {
+            pubkey: body.agentAddress as Address,
+            signature: agentSigBytes,
+          },
+          // Only include counterpartySignature for DualSignature schemas
+          ...(counterpartySigBytes && {
+            counterpartySignature: {
+              pubkey: body.counterparty as Address,
+              signature: counterpartySigBytes,
+            },
+          }),
+          lookupTableAddress: LOOKUP_TABLE as Address,
+          // Optional content (JSON with tags/score/message)
+          ...(body.content && {
+            contentType: body.contentType ?? 1, // 1 = JSON
+            content: new TextEncoder().encode(body.content),
+          }),
+        });
+
+        return c.json({
+          success: true,
+          data: {
+            attestationAddress: result.attestationAddress,
+            messageBytes: result.messageBytes,
+            signers: result.signers,
+            blockhash: result.blockhash,
+            lastValidBlockHeight: result.lastValidBlockHeight.toString(),
+          },
+        });
+      }
     } catch (error) {
-      console.error("Failed to build feedback transaction:", error);
+      console.error("Failed to process feedback:", error);
       return c.json(
         {
-          error: error instanceof Error ? error.message : "Failed to build transaction",
+          error: error instanceof Error ? error.message : "Failed to process feedback",
         },
         500,
       );

@@ -1,23 +1,26 @@
 /**
- * GiveFeedbackDialog - x402 payment-gated feedback submission
+ * GiveFeedbackDialog - FeedbackPublic submission (server-paid)
  *
  * Flow:
  * 1. User selects outcome (Positive/Neutral/Negative)
- * 2. On submit, calls /api/echo with x402 payment (auto-handled by wrapFetchWithPayment)
- * 3. Echo returns agent's blind signature
- * 4. User signs the feedbackHash
- * 5. Build transaction server-side (Light Protocol needs Node.js)
- * 6. Sign and submit transaction from browser wallet
+ * 2. User signs SIWS message with wallet (free - just a signature)
+ * 3. Server builds tx, pays gas, and submits
+ * 4. Done! User doesn't need SOL.
  */
 
 import { useState, type ReactNode } from "react";
-import { useClusterState, useSolanaClient, useWalletSession } from "@solana/react-hooks";
+import { useWalletSession } from "@solana/react-hooks";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { Address, Rpc, SolanaRpcApi } from "@solana/kit";
-import { wrapFetchWithPayment } from "@x402/fetch";
-import { type Outcome, loadDeployedConfig, MAX_SINGLE_SIGNATURE_CONTENT_SIZE } from "@cascade-fyi/sati-sdk";
-import { createPaymentClient } from "@/lib/x402";
+import type { Address } from "@solana/kit";
+import {
+  type Outcome,
+  loadDeployedConfig,
+  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  buildCounterpartyMessage,
+  serializeFeedback,
+  type FeedbackData,
+} from "@cascade-fyi/sati-sdk";
 import { getNetwork } from "@/lib/network";
 
 import { Button } from "@/components/ui/button";
@@ -52,47 +55,26 @@ interface GiveFeedbackDialogProps {
   onSuccess?: () => void;
 }
 
-// Echo request/response types
-interface EchoRequest {
-  sasSchema: string;
-  taskRef: string;
-  tokenAccount: string;
-  dataHash: string;
-}
-
-interface EchoResponse {
-  success: boolean;
-  data: {
-    agentAddress: string;
-    interactionHash: string;
-    signature: string;
-    signatureBase58: string;
-  };
-}
-
-interface BuildFeedbackTxRequest {
+// API request/response types for CounterpartySigned mode
+interface SubmitFeedbackRequest {
   sasSchema: string;
   taskRef: string;
   tokenAccount: string;
   dataHash: string;
   outcome: number;
   counterparty: string;
-  agentSignature: string;
-  agentAddress: string;
-  counterpartySignature?: string; // Optional for SingleSigner schemas
-  content?: string; // JSON string with tags/score/message
-  contentType?: number; // ContentType enum (1 = JSON)
+  agentSignature: string; // User's SIWS signature (hex)
+  agentAddress: string; // User's wallet address
+  counterpartyMessage: string; // SIWS message bytes (hex) - triggers server-paid mode
+  content?: string;
+  contentType?: number;
 }
 
-interface BuildFeedbackTxResponse {
+interface SubmitFeedbackResponse {
   success: boolean;
-  data: {
-    attestationAddress: string;
-    messageBytes: string; // base64-encoded transaction message
-    signers: string[];
-    blockhash: string;
-    lastValidBlockHeight: string;
-  };
+  attestationAddress?: string;
+  signature?: string;
+  error?: string;
 }
 
 // Hex helper
@@ -112,8 +94,6 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
   const [showScore, setShowScore] = useState(false);
   const queryClient = useQueryClient();
   const session = useWalletSession();
-  const cluster = useClusterState();
-  const solanaClient = useSolanaClient();
 
   // Add a tag from input
   const addTag = () => {
@@ -158,174 +138,96 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
       if (!session) throw new Error("Wallet not connected");
       if (!FEEDBACK_SCHEMA_ADDRESS) throw new Error("Feedback schema not configured");
 
-      const toastId = toast.loading("Processing payment...");
+      const toastId = toast.loading("Preparing feedback...");
 
       try {
-        // tokenAccount IS the agent mint address (not ATA) - named for SAS wire format compatibility
-        const tokenAccount = agentMint;
-
-        // 1. Generate random taskRef; dataHash is zeros for SingleSigner (no blind commitment)
+        // 1. Generate random taskRef; dataHash is zeros for CounterpartySigned
         const taskRef = crypto.getRandomValues(new Uint8Array(32));
-        const dataHash = new Uint8Array(32); // zeros - SingleSigner doesn't need blind commitment
-
-        // 3. Build echo request
-        const echoRequest: EchoRequest = {
-          sasSchema: FEEDBACK_SCHEMA_ADDRESS,
-          taskRef: bytesToHex(taskRef),
-          tokenAccount: tokenAccount,
-          dataHash: bytesToHex(dataHash),
-        };
-
-        // 4. Create payment client and wrap fetch for automatic 402 handling
-        toast.loading("Creating payment...", { id: toastId });
-        console.log("[x402] Using RPC endpoint:", cluster.endpoint);
-        const paymentClient = createPaymentClient(session, cluster.endpoint);
-        const fetchWithPayment = wrapFetchWithPayment(fetch, paymentClient);
-
-        // 5. Make request - payment is handled automatically on 402
-        toast.loading("Submitting payment...", { id: toastId });
-        const echoResponse = await fetchWithPayment("/api/echo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(echoRequest),
-        });
-
-        if (!echoResponse.ok) {
-          const error = await echoResponse.json();
-          throw new Error(error.error || "Echo request failed");
-        }
-
-        const echo: EchoResponse = await echoResponse.json();
-        if (!echo.success) {
-          throw new Error("Echo returned unsuccessful response");
-        }
-
-        // 6. Build transaction server-side (Light Protocol needs Node.js)
-        // FeedbackPublic uses SingleSigner mode - only agent signature required
-        toast.loading("Building transaction...", { id: toastId });
+        const dataHash = new Uint8Array(32); // zeros - CounterpartySigned doesn't need blind commitment
 
         // Build JSON content from form state
         const { json: contentJson } = buildContent();
+        const contentBytes = contentJson ? new TextEncoder().encode(contentJson) : new Uint8Array(0);
 
-        const buildRequest: BuildFeedbackTxRequest = {
+        // 2. Build feedback data for SIWS message
+        const feedbackData: FeedbackData = {
+          taskRef,
+          tokenAccount: agentMint,
+          counterparty: session.account.address as Address,
+          dataHash,
+          outcome: selectedOutcome,
+          contentType: contentJson ? 1 : 0, // 1 = JSON
+          content: contentBytes,
+        };
+
+        // 3. Build SIWS message for user to sign
+        const serializedData = serializeFeedback(feedbackData);
+        const siwsMessage = buildCounterpartyMessage({
+          schemaName: "FeedbackPublicV1",
+          data: serializedData,
+        });
+
+        // 4. User signs SIWS message with wallet (FREE - just a signature)
+        toast.loading("Sign feedback consent...", { id: toastId });
+
+        // Access Phantom wallet for signMessage
+        const phantom = (
+          window as unknown as {
+            phantom?: { solana?: { signMessage: (msg: Uint8Array) => Promise<{ signature: Uint8Array }> } };
+          }
+        ).phantom;
+
+        if (!phantom?.solana?.signMessage) {
+          throw new Error("Wallet does not support message signing. Please use Phantom.");
+        }
+
+        console.log("[Feedback] Requesting SIWS signature...");
+        const { signature } = await phantom.solana.signMessage(new Uint8Array(siwsMessage.messageBytes));
+        console.log("[Feedback] SIWS message signed");
+
+        // 5. Send to server for submission (server pays gas)
+        toast.loading("Submitting feedback...", { id: toastId });
+
+        const request: SubmitFeedbackRequest = {
           sasSchema: FEEDBACK_SCHEMA_ADDRESS,
           taskRef: bytesToHex(taskRef),
-          tokenAccount: tokenAccount,
+          tokenAccount: agentMint,
           dataHash: bytesToHex(dataHash),
           outcome: selectedOutcome,
           counterparty: session.account.address,
-          agentSignature: echo.data.signature,
-          agentAddress: echo.data.agentAddress,
-          ...(contentJson && { content: contentJson, contentType: 1 }), // 1 = JSON
+          agentSignature: bytesToHex(signature), // User's SIWS signature
+          agentAddress: session.account.address, // User's wallet address
+          counterpartyMessage: bytesToHex(new Uint8Array(siwsMessage.messageBytes)), // Triggers server-paid mode
+          ...(contentJson && { content: contentJson, contentType: 1 }),
         };
 
-        const buildResponse = await fetch("/api/build-feedback-tx", {
+        const response = await fetch("/api/build-feedback-tx", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(buildRequest),
+          body: JSON.stringify(request),
         });
 
-        if (!buildResponse.ok) {
-          const error = await buildResponse.json();
-          throw new Error(error.error || "Failed to build transaction");
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Failed to submit feedback");
         }
 
-        const buildResult: BuildFeedbackTxResponse = await buildResponse.json();
-        if (!buildResult.success) {
-          throw new Error("Build transaction returned unsuccessful response");
+        const result: SubmitFeedbackResponse = await response.json();
+        if (!result.success) {
+          throw new Error(result.error || "Submission failed");
         }
 
-        // 8. Sign and submit transaction with wallet
-        toast.loading("Signing transaction...", { id: toastId });
-
-        // Decode base64 transaction message to bytes
-        const binaryString = atob(buildResult.data.messageBytes);
-        const txMessageBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          txMessageBytes[i] = binaryString.charCodeAt(i);
-        }
-
-        console.log("[Feedback] Transaction details:", {
-          messageLength: txMessageBytes.length,
-          signers: buildResult.data.signers,
-          blockhash: buildResult.data.blockhash,
-          lastValidBlockHeight: buildResult.data.lastValidBlockHeight,
-          attestationAddress: buildResult.data.attestationAddress,
-        });
-
-        // Construct a Transaction object for the wallet
-        // The wallet session expects the @solana/kit Transaction type
-        // Note: We don't freeze since JS doesn't allow freezing TypedArrays with elements
-        const unsignedTransaction = {
-          messageBytes: txMessageBytes as Uint8Array & {
-            readonly __brand: unique symbol;
-          },
-          signatures: Object.fromEntries(buildResult.data.signers.map((signer) => [signer, null])),
-          lifetimeConstraint: {
-            blockhash: buildResult.data.blockhash as string & {
-              readonly __brand: unique symbol;
-            },
-            lastValidBlockHeight: BigInt(buildResult.data.lastValidBlockHeight),
-          },
-        };
-
-        // Sign the transaction with wallet
-        toast.loading("Signing transaction...", { id: toastId });
-
-        if (!session.signTransaction) {
-          throw new Error("Wallet does not support transaction signing");
-        }
-
-        console.log("[Feedback] Requesting wallet signature...");
-        const signedTransaction = await session.signTransaction(unsignedTransaction as never);
-        console.log("[Feedback] Transaction signed");
-
-        // Send via RPC directly (bypassing wallet adapter's sendTransaction)
-        toast.loading("Submitting to network...", { id: toastId });
-
-        const rpc = solanaClient.runtime.rpc as Rpc<SolanaRpcApi>;
-
-        // Get the signed transaction bytes and encode as base64
-        // The signedTransaction has messageBytes and signatures
-        const signedTx = signedTransaction as unknown as {
-          messageBytes: Uint8Array;
-          signatures: Record<string, Uint8Array>;
-        };
-
-        // Combine message bytes with signature(s) into wire format
-        // Solana wire format: [num_signatures, ...signatures, message_bytes]
-        // IMPORTANT: Signatures must be in the exact order of signers in the transaction message
-        const signaturesArray = buildResult.data.signers.map((signer) => signedTx.signatures[signer]);
-        const numSigs = signaturesArray.length;
-        const wireBytes = new Uint8Array(1 + numSigs * 64 + signedTx.messageBytes.length);
-        wireBytes[0] = numSigs;
-        for (let i = 0; i < numSigs; i++) {
-          wireBytes.set(signaturesArray[i], 1 + i * 64);
-        }
-        wireBytes.set(signedTx.messageBytes, 1 + numSigs * 64);
-
-        // Encode as base64 string for RPC
-        const txBase64 = btoa(String.fromCharCode(...wireBytes));
-
-        console.log("[Feedback] Sending via RPC...");
-        const txSignature = await rpc
-          .sendTransaction(txBase64 as never, {
-            encoding: "base64",
-            skipPreflight: false,
-            preflightCommitment: "confirmed",
-          })
-          .send();
-        console.log("[Feedback] Transaction sent:", txSignature);
-
+        console.log("[Feedback] Submitted:", result.attestationAddress);
         toast.success("Feedback submitted!", { id: toastId });
+
         return {
-          address: buildResult.data.attestationAddress as Address,
-          signature: txSignature.toString(),
+          address: result.attestationAddress as Address,
+          signature: result.signature,
         };
       } catch (error) {
         toast.dismiss(toastId);
-        const message = error instanceof Error ? error.message : "Unknown error";
-        toast.error(`Failed: ${message}`);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        toast.error(`Failed: ${errorMessage}`);
         throw error;
       }
     },
@@ -360,8 +262,8 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         <DialogHeader>
           <DialogTitle>Give Feedback</DialogTitle>
           <DialogDescription>
-            Submit feedback for <span className="font-medium">{agentName}</span>. This requires a small x402 payment
-            (0.01 USDC).
+            Submit feedback for <span className="font-medium">{agentName}</span>. You'll sign a message to confirm your
+            feedback.
           </DialogDescription>
         </DialogHeader>
 
