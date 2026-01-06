@@ -28,8 +28,6 @@ import { parse } from "../env";
 interface WorkerBindings extends Record<string, unknown> {
   VITE_HELIUS_API_KEY?: string;
   SATI_AGENT_SIGNER_KEY?: string;
-  DEMO_AGENT_MINT_DEVNET?: string;
-  DEMO_AGENT_MINT_MAINNET?: string;
 }
 
 interface EchoRequest {
@@ -124,23 +122,12 @@ function createApp(bindings: WorkerBindings) {
   // Health check
   app.get("/api/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
 
-  // Demo agents list endpoint (accepts optional network query param)
-  app.get("/api/demo-agents", (c) => {
+  // Config endpoint - returns demo agent info for the network
+  app.get("/api/config", (c) => {
     const network = c.req.query("network") || "devnet";
     const demoAgentMint = network === "mainnet" ? env.DEMO_AGENT_MINT_MAINNET : env.DEMO_AGENT_MINT_DEVNET;
-
-    if (!demoAgentMint) {
-      return c.json({ agents: [] });
-    }
-
     return c.json({
-      agents: [
-        {
-          mint: demoAgentMint,
-          name: "sati-test-signer",
-          echoEnabled: true,
-        },
-      ],
+      demoAgentMint: demoAgentMint || null,
     });
   });
 
@@ -367,8 +354,9 @@ function createApp(bindings: WorkerBindings) {
       }
     }
 
-    // Detect CounterpartySigned mode (FeedbackPublic) by presence of counterpartyMessage
-    const isCounterpartySigned = !!body.counterpartyMessage;
+    // Detect CounterpartySigned mode (FeedbackPublic): has counterpartyMessage but NO counterpartySignature
+    // DualSignature mode: has BOTH counterpartyMessage AND counterpartySignature
+    const isCounterpartySigned = !!body.counterpartyMessage && !body.counterpartySignature;
 
     // Validate counterpartyMessage if provided
     let counterpartyMessageBytes: Uint8Array | undefined;
@@ -431,10 +419,17 @@ function createApp(bindings: WorkerBindings) {
         });
       } else {
         // =================================================================
-        // DualSignature mode: Build unsigned tx, user pays and submits
+        // DualSignature mode: Server pays and submits (same as FeedbackPublic)
         // =================================================================
-        const result = await sati.buildFeedbackTransaction({
-          payer: body.counterparty as Address, // counterparty is the payer
+        if (!agentSignerBytes) {
+          return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
+        }
+
+        // Create signer from server's key to pay for transaction
+        const serverPayer = await createKeyPairSignerFromBytes(agentSignerBytes);
+
+        const result = await sati.createFeedback({
+          payer: serverPayer, // Server pays gas!
           sasSchema: body.sasSchema as Address,
           taskRef: taskRefBytes,
           agentMint: body.agentMint as Address,
@@ -445,13 +440,15 @@ function createApp(bindings: WorkerBindings) {
             pubkey: body.agentAddress as Address,
             signature: agentSigBytes,
           },
-          // Only include counterpartySignature for DualSignature schemas
+          // Include counterpartySignature for DualSignature schemas
           ...(counterpartySigBytes && {
             counterpartySignature: {
               pubkey: body.counterparty as Address,
               signature: counterpartySigBytes,
             },
           }),
+          // counterpartyMessage required when counterpartySignature is provided
+          counterpartyMessage: counterpartyMessageBytes,
           lookupTableAddress: networkConfig.lookupTable as Address,
           // Optional content (JSON with tags/score/message)
           ...(body.content && {
@@ -462,13 +459,8 @@ function createApp(bindings: WorkerBindings) {
 
         return c.json({
           success: true,
-          data: {
-            attestationAddress: result.attestationAddress,
-            messageBytes: result.messageBytes,
-            signers: result.signers,
-            blockhash: result.blockhash,
-            lastValidBlockHeight: result.lastValidBlockHeight.toString(),
-          },
+          attestationAddress: result.address,
+          signature: result.signature,
         });
       }
     } catch (error) {

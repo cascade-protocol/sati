@@ -19,6 +19,7 @@ import {
   MinusCircle,
   Share2,
   Eye,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,8 +30,15 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import { EditMetadataDialog } from "@/components/EditMetadataDialog";
 import { FeedbackDetailModal } from "@/components/FeedbackDetailModal";
 import { GiveFeedbackDialog } from "@/components/GiveFeedbackDialog";
+import { VerifiedFeedbackDialog } from "@/components/VerifiedFeedbackDialog";
 import { toast } from "sonner";
-import { useAgentDetails, useAgentMetadata, useAgentFeedbacks, useCurrentSlot } from "@/hooks/use-sati";
+import {
+  useAgentDetails,
+  useAgentMetadata,
+  useAgentFeedbacks,
+  useCurrentSlot,
+  useDashboardConfig,
+} from "@/hooks/use-sati";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import {
   formatMemberNumber,
@@ -39,6 +47,7 @@ import {
   truncateAddress,
   parseFeedback,
   getCreationSignature,
+  getFeedbackSchemaType,
 } from "@/lib/sati";
 import { useState } from "react";
 
@@ -136,10 +145,14 @@ export function AgentDetails() {
   // agentMint in feedbacks IS the agent's stable mint address
   const { feedbacks, isLoading: feedbacksLoading } = useAgentFeedbacks(agent?.mint);
   const { currentSlot } = useCurrentSlot();
+  const { demoAgentMint } = useDashboardConfig();
 
   // FeedbackPublic (CounterpartySigned) works for ALL registered agents
   // User signs SIWS message, server pays gas and submits
   const canGiveFeedback = !!agent;
+
+  // Check if this is the demo agent (supports x402 verified feedback)
+  const isDemoAgent = demoAgentMint && agent?.mint === demoAgentMint;
 
   if (isLoading) {
     return (
@@ -213,12 +226,22 @@ export function AgentDetails() {
             </Button>
           </EditMetadataDialog>
           {canGiveFeedback ? (
-            <GiveFeedbackDialog agentMint={agent.mint} agentName={agent.name} onSuccess={refetch}>
-              <Button variant="secondary">
-                <MessageCirclePlus className="h-4 w-4 mr-2" />
-                Give Feedback
-              </Button>
-            </GiveFeedbackDialog>
+            <>
+              <GiveFeedbackDialog agentMint={agent.mint} agentName={agent.name} onSuccess={refetch}>
+                <Button variant="secondary">
+                  <MessageCirclePlus className="h-4 w-4 mr-2" />
+                  Give Feedback
+                </Button>
+              </GiveFeedbackDialog>
+              {isDemoAgent && (
+                <VerifiedFeedbackDialog agentMint={agent.mint} agentName={agent.name} onSuccess={refetch}>
+                  <Button variant="outline">
+                    <Shield className="h-4 w-4 mr-2" />
+                    Verified Feedback
+                  </Button>
+                </VerifiedFeedbackDialog>
+              )}
+            </>
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -359,6 +382,7 @@ export function AgentDetails() {
                       };
                       const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
                       const slotCreated = feedback.raw.slotCreated;
+                      const schemaType = getFeedbackSchemaType(feedback);
                       // Parse JSON content for tags
                       const content = parseFeedback(data);
                       // Use full attestation address as key to avoid collisions
@@ -366,30 +390,55 @@ export function AgentDetails() {
                         .map((b) => b.toString(16).padStart(2, "0"))
                         .join("");
                       return (
-                        <div key={key} className="flex items-center justify-between py-2 border-b last:border-0 gap-4">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <code className="text-sm cursor-help shrink-0">
-                                  {truncateAddress(data.counterparty)}
-                                </code>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <span className="font-mono text-xs">{data.counterparty}</span>
-                              </TooltipContent>
-                            </Tooltip>
-                            {content && (
-                              <code className="text-xs bg-muted px-2 py-0.5 rounded truncate max-w-xs">
-                                {JSON.stringify(content)}
-                              </code>
-                            )}
+                        <div key={key} className="py-3 border-b last:border-0 space-y-2">
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href={getSolscanUrl(data.counterparty, "account")}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-sm font-mono hover:text-primary transition-colors shrink-0"
+                                  >
+                                    {truncateAddress(data.counterparty)}
+                                    <ExternalLink className="h-3 w-3 opacity-50" />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <span className="font-mono text-xs">{data.counterparty}</span>
+                                </TooltipContent>
+                              </Tooltip>
+                              {schemaType === "verified" ? (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 shrink-0">
+                                  Verified
+                                </span>
+                              ) : schemaType === "public" ? (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-500/10 text-gray-500 shrink-0">
+                                  Public
+                                </span>
+                              ) : null}
+                              <span className={outcomeColor}>{outcomeText}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs text-muted-foreground">
+                                {formatSlotTime(slotCreated, currentSlot)}
+                              </span>
+                              <FeedbackDetailModal feedback={feedback} currentSlot={currentSlot}>
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Button>
+                              </FeedbackDetailModal>
+                              <TxLink feedbackAddress={feedback.address} />
+                            </div>
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className={outcomeColor}>{outcomeText}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {formatSlotTime(slotCreated, currentSlot)}
-                            </span>
-                          </div>
+                          {content ? (
+                            <code className="text-xs bg-muted px-2 py-1 rounded block whitespace-pre-wrap break-all">
+                              {JSON.stringify(content)}
+                            </code>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No content</span>
+                          )}
                         </div>
                       );
                     })}
@@ -417,6 +466,7 @@ export function AgentDetails() {
                       <thead>
                         <tr className="border-b text-left text-sm text-muted-foreground">
                           <th className="pb-3 pr-4 font-medium">From</th>
+                          <th className="pb-3 pr-4 font-medium">Type</th>
                           <th className="pb-3 pr-4 font-medium">Outcome</th>
                           <th className="pb-3 pr-4 font-medium">Content</th>
                           <th className="pb-3 pr-4 font-medium text-right">Time</th>
@@ -434,6 +484,7 @@ export function AgentDetails() {
                           };
                           const { text: outcomeText, color: outcomeColor } = formatOutcome(data.outcome);
                           const slotCreated = feedback.raw.slotCreated;
+                          const schemaType = getFeedbackSchemaType(feedback);
                           // Parse JSON content for tags/score/message
                           const content = parseFeedback(data);
                           // Use full attestation address as key to avoid collisions
@@ -445,12 +496,33 @@ export function AgentDetails() {
                               <td className="py-4 pr-4">
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <code className="text-sm cursor-help">{truncateAddress(data.counterparty)}</code>
+                                    <a
+                                      href={getSolscanUrl(data.counterparty, "account")}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1.5 text-sm font-mono hover:text-primary transition-colors"
+                                    >
+                                      {truncateAddress(data.counterparty)}
+                                      <ExternalLink className="h-3 w-3 opacity-50" />
+                                    </a>
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     <span className="font-mono text-xs">{data.counterparty}</span>
                                   </TooltipContent>
                                 </Tooltip>
+                              </td>
+                              <td className="py-4 pr-4">
+                                {schemaType === "verified" ? (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600">
+                                    Verified
+                                  </span>
+                                ) : schemaType === "public" ? (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-500/10 text-gray-500">
+                                    Public
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
                               </td>
                               <td className="py-4 pr-4">
                                 <span className={outcomeColor}>{outcomeText}</span>

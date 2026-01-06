@@ -99,12 +99,30 @@ export async function getCreationSignature(accountAddress: Uint8Array): Promise<
 /**
  * Get deployed feedback schema addresses (always fresh for current network)
  */
-function getFeedbackSchemas(): { feedback?: Address; feedbackPublic?: Address } {
+export function getFeedbackSchemas(): { feedback?: Address; feedbackPublic?: Address } {
   const deployedConfig = loadDeployedConfig(getCurrentNetwork());
   return {
     feedback: deployedConfig?.schemas?.feedback as Address | undefined,
     feedbackPublic: deployedConfig?.schemas?.feedbackPublic as Address | undefined,
   };
+}
+
+/**
+ * Feedback schema type for display purposes
+ */
+export type FeedbackSchemaType = "verified" | "public" | "unknown";
+
+/**
+ * Get feedback schema type from attestation.
+ * "verified" = DualSignature (Feedback schema) - requires both agent + counterparty signatures
+ * "public" = CounterpartySigned (FeedbackPublic schema) - only counterparty signature
+ */
+export function getFeedbackSchemaType(feedback: ParsedFeedback): FeedbackSchemaType {
+  const schemas = getFeedbackSchemas();
+  const schemaAddr = feedback.attestation.sasSchema;
+  if (schemaAddr === schemas.feedback) return "verified";
+  if (schemaAddr === schemas.feedbackPublic) return "public";
+  return "unknown";
 }
 
 /**

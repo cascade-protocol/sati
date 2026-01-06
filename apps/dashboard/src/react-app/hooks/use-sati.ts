@@ -85,6 +85,28 @@ export interface UseSatiReturn {
 }
 
 /**
+ * Hook for fetching dashboard config (demo agent, etc.)
+ */
+export function useDashboardConfig() {
+  const network = getNetwork();
+
+  const { data: config, isLoading } = useQuery({
+    queryKey: [...QUERY_KEY, "config", network],
+    queryFn: async () => {
+      const response = await fetch(`/api/config?network=${network}`);
+      if (!response.ok) return { demoAgentMint: null };
+      return response.json() as Promise<{ demoAgentMint: string | null }>;
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  return {
+    demoAgentMint: config?.demoAgentMint ?? null,
+    isLoading,
+  };
+}
+
+/**
  * Hook for fetching agent metadata from URI
  */
 export function useAgentMetadata(uri: string | undefined) {

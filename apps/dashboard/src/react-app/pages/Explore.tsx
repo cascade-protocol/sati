@@ -13,7 +13,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AgentTable } from "@/components/AgentTable";
 import { FeedbackDetailModal } from "@/components/FeedbackDetailModal";
 import { useExploreAgents, useAllFeedbacks, useCurrentSlot, type OutcomeFilter } from "@/hooks/use-sati";
-import { formatSlotTime, truncateAddress, parseFeedback, getCreationSignature } from "@/lib/sati";
+import {
+  formatSlotTime,
+  truncateAddress,
+  parseFeedback,
+  getCreationSignature,
+  getFeedbackSchemaType,
+} from "@/lib/sati";
 import { getSolscanUrl } from "@/lib/network";
 import { toast } from "sonner";
 import type { FeedbackData } from "@cascade-fyi/sati-sdk";
@@ -229,6 +235,7 @@ export function Explore() {
                       <th className="pb-3 pr-4 font-medium">Agent</th>
                       <th className="pb-3 pr-4 font-medium">Counterparty</th>
                       <th className="pb-3 pr-4 font-medium">Outcome</th>
+                      <th className="pb-3 pr-4 font-medium">Type</th>
                       <th className="pb-3 pr-4 font-medium">Content</th>
                       <th className="pb-3 pr-4 font-medium text-right">Time</th>
                       <th className="pb-3 pr-4 font-medium text-right">Details</th>
@@ -287,6 +294,22 @@ export function Explore() {
                           </td>
                           <td className="py-4 pr-4">
                             <span className={outcomeColor}>{outcomeText}</span>
+                          </td>
+                          <td className="py-4 pr-4">
+                            {(() => {
+                              const schemaType = getFeedbackSchemaType(feedback);
+                              return schemaType === "verified" ? (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600">
+                                  Verified
+                                </span>
+                              ) : schemaType === "public" ? (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-gray-500/10 text-gray-500">
+                                  Public
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              );
+                            })()}
                           </td>
                           <td className="py-4 pr-4">
                             {content ? (

@@ -14,7 +14,7 @@ import type {
   TransactionWithLifetime,
   TransactionWithinSizeLimit,
 } from "@solana/kit";
-import { x402Client } from "@x402/fetch";
+import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 import { ExactSvmSchemeV1 } from "@x402/svm/exact/v1/client";
 
@@ -82,4 +82,19 @@ export function createPaymentClient(session: WalletSession, rpcUrl: string): x40
   }
 
   return client;
+}
+
+/**
+ * Creates a payment-enabled fetch function.
+ *
+ * @param session - The connected wallet session
+ * @param rpcUrl - The RPC endpoint from the app's cluster configuration
+ * @returns A fetch function that automatically handles x402 payment responses
+ */
+export function createPaymentFetch(
+  session: WalletSession,
+  rpcUrl: string,
+): (input: RequestInfo, init?: RequestInit) => Promise<Response> {
+  const client = createPaymentClient(session, rpcUrl);
+  return wrapFetchWithPayment(fetch, client);
 }
