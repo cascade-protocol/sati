@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Link, useLocation } from "react-router";
-import { Menu, Bot } from "lucide-react";
+import { Menu } from "lucide-react";
 import { WalletButton } from "./wallet/wallet-button";
 import { NetworkSelector } from "./NetworkSelector";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ export function Header() {
           {/* Left group: Logo + Title + Nav */}
           <div className="flex items-center gap-4 md:gap-6">
             <Link to="/" className="flex items-center gap-2 md:gap-3">
-              <Bot className="h-8 w-8 md:h-10 md:w-10 text-primary" />
+              <img src="/water-wave-cascade.svg" alt="SATI logo" className="h-8 w-8 md:h-10 md:w-10" />
               <h1 className="hidden text-lg font-semibold sm:block md:text-xl">SATI</h1>
             </Link>
 
