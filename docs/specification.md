@@ -1,3 +1,9 @@
+---
+title: Specification
+description: SATI v1.0 Technical Specification
+outline: [2, 3]
+---
+
 # SATI Specification v1.0
 
 ## Solana Agent Trust Infrastructure

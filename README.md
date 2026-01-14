@@ -196,8 +196,12 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 
 ## Documentation
 
-- [Complete Specification](./docs/specification.md) - Full technical specification
-- [TypeScript SDK](./packages/sdk/) - Developer SDK with generated client
+📚 **[sati.cascade.fyi](https://cascade-protocol.github.io/sati/)** — Full documentation site
+
+- [Getting Started](https://cascade-protocol.github.io/sati/getting-started) — 5-minute quickstart
+- [Core Concepts](https://cascade-protocol.github.io/sati/guide/concepts) — Blind feedback, x402 integration
+- [Specification](https://cascade-protocol.github.io/sati/specification) — Complete technical reference
+- [TypeScript SDK](./packages/sdk/) — Developer SDK with generated client
 
 ---
 
