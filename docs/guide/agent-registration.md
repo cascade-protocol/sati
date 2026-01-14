@@ -25,9 +25,12 @@ Each agent is a non-fungible token with these extensions:
 ## Registration
 
 ```typescript
-import { SatiClient } from '@cascade-fyi/sati-sdk'
+import { Sati } from '@cascade-fyi/sati-sdk'
 
-const sati = new SatiClient({ rpc })
+const sati = new Sati({
+  network: 'mainnet',
+  rpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
+})
 
 const { mint, signature } = await sati.registerAgent({
   payer: walletKeypair,

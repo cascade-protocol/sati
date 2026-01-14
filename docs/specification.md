@@ -916,11 +916,11 @@ type Tag = string;
 | **Regular** | `createReputationScore(params)` | `{ address, signature }` |
 | | `updateReputationScore(params)` | `{ address, signature }` |
 | | `closeRegularAttestation(params)` | `{ signature }` |
-| **Query (Compressed)** | `listFeedbacks(filter)` | `ParsedAttestation[]` |
-| | `listValidations(filter)` | `ParsedAttestation[]` |
+| **Query (Compressed)** | `listFeedbacks(filter)` | `PaginatedAttestations<ParsedFeedbackAttestation>` |
+| | `listValidations(filter)` | `PaginatedAttestations<ParsedValidationAttestation>` |
 | | `getAttestationWithProof(address)` | `{ attestation, proof }` |
-| **Query (Regular)** | `getReputationScore(provider, tokenAccount)` | `ReputationScore \| null` |
-| | `listReputationScores(tokenAccount)` | `ReputationScore[]` |
+| **Query (Regular)** | `getReputationScore(provider, agentMint)` | `ReputationScoreData \| null` |
+| | `listReputationScores(agentMint, sasSchema)` | `ReputationScoreData[]` |
 | **Verify** | `verifyProof(proof, expectedRoot?)` | boolean |
 | | `verifySignatures(attestation)` | `SignatureVerificationResult` |
 | **Setup** | `setupSASSchemas(params)` | `SASDeploymentResult` |
@@ -935,6 +935,31 @@ type Tag = string;
 | | `validateFeedbackContent(content)` | `void` (throws on invalid) |
 | | `validateReputationScoreContent(content)` | `void` (throws on invalid) |
 | **Identity** | `linkEvmAddress(params)` | `{ signature }` |
+
+### Query Types
+
+```typescript
+interface PaginatedAttestations<T> {
+  items: T[];
+  cursor: string | null;  // For pagination, null if no more results
+}
+
+interface AttestationFilter {
+  sasSchema: Address;      // Required - schema address from loadDeployedConfig()
+  agentMint?: Address;     // Optional filter by agent
+  counterparty?: Address;  // Optional filter (applied client-side)
+  outcome?: Outcome;       // Optional filter (applied client-side)
+  limit?: number;          // Max results per page
+  cursor?: string;         // Pagination cursor from previous response
+}
+
+interface ParsedFeedbackAttestation {
+  address: Uint8Array;
+  raw: CompressedAccount;
+  attestation: CompressedAttestation;
+  data: FeedbackData;
+}
+```
 
 ### createFeedback Example
 

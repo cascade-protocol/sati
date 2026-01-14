@@ -164,31 +164,71 @@ Encryption uses X25519-XChaCha20-Poly1305.
 
 ## Querying Feedback
 
+All query methods require a schema address. Load deployed schemas first:
+
+```typescript
+import { Sati, loadDeployedConfig } from '@cascade-fyi/sati-sdk'
+
+const sati = new Sati({
+  network: 'mainnet',
+  rpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
+})
+
+const config = loadDeployedConfig('mainnet')
+const feedbackSchema = config!.schemas.feedback
+const feedbackPublicSchema = config!.schemas.feedbackPublic
+```
+
 ### For an Agent
 
 ```typescript
-const feedbacks = await sati.getFeedbackForAgent(agentMint)
+// Query verified feedbacks (FeedbackV1 - dual signature)
+const result = await sati.listFeedbacks({
+  sasSchema: feedbackSchema,
+  agentMint
+})
 
-for (const fb of feedbacks) {
-  console.log(`Score: ${fb.score}`)
-  console.log(`Tag: ${fb.tag1}`)
-  console.log(`Task: ${fb.taskRef}`)
-  console.log(`From: ${fb.counterparty}`)
+for (const fb of result.items) {
+  console.log(`Outcome: ${fb.data.outcome}`)     // 0=Negative, 1=Neutral, 2=Positive
+  console.log(`Counterparty: ${fb.data.counterparty}`)
+  console.log(`TaskRef: ${fb.data.taskRef}`)
 }
+
+// Handle pagination
+if (result.cursor) {
+  const nextPage = await sati.listFeedbacks({
+    sasSchema: feedbackSchema,
+    agentMint,
+    cursor: result.cursor
+  })
+}
+
+// Query both schema types for all feedback
+const [verified, publicFb] = await Promise.all([
+  sati.listFeedbacks({ sasSchema: feedbackSchema, agentMint }),
+  sati.listFeedbacks({ sasSchema: feedbackPublicSchema, agentMint }),
+])
+const allFeedback = [...verified.items, ...publicFb.items]
 ```
 
 ### By Counterparty
 
 ```typescript
-// Get all feedback submitted by a wallet
-const myFeedback = await sati.getFeedbackByCounterparty(walletAddress)
+// Client-side filtering: fetch all and filter
+const all = await sati.listFeedbacks({ sasSchema: feedbackSchema })
+const myFeedback = all.items.filter(
+  fb => fb.data.counterparty === walletAddress
+)
 ```
 
 ### By Task Reference
 
 ```typescript
-// Find feedback for a specific transaction
-const feedback = await sati.getFeedbackByTaskRef(taskRef)
+// Client-side filtering: find by taskRef
+const all = await sati.listFeedbacks({ sasSchema: feedbackSchema })
+const feedback = all.items.find(
+  fb => Buffer.from(fb.data.taskRef).equals(taskRefBytes)
+)
 ```
 
 ## Batching Feedback
@@ -233,22 +273,20 @@ const validation = await sati.createValidation({
 })
 ```
 
-## Indexing with Photon
+## Indexing
 
-Compressed attestations are indexed via [Photon](https://photon.helius.dev/):
+Compressed attestations are automatically indexed via [Photon](https://photon.helius.dev/). The SDK handles all Photon interaction internally—you never need to call Photon APIs directly.
+
+::: tip Helius Integration
+Helius RPC endpoints support both standard Solana RPC and Photon APIs. Use the same URL for both:
 
 ```typescript
-import { createRpc } from '@lightprotocol/stateless.js'
-
-const photonRpc = createRpc(
-  'https://mainnet.helius-rpc.com?api-key=...',
-  'https://photon.helius.dev'
-)
-
-// Query compressed accounts
-const attestations = await photonRpc.getCompressedAccountsByOwner(
-  SATI_PROGRAM_ID
-)
+const sati = new Sati({
+  network: 'mainnet',
+  rpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
+  photonRpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
+})
 ```
+:::
 
-The SDK handles Photon integration automatically.
+Query methods like `listFeedbacks()` automatically use Photon under the hood.

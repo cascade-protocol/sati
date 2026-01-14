@@ -46,19 +46,28 @@ features:
 ## Quick Example
 
 ```typescript
-import { SatiClient } from '@cascade-fyi/sati-sdk'
+import { Sati } from '@cascade-fyi/sati-sdk'
+
+const sati = new Sati({
+  network: 'mainnet',
+  rpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
+})
 
 // Register an agent
 const { mint } = await sati.registerAgent({
+  payer: walletKeypair,
   name: "MyAgent",
   uri: "ipfs://QmRegistrationFile",
 })
 
 // Submit feedback (~$0.002)
-await sati.giveFeedback({
+await sati.createFeedback({
+  payer: walletKeypair,
+  sasSchema: feedbackSchema,
   agentMint: targetAgent,
-  score: 100,
-  tag1: "x402-resource-delivered",
+  counterparty: clientPubkey,
+  outcome: Outcome.Positive,
+  // ... signatures
 })
 ```
 

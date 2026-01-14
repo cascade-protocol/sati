@@ -36,11 +36,12 @@ yarn add @cascade-fyi/sati-sdk
 ### 1. Initialize Client
 
 ```typescript
-import { SatiClient } from '@cascade-fyi/sati-sdk'
-import { createSolanaRpc } from '@solana/kit'
+import { Sati } from '@cascade-fyi/sati-sdk'
 
-const rpc = createSolanaRpc('https://api.mainnet-beta.solana.com')
-const sati = new SatiClient({ rpc })
+const sati = new Sati({
+  network: 'mainnet',
+  rpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
+})
 ```
 
 ### 2. Register an Agent
@@ -82,14 +83,34 @@ const feedback = await sati.giveFeedback({
 ### 4. Query Reputation
 
 ```typescript
-const feedbacks = await sati.getFeedbackForAgent(agentMint)
+import { loadDeployedConfig } from '@cascade-fyi/sati-sdk'
 
-for (const fb of feedbacks) {
-  console.log(`Score: ${fb.score}, Tag: ${fb.tag1}`)
+// Load schema addresses for the network
+const config = loadDeployedConfig('mainnet')
+const feedbackSchema = config!.schemas.feedback
+
+// Query feedbacks for an agent
+const result = await sati.listFeedbacks({
+  sasSchema: feedbackSchema,
+  agentMint
+})
+
+for (const fb of result.items) {
+  console.log(`Outcome: ${fb.data.outcome}`)
+  console.log(`Counterparty: ${fb.data.counterparty}`)
+}
+
+// Handle pagination if more results exist
+if (result.cursor) {
+  const nextPage = await sati.listFeedbacks({
+    sasSchema: feedbackSchema,
+    agentMint,
+    cursor: result.cursor
+  })
 }
 ```
 
-Compressed attestations are indexed via [Photon](https://photon.helius.dev/) (free).
+Compressed attestations are indexed via [Photon](https://photon.helius.dev/) (free). The SDK handles Photon integration automatically.
 
 ## Costs
 
