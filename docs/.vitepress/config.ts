@@ -38,6 +38,12 @@ export default defineConfig({
         ]
       },
       {
+        text: 'Concepts',
+        items: [
+          { text: 'Validation', link: '/concepts/validation' },
+        ]
+      },
+      {
         text: 'Reference',
         items: [
           { text: 'Specification', link: '/specification' },
