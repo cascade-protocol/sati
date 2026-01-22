@@ -7,6 +7,10 @@ description: Understanding ERC-8004 Validations and how they enable quality gate
 
 SATI's ValidationV1 schema implements the validation pattern defined in [ERC-8004 (Trustless Agents)](https://ethereum-magicians.org/t/erc-8004-trustless-agents/25098). This page explains what validations are for and how they work.
 
+::: info ERC-8004 January 2026 Update
+The January 2026 ERC-8004 spec update removed `feedbackAuth` for feedback (anyone can now submit feedback without agent involvement). However, validation still uses the request/response pattern with validator signatures — both parties must participate.
+:::
+
 ## Core Purpose
 
 From the ERC-8004 specification:

@@ -159,13 +159,13 @@ This enables multiple reputation providers to compete with different algorithms.
 ### Compressed (Light Protocol)
 
 - **Cost**: ~$0.002 per attestation
-- **Indexing**: Free via Photon
+- **Indexing**: Native via Photon RPC
 - **Use case**: High-volume feedback, validation
-- **Tradeoff**: Not directly RPC queryable
+- **Tradeoff**: Not directly queryable by other on-chain programs
 
 ### Regular (SAS)
 
-- **Cost**: ~0.002 SOL (~$0.40 at $200/SOL)
+- **Cost**: ~0.002 SOL rent (reclaimable)
 - **Indexing**: Standard RPC getProgramAccounts
 - **Use case**: ReputationScore, Delegation
-- **Benefit**: Direct on-chain queryability
+- **Benefit**: Direct on-chain queryability by other programs

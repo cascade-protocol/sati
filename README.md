@@ -56,18 +56,20 @@ SATI enables agents to establish trust across organizational boundaries without 
 
 ## Why SATI?
 
-**Designed for scale.** SATI uses Solana Attestation Service for reputation, which means:
+**Proof of participation.** SATI implements a blind feedback model where agents sign BEFORE knowing feedback sentiment — they cannot selectively participate in only positive reviews. This security guarantee was removed from ERC-8004 in January 2026.
 
+- **Cryptographic proof of interaction** — Both parties must sign; agent commits before knowing outcome
+- **Native indexing** — Photon provides query capabilities for compressed accounts via standard RPC
 - **Complete histories, not just averages** — Store every feedback on-chain, aggregate algorithmically
-- **Compression-ready** — When SAS ships [ZK-compressed attestations](https://github.com/solana-foundation/solana-attestation-service/pull/101), reputation costs drop ~100x
 - **Sub-second finality** — ~400ms today, ~150ms with Alpenglow
 - **Native wallet support** — Agents visible in Phantom, Solflare, Backpack
 
-| Capability | Today | With Compression |
-|------------|-------|------------------|
-| Feedback cost | ~0.002 SOL | ~0.00002 SOL |
-| Practical scale | 10K feedbacks | 1M+ feedbacks |
-| On-chain history | Full | Full |
+| Capability | SATI |
+|------------|------|
+| Proof of participation | Agent signs before outcome known |
+| Native indexing | Photon RPC for compressed accounts |
+| Feedback cost | ~$0.002 per attestation |
+| On-chain history | Full (not just aggregates) |
 
 **100% ERC-8004 compatible** — same registration file format, same functional interfaces, cross-chain agent identity via DIDs.
 
@@ -146,36 +148,30 @@ See the [SDK documentation](./packages/sdk/README.md) for complete usage example
 
 **Reputation** (per attestation):
 
-| Operation | Today | With Compression |
-|-----------|-------|------------------|
-| Authorize feedback | ~0.002 SOL | ~0.00002 SOL |
-| Give feedback | ~0.002 SOL | ~0.00002 SOL |
-| Validation request | ~0.002 SOL | ~0.00002 SOL |
+| Operation | Cost |
+|-----------|------|
+| Feedback (single) | ~$0.002 (~0.00002 SOL) |
+| Feedback (batched 5/tx) | ~$0.001 (amortized) |
+| Validation | ~$0.002 |
 
 See [benchmarks](./docs/benchmarks/) for detailed CU measurements.
 
 ---
 
-## Scalability Roadmap
+## Architecture Benefits
 
-SATI's architecture is designed to scale with Solana's infrastructure:
+**Why this design matters:**
 
-**Today:** PDA-based attestations via SAS
-- Full ERC-8004 compatibility
-- Complete on-chain feedback histories
-- ~0.002 SOL per attestation
-
-**When SAS ships compressed attestations ([PR #101](https://github.com/solana-foundation/solana-attestation-service/pull/101)):**
-- ~100x cost reduction for reputation operations
-- Million-agent scale becomes practical
-- No SATI code changes required — SAS handles compression transparently
-
-**Why this matters:**
 Systems constrained by gas costs store only aggregates (averages, counts). SATI stores complete histories, enabling:
 - Spam detection via pattern analysis
 - Reviewer reputation (weight feedback by reviewer quality)
 - Time-decay scoring (recent feedback matters more)
 - Payment-verified feedback (x402 proofs)
+
+**Native indexing via Photon:**
+- Compressed accounts queryable via standard RPC
+- Same trust model as reading blockchain state
+- No external indexing infrastructure required
 
 ---
 
@@ -188,8 +184,8 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 | `registrationFile` | Token-2022 `uri` field (IPFS/HTTP) |
 | `transfer()` | Native Token-2022 transfer |
 | `setApprovalForAll()` | Token-2022 delegate |
-| `Feedback.request()` | SAS `FeedbackAuth` attestation |
-| `Feedback.submit()` | SAS `Feedback` attestation |
+| `giveFeedback()` | Blind feedback model (DualSignature) |
+| `feedbackAuth` (removed Jan 2026) | N/A — SATI uses stronger dual-signature |
 | Collection membership | TokenGroup extension |
 
 ---

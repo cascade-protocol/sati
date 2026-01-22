@@ -16,9 +16,9 @@ outline: [2, 3]
 
 SATI is open trust infrastructure for AI agents on Solana solving the economics of on-chain feedback:
 
-- **Agent-subsidized feedback** — Agent signs with response (blind to outcome), client feedback is free
+- **Proof of participation** — Agent signs with response (blind to outcome); cannot selectively participate in only positive reviews
 - **x402 native** — Canonical feedback extension; payment tx becomes task reference (CAIP-220)
-- **200x cost reduction** — ZK Compression stores attestations at ~$0.002 each
+- **Cost-efficient storage** — ZK Compression via Light Protocol with native Photon indexing
 - **Schema agnostic** — Program verifies signatures on 131-byte universal base layout; new schemas without upgrades
 - **No reputation monopoly** — Multiple providers compete with different scoring algorithms
 - **Hot/cold wallet separation** — Delegates can sign attestations without full ownership permissions
@@ -71,13 +71,13 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Operation | Cost | Notes |
 |-----------|------|-------|
 | Agent registration | ~0.003 SOL | Mint + metadata + group + AgentIndex |
-| Feedback (single) | ~$0.002 | ~0.00001 SOL via Light |
-| Feedback (batched 5/tx) | ~$0.0006 | Amortized proof cost |
+| Feedback (single) | ~$0.002 | ~0.00002 SOL via Light Protocol |
+| Feedback (batched 5/tx) | ~$0.001 | Amortized proof cost |
 | Validation | ~$0.002 | Same as feedback |
 | ReputationScore | ~0.002 SOL | Regular SAS attestation |
 | Delegation grant | ~0.002 SOL | Regular SAS attestation (reclaimable) |
 | Delegation revoke | ~0.000005 SOL | Tx fee only; ~0.002 SOL rent returned |
-| Photon indexing | Free | Compressed attestations only |
+| Photon indexing | Free | Native indexing for compressed attestations |
 
 ---
 
@@ -1153,7 +1153,7 @@ SATI implements the [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/
 | `tokenURI` / registration file | ✅ | TokenMetadata.uri |
 | On-chain metadata | ✅ | TokenMetadata.additionalMetadata |
 | **Reputation** | | |
-| `feedbackAuth` | ⚡ | Replaced by dual-signature model (more secure) |
+| `feedbackAuth` | ⚡ | Removed in Jan 2026 ERC-8004 spec; SATI uses dual-signature model (more secure) |
 | `giveFeedback()` | ✅ | Compressed attestation via Light Protocol |
 | `revokeFeedback()` | ✅ | close_compressed_attestation() |
 | `appendResponse()` | ✅ | FeedbackResponse schema (deferred) |
@@ -1167,18 +1167,34 @@ SATI implements the [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/
 | DID support | ✅ | additionalMetadata["did"] |
 | CAIP-2/CAIP-10 | ✅ | Chain-agnostic identifiers |
 
+### ERC-8004 January 2026 Spec Update
+
+The January 2026 ERC-8004 specification update **removed `feedbackAuth` entirely**:
+
+> "The new spec removes `feedbackAuth` entirely... leans harder on filtering by reviewer/clientAddress and off-chain aggregation for Sybil/spam mitigation"
+
+This means ERC-8004 now uses an **open feedback model** where anyone can submit feedback about any agent without the agent's involvement.
+
 ### Authorization Model Comparison
 
-ERC-8004 uses `feedbackAuth` (agent pre-authorizes client). SATI uses **dual-signature blind feedback**:
-
-| Aspect | ERC-8004 feedbackAuth | SATI Dual-Signature |
-|--------|----------------------|---------------------|
-| Authorization | Agent signs permission upfront | Agent signs with response (blind) |
-| Selective blocking | Agent can refuse to authorize bad clients | Agent cannot refuse — signs before knowing outcome |
-| Sybil resistance | None (authorized client can submit anything) | Both parties must sign same task_ref |
+| Aspect | ERC-8004 (Jan 2026) | SATI Dual-Signature |
+|--------|---------------------|---------------------|
+| Agent authorization | None required | Agent signs with response (blind) |
+| Proof of interaction | None | Cryptographic (task_ref = payment tx) |
+| Sybil resistance | Off-chain filtering | Both parties must sign same task_ref |
+| Selective participation | N/A (open model) | Blocked — agent signs before knowing outcome |
 | Gas cost | Client pays | Agent pays (bundled into service) |
 
-> **Note**: ERC-8004 PR #11 removes `feedbackAuth` entirely, moving to open feedback. SATI's dual-signature model provides stronger guarantees than either approach.
+**Security implications:**
+
+| Attack Vector | ERC-8004 (new) | SATI |
+|---------------|----------------|------|
+| Sybil boosting (fake positive reviews) | Possible | Blocked — requires agent signature |
+| Competitor attacks (fake negatives) | Possible | Blocked — requires agent signature |
+| Selective participation | N/A | Blocked — agent signs before knowing outcome |
+| Proof of interaction | None | Cryptographic (task_ref = payment tx) |
+
+SATI's blind feedback model provides stronger guarantees than ERC-8004's open model. The tradeoff is complexity: SATI requires agent participation in the signature flow.
 
 ### CAIP and DID Support
 
