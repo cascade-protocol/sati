@@ -87,6 +87,8 @@ export type {
   AttestationFilter,
   PaginatedAttestations,
   ParsedAttestation,
+  ParsedFeedbackAttestation,
+  ParsedValidationAttestation,
   ValidityProofResult,
   CreationProofResult,
   MutationProofResult,
@@ -198,6 +200,26 @@ export {
   type PropertyFile,
   type TrustMechanism,
 } from "./registration";
+
+// SDK error types and transaction error handling
+export {
+  SatiError,
+  DuplicateAttestationError,
+  AgentNotFoundError,
+  SchemaNotFoundError,
+  LIGHT_ERROR_CODES,
+  type SatiErrorCode,
+} from "./errors";
+
+// Transaction error handling (result pattern)
+export {
+  handleTransactionError,
+  type FailedResult,
+  type FailedReason,
+} from "./client/errors";
+
+// User-facing error messages (for custom UI handling)
+export * from "./client/messages";
 
 // Re-export types for convenience
 export type { Address } from "@solana/kit";

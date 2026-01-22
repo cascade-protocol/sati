@@ -34,6 +34,7 @@ import {
   listAgentsByOwner,
   listAllAgents,
   listAgentFeedbacks,
+  listAgentValidations,
   listAllFeedbacks,
   listFeedbacksByCounterparty,
   getCurrentSlot,
@@ -475,6 +476,61 @@ export function useAgentFeedbacks(mint: Address | string | undefined) {
  */
 export function useFeedbackSchemaAddress(): Address | undefined {
   return FEEDBACK_SCHEMA_ADDRESS;
+}
+
+// ============================================================
+// VALIDATION HOOKS
+// ============================================================
+
+const VALIDATIONS_KEY = [...QUERY_KEY, "validations"];
+
+/**
+ * Validation stats computed from validation attestations
+ */
+export interface ValidationStats {
+  total: number;
+  passed: number;
+  failed: number;
+  passRate: number;
+}
+
+/**
+ * Hook for validation attestations on a specific agent
+ *
+ * Uses SDK's listValidations with memcmp filters on sasSchema and agentMint.
+ */
+export function useAgentValidations(agentMint: Address | string | undefined) {
+  const query = useQuery({
+    queryKey: [...VALIDATIONS_KEY, "agent", agentMint],
+    queryFn: async () => {
+      if (!agentMint) return [];
+      return listAgentValidations(agentMint as Address);
+    },
+    // Sort by slotCreated descending (most recent first)
+    select: (data) => [...data].sort((a, b) => Number(b.raw.slotCreated - a.raw.slotCreated)),
+    enabled: !!agentMint,
+    staleTime: 30_000,
+  });
+
+  // Compute stats from validations
+  // Outcome: 2 = Positive (Pass), 0 = Negative (Fail)
+  const stats: ValidationStats = {
+    total: query.data?.length ?? 0,
+    passed: query.data?.filter((v) => v.data.outcome === 2).length ?? 0,
+    failed: query.data?.filter((v) => v.data.outcome === 0).length ?? 0,
+    passRate:
+      query.data && query.data.length > 0
+        ? Math.round((query.data.filter((v) => v.data.outcome === 2).length / query.data.length) * 100)
+        : 0,
+  };
+
+  return {
+    validations: query.data ?? [],
+    stats,
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch: query.refetch,
+  };
 }
 
 /**

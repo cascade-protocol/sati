@@ -46,6 +46,7 @@ import {
   getUpdateTokenMetadataUpdateAuthorityInstruction,
   getUpdateTokenMetadataFieldInstruction,
   tokenMetadataField,
+  getCreateAssociatedTokenIdempotentInstruction,
   type Extension,
 } from "@solana-program/token-2022";
 
@@ -530,11 +531,13 @@ export class Sati {
     nonTransferable?: boolean;
     /** Owner of the agent NFT (default: payer) */
     owner?: Address;
+    /** Optional mint keypair - use to get a consistent mint address across networks */
+    mintKeypair?: KeyPairSigner;
   }): Promise<RegisterAgentResult> {
-    const { payer, name, uri, additionalMetadata, nonTransferable = false, owner } = params;
+    const { payer, name, uri, additionalMetadata, nonTransferable = false, owner, mintKeypair } = params;
 
-    // Generate new mint keypair
-    const agentMint = await generateKeyPairSigner();
+    // Use provided mint keypair or generate a new one
+    const agentMint = mintKeypair ?? (await generateKeyPairSigner());
 
     // Fetch registry config to get the actual group mint and agent count
     const [registryConfigAddress] = await findRegistryConfigPda();
@@ -757,6 +760,15 @@ export class Sati {
     const [sourceAta] = await findAssociatedTokenAddress(mint, owner.address);
     const [destAta] = await findAssociatedTokenAddress(mint, newOwner);
 
+    // Create destination ATA if it doesn't exist (idempotent - won't fail if exists)
+    const createAtaIx = getCreateAssociatedTokenIdempotentInstruction({
+      payer,
+      owner: newOwner,
+      mint,
+      ata: destAta,
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
+    });
+
     const transferIx = getTransferInstruction({
       source: sourceAta,
       destination: destAta,
@@ -770,7 +782,7 @@ export class Sati {
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer.address, msg),
       (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(transferIx, msg),
+      (msg) => appendTransactionMessageInstructions([createAtaIx, transferIx], msg),
       // Attach payer signer to fee payer (needed when payer !== owner)
       (msg) => addSignersToTransactionMessage([payer, owner], msg),
     );

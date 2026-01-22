@@ -2,7 +2,7 @@
  * VerifiedFeedbackDialog - DualSignature feedback demonstrating blind feedback model
  *
  * 2-Step Flow:
- * 1. INTERACT: User pays $0.01 USDC → Agent signs BLINDLY (doesn't know outcome)
+ * 1. INTERACT: User pays $0.001 USDC → Agent signs BLINDLY (doesn't know outcome)
  * 2. RATE & SUBMIT: User chooses outcome → Signs SIWS → Server submits transaction
  *
  * This demonstrates SATI's core innovation: unforgeable feedback where the agent
@@ -21,8 +21,9 @@ import {
   buildCounterpartyMessage,
   serializeFeedback,
   type FeedbackData,
+  handleTransactionError,
 } from "@cascade-fyi/sati-sdk";
-import { getNetwork, getSolscanUrl, getRpcUrl } from "@/lib/network";
+import { getChain, getNetwork, getSolscanUrl, getRpcUrl } from "@/lib/network";
 import { createPaymentFetch } from "@/lib/x402";
 
 import { Button } from "@/components/ui/button";
@@ -43,11 +44,24 @@ import { Loader2, CheckCircle2 } from "lucide-react";
 const deployedConfig = loadDeployedConfig(getNetwork());
 const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as Address | undefined;
 
+// Pre-filled agent signature data (for skipping Step 1)
+interface PrefilledSignatureData {
+  taskRef: string; // hex
+  dataHash: string; // hex
+  agentSignature: string; // hex
+  agentOwner: string;
+}
+
 interface VerifiedFeedbackDialogProps {
   agentMint: Address;
   agentName: string;
-  children: ReactNode;
+  children?: ReactNode;
   onSuccess?: () => void;
+  // Controlled mode props
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  // Pre-filled data to skip Step 1 (agent already signed)
+  prefilledData?: PrefilledSignatureData;
 }
 
 // API types
@@ -61,7 +75,7 @@ interface EchoRequest {
 interface EchoResponse {
   success: boolean;
   data?: {
-    agentAddress: string;
+    agentOwner: string;
     interactionHash: string;
     signature: string;
     signatureBase58: string;
@@ -78,7 +92,7 @@ interface SubmitFeedbackRequest {
   outcome: number;
   counterparty: string;
   agentSignature: string;
-  agentAddress: string;
+  agentOwner: string;
   counterpartySignature: string;
   counterpartyMessage: string;
   content?: string;
@@ -117,18 +131,40 @@ interface AgentSignatureData {
   taskRef: string; // hex
   dataHash: string; // hex
   signature: string; // hex
-  agentAddress: string;
+  agentOwner: string;
 }
 
 type Step = "interact" | "rate";
 
-export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSuccess }: VerifiedFeedbackDialogProps) {
-  const [open, setOpen] = useState(false);
+export function VerifiedFeedbackDialog({
+  agentMint,
+  agentName,
+  children,
+  onSuccess,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  prefilledData,
+}: VerifiedFeedbackDialogProps) {
+  // Support controlled mode
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+
+  // Initialize step based on prefilledData
+  const initialStep: Step = prefilledData ? "rate" : "interact";
+  const initialAgentData: AgentSignatureData | null = prefilledData
+    ? {
+        taskRef: prefilledData.taskRef,
+        dataHash: prefilledData.dataHash,
+        signature: prefilledData.agentSignature,
+        agentOwner: prefilledData.agentOwner,
+      }
+    : null;
 
   // Step state
-  const [step, setStep] = useState<Step>("interact");
+  const [step, setStep] = useState<Step>(initialStep);
   const [isInteracting, setIsInteracting] = useState(false);
-  const [agentSignatureData, setAgentSignatureData] = useState<AgentSignatureData | null>(null);
+  const [agentSignatureData, setAgentSignatureData] = useState<AgentSignatureData | null>(initialAgentData);
 
   // Rating state (Step 2)
   const [outcome, setOutcome] = useState<string>("2"); // Default to Positive
@@ -139,10 +175,15 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
 
   // Reset state when dialog closes
   const handleOpenChange = (isOpen: boolean) => {
-    setOpen(isOpen);
+    if (isControlled) {
+      controlledOnOpenChange?.(isOpen);
+    } else {
+      setInternalOpen(isOpen);
+    }
     if (!isOpen) {
-      setStep("interact");
-      setAgentSignatureData(null);
+      // Reset to initial state (which depends on prefilledData)
+      setStep(initialStep);
+      setAgentSignatureData(initialAgentData);
       setOutcome("2");
       setMessage("");
       setIsInteracting(false);
@@ -177,9 +218,9 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
       const taskRef = bytesToHex(new Uint8Array(taskRefDigest));
       const dataHash = bytesToHex(new Uint8Array(dataHashDigest));
 
-      // Create x402 payment-enabled fetch
-      toast.loading("Approve payment ($0.01 USDC)...", { id: toastId });
-      const rpcUrl = getRpcUrl(getNetwork());
+      // Create x402 payment-enabled fetch using user's network
+      toast.loading("Approve payment ($0.001 USDC)...", { id: toastId });
+      const rpcUrl = getRpcUrl(getChain());
       const paymentFetch = createPaymentFetch(session, rpcUrl);
 
       // Call /api/echo with x402 payment - agent signs WITHOUT knowing outcome
@@ -211,7 +252,7 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
         taskRef,
         dataHash,
         signature: echoResult.data.signature,
-        agentAddress: echoResult.data.agentAddress,
+        agentOwner: echoResult.data.agentOwner,
       });
 
       toast.success("Agent signed! Now choose your rating.", { id: toastId });
@@ -289,7 +330,7 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
           outcome: selectedOutcome,
           counterparty: session.account.address,
           agentSignature: agentSignatureData.signature,
-          agentAddress: agentSignatureData.agentAddress,
+          agentOwner: agentSignatureData.agentOwner,
           counterpartySignature: bytesToHex(counterpartySig),
           counterpartyMessage: bytesToHex(new Uint8Array(siwsMessage.messageBytes)),
           ...(contentJson && { content: contentJson, contentType: 1 }),
@@ -329,8 +370,18 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
         };
       } catch (error) {
         toast.dismiss(toastId);
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        toast.error(`Failed: ${errorMessage}`);
+
+        // Use SDK error handler for consistent error messages
+        const result = handleTransactionError(error);
+
+        if (result.reason === "duplicate_attestation") {
+          toast.error(result.message, {
+            description: "Each prediction can only receive one feedback per user.",
+            duration: 6000,
+          });
+        } else {
+          toast.error(result.message);
+        }
         throw error;
       }
     },
@@ -358,7 +409,7 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Verified Feedback</DialogTitle>
@@ -396,9 +447,9 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
         {step === "interact" && (
           <div className="space-y-4 py-4">
             <p className="text-sm text-muted-foreground">
-              Pay <span className="font-medium text-foreground">$0.01 USDC</span> to request a signature from the agent.
-              The agent signs <span className="font-medium text-foreground">without knowing</span> what feedback you'll
-              give.
+              Pay <span className="font-medium text-foreground">$0.001 USDC</span> to request a signature from the
+              agent. The agent signs <span className="font-medium text-foreground">without knowing</span> what feedback
+              you'll give.
             </p>
 
             <div className="p-3 rounded-lg bg-muted/50 border text-sm">
@@ -421,7 +472,7 @@ export function VerifiedFeedbackDialog({ agentMint, agentName, children, onSucce
                   Processing...
                 </>
               ) : (
-                "Pay & Get Signature ($0.01)"
+                "Pay & Get Signature ($0.001)"
               )}
             </Button>
 

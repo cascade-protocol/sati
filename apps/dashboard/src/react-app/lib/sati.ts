@@ -10,6 +10,7 @@ import {
   SATI_PROGRAM_ADDRESS,
   type AgentIdentity,
   type ParsedAttestation,
+  type ParsedValidationAttestation,
   // Registration file helpers
   fetchRegistrationFile,
   getImageUrl,
@@ -108,6 +109,14 @@ export function getFeedbackSchemas(): { feedback?: Address; feedbackPublic?: Add
 }
 
 /**
+ * Get deployed validation schema address (always fresh for current network)
+ */
+export function getValidationSchema(): Address | undefined {
+  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
+  return deployedConfig?.schemas?.validation as Address | undefined;
+}
+
+/**
  * Feedback schema type for display purposes
  */
 export type FeedbackSchemaType = "verified" | "public" | "unknown";
@@ -153,6 +162,26 @@ export async function listAgentFeedbacks(agentMint: Address): Promise<ParsedFeed
     return allFeedbacks;
   } catch (e) {
     console.error("Failed to list agent feedbacks:", e);
+    return [];
+  }
+}
+
+/**
+ * List all validation attestations for a specific agent.
+ */
+export async function listAgentValidations(agentMint: Address): Promise<ParsedValidationAttestation[]> {
+  const sati = getSatiClient();
+  const validationSchema = getValidationSchema();
+
+  if (!validationSchema) {
+    return [];
+  }
+
+  try {
+    const result = await sati.listValidations({ sasSchema: validationSchema, agentMint });
+    return result.items;
+  } catch (e) {
+    console.error("Failed to list agent validations:", e);
     return [];
   }
 }

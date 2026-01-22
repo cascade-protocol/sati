@@ -2,24 +2,30 @@
  * SATI Dashboard Worker
  *
  * Serves the SPA and provides API endpoints for feedback attestations.
- * Implements x402 payment-gated feedback flow for demo agents using PayAI facilitator.
+ * Implements x402 payment-gated feedback flow for demo agents.
  */
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
 import { type Address, isAddress, createKeyPairFromBytes, createKeyPairSignerFromBytes, signBytes } from "@solana/kit";
 import {
   computeInteractionHash,
   loadDeployedConfig,
   Sati,
   type Outcome,
+  Outcome as OutcomeEnum,
   MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  serializeValidation,
+  buildCounterpartyMessage,
+  ContentType,
 } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { parse } from "../env";
+import { fetchPopularMarket, generatePrediction, passesConfidenceThreshold } from "./predict";
 
 // =============================================================================
 // Types
@@ -51,7 +57,7 @@ interface BuildFeedbackTxRequest {
   counterparty: string; // counterparty/payer address
   // Signatures (hex-encoded 64 bytes each)
   agentSignature: string;
-  agentAddress: string;
+  agentOwner: string;
   counterpartySignature?: string; // Optional for DualSignature schemas
   // For CounterpartySigned mode (FeedbackPublic): SIWS message bytes user signed
   counterpartyMessage?: string; // hex-encoded - triggers server-paid submission
@@ -64,11 +70,16 @@ interface BuildFeedbackTxRequest {
 // Constants
 // =============================================================================
 
-// x402.org facilitator for devnet (PayAI has load-balancing bug with feePayers)
-const FACILITATOR_URL = "https://x402.org/facilitator";
+// Facilitator URLs
+const FACILITATOR_URL_DEVNET = "https://x402.org/facilitator";
+const FACILITATOR_URL_MAINNET = "https://x402.dexter.cash";
+// const FACILITATOR_URL_MAINNET = "https://facilitator.payai.network";
+// const FACILITATOR_URL_MAINNET = "https://pay.x402.jobs";
+// const FACILITATOR_URL_MAINNET = "https://pay.openfacilitator.io";
 
-// Solana Devnet CAIP-2 network identifier (used for x402 echo demo)
+// Solana CAIP-2 network identifiers (used for x402 payments)
 const SOLANA_DEVNET_NETWORK = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const;
+const SOLANA_MAINNET_NETWORK = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" as const;
 
 // Helper to get deployed config for a network
 function getNetworkConfig(network: "devnet" | "mainnet") {
@@ -76,6 +87,7 @@ function getNetworkConfig(network: "devnet" | "mainnet") {
   return {
     feedbackSchema: config?.schemas?.feedback,
     feedbackPublicSchema: config?.schemas?.feedbackPublic,
+    validationSchema: config?.schemas?.validation,
     lookupTable: config?.lookupTable,
   };
 }
@@ -117,6 +129,35 @@ function createApp(bindings: WorkerBindings) {
   const env = parse(bindings);
   const app = new Hono<{ Bindings: WorkerBindings }>();
 
+  // Global error handler - catches ALL uncaught errors
+  app.onError((err, c) => {
+    const requestId = crypto.randomUUID().slice(0, 8);
+    console.error(`[ERROR:${requestId}] ${c.req.method} ${c.req.path}`);
+    console.error(`[ERROR:${requestId}] Message:`, err.message);
+    console.error(`[ERROR:${requestId}] Stack:`, err.stack);
+
+    if (err instanceof HTTPException) {
+      return err.getResponse();
+    }
+
+    return c.json({ error: err.message, requestId }, 500);
+  });
+
+  // Request logging middleware - logs all requests and responses
+  app.use("/*", async (c, next) => {
+    const requestId = crypto.randomUUID().slice(0, 8);
+    const start = Date.now();
+    console.log(`[REQ:${requestId}] ${c.req.method} ${c.req.path}`);
+
+    // Store requestId for later use
+    c.set("requestId" as never, requestId as never);
+
+    await next();
+
+    const duration = Date.now() - start;
+    console.log(`[RES:${requestId}] ${c.res.status} (${duration}ms)`);
+  });
+
   app.use("/*", cors());
 
   // Health check
@@ -132,7 +173,7 @@ function createApp(bindings: WorkerBindings) {
   });
 
   // Get agent address for payment routing
-  let agentAddress: string | undefined;
+  let agentOwner: string | undefined;
   let agentSignerBytes: Uint8Array | undefined;
   // CryptoKeyPair Promise for concurrent-safe lazy initialization
   let agentKeyPairPromise: Promise<CryptoKeyPair> | undefined;
@@ -142,42 +183,199 @@ function createApp(bindings: WorkerBindings) {
       agentSignerBytes = bs58.decode(env.SATI_AGENT_SIGNER_KEY);
       // Extract public key (last 32 bytes of 64-byte secret key)
       const publicKey = agentSignerBytes.slice(32);
-      agentAddress = bs58.encode(publicKey);
+      agentOwner = bs58.encode(publicKey);
     } catch (e) {
       console.error("Failed to decode agent signer key:", e);
     }
   }
 
   // Only set up payment middleware if agent is configured
-  if (agentAddress) {
-    // Create facilitator client
-    const facilitatorClient = new HTTPFacilitatorClient({
-      url: FACILITATOR_URL,
-    });
+  if (agentOwner) {
+    // Create facilitator clients
+    const devnetFacilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL_DEVNET });
+    const mainnetFacilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL_MAINNET });
 
-    // Create x402 resource server with SVM scheme
-    const resourceServer = new x402ResourceServer(facilitatorClient).register(
-      SOLANA_DEVNET_NETWORK,
-      new ExactSvmScheme(),
+    // V1-style facilitators need maxAmountRequired field
+    const isV1Facilitator =
+      FACILITATOR_URL_MAINNET.includes("openfacilitator") || FACILITATOR_URL_MAINNET.includes("x402.jobs");
+
+    console.log(
+      `[x402] Mainnet facilitator: ${FACILITATOR_URL_MAINNET} (${isV1Facilitator ? "v1-compat" : "v2"} mode)`,
     );
 
-    // Apply payment middleware to /api/echo
+    // ALWAYS override verify/settle for logging visibility - x402 middleware swallows errors
+    mainnetFacilitator.verify = async (paymentPayload, paymentRequirements) => {
+      const patchedRequirements = isV1Facilitator
+        ? { ...paymentRequirements, maxAmountRequired: paymentRequirements.amount }
+        : paymentRequirements;
+
+      console.log(`[x402] VERIFY ${FACILITATOR_URL_MAINNET}`);
+      console.log(`[x402] Verify payload:`, JSON.stringify(paymentPayload).slice(0, 500));
+
+      try {
+        const res = await fetch(`${FACILITATOR_URL_MAINNET}/verify`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ paymentPayload, paymentRequirements: patchedRequirements }),
+        });
+
+        const text = await res.text();
+        let data: Record<string, unknown>;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error("[x402] Verify response not JSON:", e, "Raw:", text.slice(0, 500));
+          data = { raw: text.slice(0, 500) };
+        }
+
+        console.log(`[x402] Verify response: ${res.status}`, JSON.stringify(data));
+
+        if (!res.ok) {
+          const err = new Error(`Facilitator verify failed (${res.status}): ${JSON.stringify(data)}`);
+          console.error("[x402] Verify error:", err.message);
+          throw err;
+        }
+
+        if (!data.isValid) {
+          console.error("[x402] Verify rejected:", data.invalidReason);
+        }
+
+        return {
+          isValid: data.isValid as boolean,
+          payer: data.payer as string,
+          invalidReason: data.invalidReason as string | undefined,
+          transaction: data.transaction as string | undefined,
+        };
+      } catch (e) {
+        console.error("[x402] Verify exception:", e);
+        throw e;
+      }
+    };
+
+    mainnetFacilitator.settle = async (paymentPayload, paymentRequirements) => {
+      const patchedRequirements = isV1Facilitator
+        ? { ...paymentRequirements, maxAmountRequired: paymentRequirements.amount }
+        : paymentRequirements;
+
+      console.log(`[x402] SETTLE ${FACILITATOR_URL_MAINNET}`);
+
+      try {
+        const res = await fetch(`${FACILITATOR_URL_MAINNET}/settle`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ paymentPayload, paymentRequirements: patchedRequirements }),
+        });
+
+        const text = await res.text();
+        let data: Record<string, unknown>;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error("[x402] Settle response not JSON:", e, "Raw:", text.slice(0, 500));
+          data = { raw: text.slice(0, 500) };
+        }
+
+        console.log(`[x402] Settle response: ${res.status}`, JSON.stringify(data));
+
+        if (!res.ok) {
+          const err = new Error(`Facilitator settle failed (${res.status}): ${JSON.stringify(data)}`);
+          console.error("[x402] Settle error:", err.message);
+          throw err;
+        }
+
+        if (!data.success) {
+          console.error("[x402] Settle failed:", data.errorReason || data);
+        }
+
+        return {
+          success: data.success as boolean,
+          transaction: data.transaction as string,
+          network: paymentRequirements.network,
+        };
+      } catch (e) {
+        console.error("[x402] Settle exception:", e);
+        throw e;
+      }
+    };
+
+    // Create x402 resource server with SVM scheme for both networks
+    const resourceServer = new x402ResourceServer([devnetFacilitator, mainnetFacilitator])
+      .register(SOLANA_DEVNET_NETWORK, new ExactSvmScheme())
+      .register(SOLANA_MAINNET_NETWORK, new ExactSvmScheme());
+
+    // Apply payment middleware to /api/echo (supports both devnet and mainnet)
     app.use(
       "/api/echo",
       paymentMiddleware(
         {
           "POST /api/echo": {
-            accepts: {
-              scheme: "exact",
-              network: SOLANA_DEVNET_NETWORK,
-              price: "$0.01",
-              payTo: agentAddress,
-              extra: {
-                feedbackSchema: getNetworkConfig("devnet").feedbackSchema,
-                demoAgentMint: env.DEMO_AGENT_MINT_DEVNET,
+            accepts: [
+              {
+                scheme: "exact",
+                network: SOLANA_DEVNET_NETWORK,
+                price: "$0.001",
+                payTo: agentOwner,
+                extra: {
+                  feedbackSchema: getNetworkConfig("devnet").feedbackSchema,
+                  demoAgentMint: env.DEMO_AGENT_MINT_DEVNET,
+                },
               },
-            },
+              {
+                scheme: "exact",
+                network: SOLANA_MAINNET_NETWORK,
+                price: "$0.001",
+                payTo: agentOwner,
+                extra: {
+                  feedbackSchema: getNetworkConfig("mainnet").feedbackSchema,
+                  demoAgentMint: env.DEMO_AGENT_MINT_MAINNET,
+                },
+              },
+            ],
             description: "SATI Echo - Agent signature for feedback attestation",
+            mimeType: "application/json",
+          },
+        },
+        resourceServer,
+      ),
+    );
+
+    // Apply payment middleware to /api/predict (supports both devnet and mainnet)
+    app.use(
+      "/api/predict",
+      paymentMiddleware(
+        {
+          "POST /api/predict": {
+            accepts: [
+              {
+                scheme: "exact",
+                network: SOLANA_DEVNET_NETWORK,
+                price: "$0.001",
+                payTo: agentOwner,
+                extra: {
+                  validationSchema: getNetworkConfig("devnet").validationSchema,
+                  feedbackSchema: getNetworkConfig("devnet").feedbackSchema,
+                  predictionAgentMint: env.PREDICTION_AGENT_MINT_DEVNET,
+                },
+              },
+              {
+                scheme: "exact",
+                network: SOLANA_MAINNET_NETWORK,
+                price: "$0.001",
+                payTo: agentOwner,
+                extra: {
+                  validationSchema: getNetworkConfig("mainnet").validationSchema,
+                  feedbackSchema: getNetworkConfig("mainnet").feedbackSchema,
+                  predictionAgentMint: env.PREDICTION_AGENT_MINT_MAINNET,
+                },
+              },
+            ],
+            description: "SATI Predict - AI prediction with validation attestation",
             mimeType: "application/json",
           },
         },
@@ -190,7 +388,7 @@ function createApp(bindings: WorkerBindings) {
   app.post("/api/echo", async (c) => {
     // If we get here, payment has been verified by middleware
 
-    if (!agentSignerBytes || !agentAddress) {
+    if (!agentSignerBytes || !agentOwner) {
       return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
     }
 
@@ -198,7 +396,8 @@ function createApp(bindings: WorkerBindings) {
     let body: EchoRequest;
     try {
       body = await c.req.json<EchoRequest>();
-    } catch {
+    } catch (e) {
+      console.error("[echo] Failed to parse request body:", e);
       return c.json({ error: "Invalid request body" }, 400);
     }
 
@@ -247,12 +446,214 @@ function createApp(bindings: WorkerBindings) {
     return c.json({
       success: true,
       data: {
-        agentAddress,
+        agentOwner,
         interactionHash: bytesToHex(interactionHash),
         signature: bytesToHex(signature),
         signatureBase58: bs58.encode(signature),
       },
     });
+  });
+
+  // =============================================================================
+  // POST /api/predict - Kalshi prediction with ValidationV1 attestation
+  // =============================================================================
+  //
+  // Fetches a popular Kalshi market, generates an AI prediction,
+  // validates it (confidence threshold check), and creates a ValidationV1 attestation.
+  //
+  app.post("/api/predict", async (c) => {
+    // If we get here, x402 payment has been verified by middleware
+
+    if (!agentSignerBytes || !agentOwner) {
+      return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
+    }
+
+    if (!env.ANTHROPIC_API_KEY) {
+      return c.json({ error: "Server misconfigured: missing ANTHROPIC_API_KEY" }, 500);
+    }
+
+    // Get network from query param (body may be consumed by x402 middleware)
+    const networkParam = c.req.query("network");
+    const network = networkParam === "mainnet" ? "mainnet" : "devnet";
+    const networkConfig = getNetworkConfig(network);
+
+    // Get network-specific prediction agent mint
+    const predictionAgentMint =
+      network === "mainnet" ? env.PREDICTION_AGENT_MINT_MAINNET : env.PREDICTION_AGENT_MINT_DEVNET;
+
+    if (!predictionAgentMint) {
+      return c.json({ error: `Prediction agent not configured for ${network}` }, 500);
+    }
+
+    if (!networkConfig.validationSchema) {
+      return c.json({ error: "Validation schema not configured for network" }, 500);
+    }
+
+    try {
+      // Step 1: Fetch a popular Kalshi market
+      const market = await fetchPopularMarket();
+      if (!market) {
+        return c.json({ error: "Failed to fetch market data from Kalshi" }, 500);
+      }
+
+      // Step 2: Generate AI prediction
+      const prediction = await generatePrediction(env.ANTHROPIC_API_KEY, market);
+
+      // Step 3: Compute taskRef and dataHash using Web Crypto SHA-256
+      const timestamp = Date.now();
+      const taskRefInput = `predict:${timestamp}:${market.ticker}`;
+      const taskRefDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(taskRefInput));
+      const taskRefBytes = new Uint8Array(taskRefDigest);
+
+      // dataHash = SHA-256(JSON.stringify({market, prediction}))
+      const dataHashInput = JSON.stringify({
+        market: {
+          ticker: market.ticker,
+          title: market.title,
+          yesPrice: market.yesPrice,
+          noPrice: market.noPrice,
+        },
+        prediction: {
+          outcome: prediction.prediction,
+          confidence: prediction.confidence,
+          reasoning: prediction.reasoning,
+        },
+      });
+      const dataHashDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(dataHashInput));
+      const dataHashBytes = new Uint8Array(dataHashDigest);
+
+      // Step 4: Agent blind signature (signs interaction_hash BEFORE knowing validation outcome)
+      // Sign for validation attestation
+      const validationInteractionHash = computeInteractionHash(
+        networkConfig.validationSchema as Address,
+        taskRefBytes,
+        dataHashBytes,
+      );
+
+      // Also sign for feedback attestation (different schema = different hash)
+      const feedbackInteractionHash = computeInteractionHash(
+        networkConfig.feedbackSchema as Address,
+        taskRefBytes,
+        dataHashBytes,
+      );
+
+      // Create keypair lazily (async) - Promise ensures concurrent-safe initialization
+      if (!agentKeyPairPromise) {
+        agentKeyPairPromise = createKeyPairFromBytes(agentSignerBytes);
+      }
+      const agentKeyPair = await agentKeyPairPromise;
+
+      // Sign both interaction hashes with agent's private key (blind commitment)
+      const validationAgentSignature = await signBytes(agentKeyPair.privateKey, validationInteractionHash);
+      const feedbackAgentSignature = await signBytes(agentKeyPair.privateKey, feedbackInteractionHash);
+
+      // Step 5: Validation check - does prediction pass confidence threshold?
+      const CONFIDENCE_THRESHOLD = 60;
+      const validationPassed = passesConfidenceThreshold(prediction.confidence, CONFIDENCE_THRESHOLD);
+      const validationOutcome = validationPassed ? OutcomeEnum.Positive : OutcomeEnum.Negative;
+
+      // Step 6: Create ValidationV1 attestation on-chain
+      // Use dedicated validator key (DualSignature requires different signers for agent and validator)
+      if (!env.SATI_DEMO_VALIDATOR_SIGNER_KEY) {
+        return c.json({ error: "Server misconfigured: missing SATI_DEMO_VALIDATOR_SIGNER_KEY" }, 500);
+      }
+      const validatorSignerBytes = bs58.decode(env.SATI_DEMO_VALIDATOR_SIGNER_KEY);
+      const validatorKeyPair = await createKeyPairFromBytes(validatorSignerBytes);
+      // Extract public key (last 32 bytes of 64-byte secret key)
+      const validatorAddress = bs58.encode(validatorSignerBytes.slice(32));
+
+      const validationData = serializeValidation({
+        taskRef: taskRefBytes,
+        agentMint: predictionAgentMint as Address,
+        counterparty: validatorAddress as Address,
+        dataHash: dataHashBytes,
+        outcome: validationOutcome,
+        contentType: ContentType.None,
+        content: new Uint8Array(0),
+      });
+
+      // Build SIWS message for validator signature
+      const { messageBytes: validatorMessage } = buildCounterpartyMessage({
+        schemaName: "ValidationV1",
+        data: validationData,
+      });
+
+      // Validator signs the SIWS message
+      const validatorSignature = await signBytes(validatorKeyPair.privateKey, validatorMessage);
+
+      // Create ValidationV1 attestation
+      const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[network];
+      const sati = new Sati({
+        network,
+        rpcUrl,
+        wsUrl,
+        photonRpcUrl: rpcUrl,
+      });
+
+      const serverPayer = await createKeyPairSignerFromBytes(agentSignerBytes);
+
+      const validationResult = await sati.createValidation({
+        payer: serverPayer,
+        sasSchema: networkConfig.validationSchema as Address,
+        taskRef: taskRefBytes,
+        agentMint: predictionAgentMint as Address,
+        counterparty: validatorAddress as Address,
+        dataHash: dataHashBytes,
+        outcome: validationOutcome,
+        contentType: ContentType.None,
+        content: new Uint8Array(0),
+        agentSignature: {
+          pubkey: agentOwner as Address,
+          signature: validationAgentSignature,
+        },
+        validatorSignature: {
+          pubkey: validatorAddress as Address,
+          signature: validatorSignature,
+        },
+        counterpartyMessage: validatorMessage,
+        lookupTableAddress: networkConfig.lookupTable as Address,
+      });
+
+      // Step 7: Return prediction result with validation proof
+      return c.json({
+        success: true,
+        data: {
+          market: {
+            ticker: market.ticker,
+            title: market.title,
+            subtitle: market.subtitle,
+            yesPrice: market.yesPrice,
+            noPrice: market.noPrice,
+            closeTime: market.closeTime,
+          },
+          prediction: {
+            outcome: prediction.prediction,
+            confidence: prediction.confidence,
+            reasoning: prediction.reasoning,
+          },
+          validation: {
+            outcome: validationPassed ? "Pass" : "Fail",
+            threshold: CONFIDENCE_THRESHOLD,
+            attestationAddress: validationResult.address,
+            signature: validationResult.signature,
+          },
+          // For feedback flow (uses feedback schema's interaction hash)
+          taskRef: bytesToHex(taskRefBytes),
+          dataHash: bytesToHex(dataHashBytes),
+          agentSignature: bytesToHex(feedbackAgentSignature),
+          agentOwner,
+          agentMint: predictionAgentMint,
+        },
+      });
+    } catch (error) {
+      console.error("[predict] ERROR:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to generate prediction";
+      console.error("[predict] Error message:", errorMessage);
+      if (error instanceof Error && error.stack) {
+        console.error("[predict] Stack:", error.stack);
+      }
+      return c.json({ error: errorMessage }, 500);
+    }
   });
 
   // =============================================================================
@@ -267,7 +668,8 @@ function createApp(bindings: WorkerBindings) {
     let body: BuildFeedbackTxRequest;
     try {
       body = await c.req.json<BuildFeedbackTxRequest>();
-    } catch {
+    } catch (e) {
+      console.error("[build-feedback-tx] Failed to parse request body:", e);
       return c.json({ error: "Invalid request body" }, 400);
     }
 
@@ -281,7 +683,7 @@ function createApp(bindings: WorkerBindings) {
       body.outcome === undefined ||
       !body.counterparty ||
       !body.agentSignature ||
-      !body.agentAddress
+      !body.agentOwner
     ) {
       return c.json({ error: "Missing required fields" }, 400);
     }
@@ -308,8 +710,8 @@ function createApp(bindings: WorkerBindings) {
     if (!isAddress(body.counterparty)) {
       return c.json({ error: "Invalid counterparty address" }, 400);
     }
-    if (!isAddress(body.agentAddress)) {
-      return c.json({ error: "Invalid agentAddress" }, 400);
+    if (!isAddress(body.agentOwner)) {
+      return c.json({ error: "Invalid agentOwner" }, 400);
     }
 
     // Validate hex field lengths
@@ -399,7 +801,7 @@ function createApp(bindings: WorkerBindings) {
           outcome: body.outcome as Outcome,
           // For CounterpartySigned: user's SIWS signature goes as agentSignature
           agentSignature: {
-            pubkey: body.agentAddress as Address,
+            pubkey: body.agentOwner as Address,
             signature: agentSigBytes,
           },
           // SIWS message bytes the user signed
@@ -437,7 +839,7 @@ function createApp(bindings: WorkerBindings) {
           dataHash: dataHashBytes,
           outcome: body.outcome as Outcome,
           agentSignature: {
-            pubkey: body.agentAddress as Address,
+            pubkey: body.agentOwner as Address,
             signature: agentSigBytes,
           },
           // Include counterpartySignature for DualSignature schemas
@@ -464,7 +866,10 @@ function createApp(bindings: WorkerBindings) {
         });
       }
     } catch (error) {
-      console.error("Failed to process feedback:", error);
+      console.error("[build-feedback-tx] ERROR:", error);
+      if (error instanceof Error && error.stack) {
+        console.error("[build-feedback-tx] Stack:", error.stack);
+      }
       return c.json(
         {
           error: error instanceof Error ? error.message : "Failed to process feedback",

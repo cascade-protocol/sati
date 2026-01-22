@@ -45,9 +45,20 @@ export function Header() {
               <NavLink to="/" end className={({ isActive }) => getNavLinkClasses(isActive)}>
                 Explore
               </NavLink>
+              <NavLink to="/predict" className={({ isActive }) => getNavLinkClasses(isActive)}>
+                Predict
+              </NavLink>
               <NavLink to="/profile" className={({ isActive }) => getNavLinkClasses(isActive)}>
                 My Profile
               </NavLink>
+              <a
+                href="https://cascade-protocol.github.io/sati/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Docs
+              </a>
             </nav>
           </div>
 
@@ -90,9 +101,20 @@ export function Header() {
                     <NavLink to="/" end className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       Explore
                     </NavLink>
+                    <NavLink to="/predict" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
+                      Predict
+                    </NavLink>
                     <NavLink to="/profile" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       My Profile
                     </NavLink>
+                    <a
+                      href="https://cascade-protocol.github.io/sati/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      Docs
+                    </a>
                   </nav>
                   <Separator />
                   <div className="flex items-center gap-4">

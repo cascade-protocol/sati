@@ -40,10 +40,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Loader2, X } from "lucide-react";
 
-// Get deployed FeedbackPublic schema address (SingleSigner mode - no counterparty sig needed)
-const deployedConfig = loadDeployedConfig(getNetwork());
-const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
-
 interface GiveFeedbackDialogProps {
   /** Agent mint address */
   agentMint: Address;
@@ -65,7 +61,7 @@ interface SubmitFeedbackRequest {
   outcome: number;
   counterparty: string;
   agentSignature: string; // User's SIWS signature (hex)
-  agentAddress: string; // User's wallet address
+  agentOwner: string; // User's wallet address
   counterpartyMessage: string; // SIWS message bytes (hex) - triggers server-paid mode
   content?: string;
   contentType?: number;
@@ -137,7 +133,12 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
   const feedbackMutation = useMutation({
     mutationFn: async (selectedOutcome: Outcome) => {
       if (!session) throw new Error("Wallet not connected");
-      if (!FEEDBACK_SCHEMA_ADDRESS) throw new Error("Feedback schema not configured");
+
+      // Load schema for current network (not cached at module level)
+      const network = getNetwork();
+      const deployedConfig = loadDeployedConfig(network);
+      const feedbackSchemaAddress = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
+      if (!feedbackSchemaAddress) throw new Error("Feedback schema not configured");
 
       const toastId = toast.loading("Preparing feedback...");
 
@@ -190,15 +191,15 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         toast.loading("Submitting feedback...", { id: toastId });
 
         const request: SubmitFeedbackRequest = {
-          network: getNetwork(),
-          sasSchema: FEEDBACK_SCHEMA_ADDRESS,
+          network,
+          sasSchema: feedbackSchemaAddress,
           taskRef: bytesToHex(taskRef),
           agentMint: agentMint,
           dataHash: bytesToHex(dataHash),
           outcome: selectedOutcome,
           counterparty: session.account.address,
           agentSignature: bytesToHex(signature), // User's SIWS signature
-          agentAddress: session.account.address, // User's wallet address
+          agentOwner: session.account.address, // User's wallet address
           counterpartyMessage: bytesToHex(new Uint8Array(siwsMessage.messageBytes)), // Triggers server-paid mode
           ...(contentJson && { content: contentJson, contentType: 1 }),
         };

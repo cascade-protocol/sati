@@ -14,9 +14,27 @@ import type {
   TransactionWithLifetime,
   TransactionWithinSizeLimit,
 } from "@solana/kit";
-import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
+import { x402Client, wrapFetchWithPayment, type SelectPaymentRequirements } from "@x402/fetch";
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 import { ExactSvmSchemeV1 } from "@x402/svm/exact/v1/client";
+import { getChain, type SolanaChain } from "./network";
+
+// CAIP-2 network identifiers used by x402 (based on genesis hash)
+const SOLANA_MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+const SOLANA_DEVNET_CAIP2 = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
+
+/**
+ * Maps our app's chain identifier to x402's CAIP-2 network identifier.
+ */
+function chainToCaip2(chain: SolanaChain): string {
+  switch (chain) {
+    case "solana:mainnet":
+      return SOLANA_MAINNET_CAIP2;
+    default:
+      // devnet, testnet, localnet all use devnet CAIP-2
+      return SOLANA_DEVNET_CAIP2;
+  }
+}
 
 /**
  * Creates a TransactionSigner from a WalletSession.
@@ -62,13 +80,28 @@ const V1_NETWORKS = ["solana", "solana-devnet", "solana-testnet"] as const;
 /**
  * Creates an x402 client configured for SVM payments.
  *
+ * Uses the app's current chain to select the correct payment option
+ * when multiple networks are offered by the server.
+ *
  * @param session - The connected wallet session
  * @param rpcUrl - The RPC endpoint from the app's cluster configuration
  * @returns Configured x402Client ready for payments
  */
 export function createPaymentClient(session: WalletSession, rpcUrl: string): x402Client {
   const signer = sessionToTransactionSigner(session);
-  const client = new x402Client();
+
+  // Get the current chain and map to CAIP-2 format for x402
+  const currentChain = getChain();
+  const targetNetwork = chainToCaip2(currentChain);
+
+  // Custom selector that picks the payment option matching the user's current network
+  // Falls back to first option if no match (shouldn't happen with proper server config)
+  const networkSelector: SelectPaymentRequirements = (_version, accepts) => {
+    const matching = accepts.find((a) => a.network === targetNetwork);
+    return matching ?? accepts[0];
+  };
+
+  const client = new x402Client(networkSelector);
 
   // Create schemes with the app's RPC URL
   const schemeConfig = { rpcUrl };
