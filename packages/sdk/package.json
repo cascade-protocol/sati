@@ -1,7 +1,16 @@
 {
   "name": "@cascade-fyi/sati-sdk",
-  "version": "1.0.0-rc.1",
+  "version": "0.3.0",
   "description": "TypeScript SDK for SATI - Solana Agent Trust Infrastructure",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cascade-protocol/sati.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/cascade-protocol/sati/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/cascade-protocol/sati/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -22,6 +31,7 @@
   "files": [
     "dist/**",
     "README.md",
+    "CHANGELOG.md",
     "idl.json",
     "types.ts"
   ],
