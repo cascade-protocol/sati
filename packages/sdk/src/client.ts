@@ -7,7 +7,7 @@
  * Features:
  * - Agent registration via Token-2022 NFT minting
  * - Compressed attestations via Light Protocol (Feedback, Validation)
- * - Regular attestations via SAS (ReputationScore)
+ * - Regular attestations via SAS (ReputationScoreV3)
  * - Ed25519 signature building for blind feedback model
  *
  * @see https://github.com/cascade-protocol/sati
@@ -33,6 +33,7 @@ import {
   address,
   verifySignature,
   signatureBytes,
+  signBytes,
   type Address,
   type KeyPairSigner,
   type AddressesByLookupTableAddress,
@@ -84,6 +85,7 @@ import {
   computeAttestationNonce,
   computeReputationNonce,
   computeEvmLinkHash,
+  zeroDataHash,
   type Outcome,
 } from "./hashes";
 
@@ -91,11 +93,13 @@ import { buildCounterpartyMessage } from "./offchain-signing";
 
 import {
   ContentType,
+  getContentTypeLabel,
   serializeFeedback,
   serializeValidation,
   serializeReputationScore,
   deserializeReputationScore,
   SAS_HEADER_SIZE,
+  SAS_DATA_LEN_OFFSET,
   validateContentSize,
   type FeedbackData,
   type ValidationData,
@@ -118,7 +122,7 @@ import { importEd25519PublicKey } from "@cascade-fyi/compression-kit";
 
 // Note: SAS schema setup is available via setupSASSchemas() from "@cascade-fyi/sati-sdk/sas"
 
-import { deriveReputationAttestationPda } from "./sas-pdas";
+import { deriveReputationAttestationPda, SAS_PROGRAM_ADDRESS } from "./sas-pdas";
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
@@ -356,7 +360,7 @@ export interface CreateValidationParams {
 }
 
 /**
- * Parameters for creating a ReputationScore attestation
+ * Parameters for creating a ReputationScoreV3 attestation
  */
 export interface CreateReputationScoreParams {
   /** Payer for transaction fees */
@@ -384,9 +388,40 @@ export interface CreateReputationScoreParams {
    *
    * **Size Limit:** max ~240 bytes
    *
-   * ReputationScore uses SingleSignature mode, so has more headroom than
+   * ReputationScoreV3 uses SingleSignature mode, so has more headroom than
    * DualSignature schemas (Feedback, Validation).
    */
+  content?: Uint8Array;
+  /** Expiry timestamp (0 = never expires) */
+  expiry?: number;
+}
+
+/**
+ * Parameters for updating a ReputationScoreV3 attestation.
+ *
+ * High-level convenience method: auto-computes deterministic taskRef and
+ * zero dataHash per spec. If a score already exists for this (provider, agent)
+ * pair, it is closed first and a new one is created at the same PDA.
+ *
+ * Provider must be a KeyPairSigner because it signs both the close transaction
+ * and the Ed25519 precompile instruction for create.
+ */
+export interface UpdateReputationScoreParams {
+  /** Payer for transaction fees */
+  payer: KeyPairSigner;
+  /** Provider (reputation scorer) - must be KeyPairSigner to sign close + Ed25519 */
+  provider: KeyPairSigner;
+  /** SAS schema address */
+  sasSchema: Address;
+  /** SATI credential address in SAS */
+  satiCredential: Address;
+  /** Agent's mint address (Token-2022 NFT identity) being scored */
+  agentMint: Address;
+  /** Outcome: 0=Poor, 1=Average, 2=Good */
+  outcome: Outcome;
+  /** Content format (defaults to ContentType.None) */
+  contentType?: ContentType;
+  /** JSON content bytes (score, methodology, feedbackCount, validationCount). Required when contentType is not None. */
   content?: Uint8Array;
   /** Expiry timestamp (0 = never expires) */
   expiry?: number;
@@ -1967,7 +2002,7 @@ export class Sati {
   // ============================================================
 
   /**
-   * Create a ReputationScore attestation (regular SAS storage)
+   * Create a ReputationScoreV3 attestation (regular SAS storage)
    *
    * @throws Error if agentMint is not a registered SATI agent mint
    */
@@ -1991,6 +2026,10 @@ export class Sati {
       throw new Error("Provider signature must be 64 bytes");
     }
 
+    if (contentType !== ContentType.None && content.length === 0) {
+      throw new Error(`content is required when contentType is ${getContentTypeLabel(contentType)}`);
+    }
+
     // Validate agentMint is a registered agent mint
     await this.validateAgentMintIsRegisteredAgent(agentMint);
 
@@ -2010,7 +2049,7 @@ export class Sati {
     // Provider signs interaction hash (same as agent signature in dual-sig)
     const messageHash = computeInteractionHash(sasSchema, taskRef, dataHash);
 
-    const [attestationPda] = await deriveReputationAttestationPda(nonce);
+    const [attestationPda] = await deriveReputationAttestationPda(satiCredential, sasSchema, nonce);
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
 
@@ -2044,7 +2083,103 @@ export class Sati {
   }
 
   /**
-   * Close a regular SAS attestation (ReputationScore)
+   * Update (or create) a ReputationScoreV3 attestation.
+   *
+   * High-level method that auto-computes deterministic taskRef and zero dataHash
+   * per the spec. If a score already exists for this (provider, agent) pair,
+   * closes it first and creates a new one at the same PDA in a single transaction.
+   */
+  async updateReputationScore(params: UpdateReputationScoreParams): Promise<AttestationResult> {
+    const {
+      payer,
+      provider,
+      sasSchema,
+      satiCredential,
+      agentMint,
+      outcome,
+      contentType = ContentType.None,
+      content = new Uint8Array(0),
+      expiry = 0,
+    } = params;
+
+    if (contentType !== ContentType.None && content.length === 0) {
+      throw new Error(`content is required when contentType is ${getContentTypeLabel(contentType)}`);
+    }
+
+    await this.validateAgentMintIsRegisteredAgent(agentMint);
+
+    const nonce = computeReputationNonce(provider.address, agentMint);
+    const taskRef = computeReputationNonce(provider.address, agentMint); // same as nonce per spec
+    const dataHash = zeroDataHash();
+
+    const [attestationPda] = await deriveReputationAttestationPda(satiCredential, sasSchema, nonce);
+    const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+
+    const instructions: Array<Parameters<typeof appendTransactionMessageInstructions>[0][number]> = [];
+
+    // If attestation already exists, close it first
+    const existingAccount = await this.rpc.getAccountInfo(attestationPda, { encoding: "base64" }).send();
+    if (existingAccount.value) {
+      const closeIx = await getCloseRegularAttestationInstructionAsync({
+        payer,
+        signer: provider,
+        schemaConfig: schemaConfigPda,
+        agentMint,
+        satiCredential,
+        attestation: attestationPda,
+        program: SATI_PROGRAM_ADDRESS,
+      });
+      instructions.push(closeIx);
+    }
+
+    // Build create instructions
+    const reputationData: ReputationScoreData = {
+      taskRef,
+      agentMint,
+      counterparty: provider.address,
+      dataHash,
+      outcome,
+      contentType,
+      content,
+    };
+    const data = serializeReputationScore(reputationData);
+
+    const messageHash = computeInteractionHash(sasSchema, taskRef, dataHash);
+    const providerSig = new Uint8Array(await signBytes(provider.keyPair.privateKey, messageHash));
+
+    const addressEncoder = getAddressEncoder();
+    const ed25519Ix = createBatchEd25519Instruction([
+      {
+        publicKey: new Uint8Array(addressEncoder.encode(provider.address)),
+        message: messageHash,
+        signature: providerSig,
+      },
+    ]);
+
+    const createIx = await getCreateRegularAttestationInstructionAsync({
+      payer,
+      schemaConfig: schemaConfigPda,
+      agentMint,
+      satiCredential,
+      sasSchema,
+      attestation: attestationPda,
+      program: SATI_PROGRAM_ADDRESS,
+      data,
+      expiry: BigInt(expiry),
+    });
+
+    instructions.push(ed25519Ix, createIx);
+
+    const signature = await this.buildAndSendTransaction(instructions, payer);
+
+    return {
+      address: attestationPda,
+      signature,
+    };
+  }
+
+  /**
+   * Close a regular SAS attestation (ReputationScoreV3)
    */
   async closeRegularAttestation(params: CloseRegularAttestationParams): Promise<CloseAttestationResult> {
     const { payer, provider, sasSchema, satiCredential, agentMint, attestation } = params;
@@ -2089,12 +2224,17 @@ export class Sati {
   }
 
   /**
-   * Get a ReputationScore for an agent from a specific provider
+   * Get a ReputationScoreV3 for an agent from a specific provider
    */
-  async getReputationScore(provider: Address, agentMint: Address): Promise<ReputationScoreData | null> {
+  async getReputationScore(
+    provider: Address,
+    agentMint: Address,
+    satiCredential: Address,
+    sasSchema: Address,
+  ): Promise<ReputationScoreData | null> {
     const nonce = computeReputationNonce(provider, agentMint);
 
-    const [attestationPda] = await deriveReputationAttestationPda(nonce);
+    const [attestationPda] = await deriveReputationAttestationPda(satiCredential, sasSchema, nonce);
 
     const accountInfo = await this.rpc.getAccountInfo(attestationPda, { encoding: "base64" }).send();
 
@@ -2113,29 +2253,36 @@ export class Sati {
       return null;
     }
 
-    const satiData = new Uint8Array(data.subarray(SAS_HEADER_SIZE));
+    // Read data_len from SAS header (4-byte LE at SAS_DATA_LEN_OFFSET) to exclude SAS tail
+    const dataLenSlice = data.slice(SAS_DATA_LEN_OFFSET, SAS_DATA_LEN_OFFSET + 4);
+    const dataLen = new DataView(dataLenSlice.buffer).getUint32(0, true);
+    const satiData = data.slice(SAS_HEADER_SIZE, SAS_HEADER_SIZE + dataLen);
 
     return deserializeReputationScore(satiData);
   }
 
   /**
-   * List ReputationScore attestations for an agent
+   * List ReputationScoreV3 attestations for an agent
    */
   async listReputationScores(agentMint: Address, sasSchema: Address): Promise<ReputationScoreData[]> {
+    // SAS attestation account layout:
+    //   discriminator(1) + nonce(32) + credential(32) + schema(32) + data_len(4) + data...
+    // Schema is at offset 65 in the SAS header.
+    // AgentMint is in SATI data at: SAS_HEADER_SIZE(101) + layoutVersion(1) + taskRef(32) = 134
     const accounts = await this.rpc
-      .getProgramAccounts(address(SATI_PROGRAM_ADDRESS), {
+      .getProgramAccounts(SAS_PROGRAM_ADDRESS, {
         encoding: "base64",
         filters: [
           {
             memcmp: {
-              offset: BigInt(8),
+              offset: BigInt(65),
               bytes: addressToBase58Bytes(sasSchema),
               encoding: "base58",
             },
           },
           {
             memcmp: {
-              offset: BigInt(40),
+              offset: BigInt(SAS_HEADER_SIZE + 33),
               bytes: addressToBase58Bytes(agentMint),
               encoding: "base58",
             },
@@ -2149,7 +2296,10 @@ export class Sati {
       try {
         const [base64Data] = account.data as [string, string];
         const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-        const attestationData = bytes.slice(SAS_HEADER_SIZE);
+        // Read data_len from SAS header (4-byte LE at SAS_DATA_LEN_OFFSET) to exclude SAS tail
+        const dataLenSlice = bytes.slice(SAS_DATA_LEN_OFFSET, SAS_DATA_LEN_OFFSET + 4);
+        const dataLen = new DataView(dataLenSlice.buffer).getUint32(0, true);
+        const attestationData = bytes.slice(SAS_HEADER_SIZE, SAS_HEADER_SIZE + dataLen);
         results.push(deserializeReputationScore(attestationData));
       } catch {
         // Skip malformed accounts

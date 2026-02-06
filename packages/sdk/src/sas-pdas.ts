@@ -62,7 +62,7 @@ export async function deriveSatiProgramCredentialPda(): Promise<readonly [Addres
 }
 
 /**
- * Derive the ReputationScore schema PDA in SAS.
+ * Derive the ReputationScoreV3 schema PDA in SAS.
  *
  * Seeds: ["schema", credential, "ReputationScore", version]
  *
@@ -80,25 +80,27 @@ export async function deriveReputationSchemaPda(): Promise<readonly [Address, Pr
 }
 
 /**
- * Derive a ReputationScore attestation PDA in SAS.
+ * Derive a ReputationScoreV3 attestation PDA in SAS.
  *
  * The nonce is computed from (provider, agentMint) to ensure
  * one score per (provider, agent) pair.
  *
  * Seeds: ["attestation", credential, schema, nonce_as_address]
  *
+ * @param credential - The SAS credential address (from deployed config)
+ * @param schema - The SAS ReputationScoreV3 schema address (from deployed config)
  * @param nonce - 32-byte nonce (computed via computeReputationNonce)
  * @returns [address, bump] tuple
  */
 export async function deriveReputationAttestationPda(
+  credential: Address,
+  schema: Address,
   nonce: Uint8Array,
 ): Promise<readonly [Address, ProgramDerivedAddressBump]> {
   if (nonce.length !== 32) {
     throw new Error("Nonce must be 32 bytes");
   }
 
-  const [credential] = await deriveSatiProgramCredentialPda();
-  const [schema] = await deriveReputationSchemaPda();
   const addressEncoder = getAddressEncoder();
 
   return getProgramDerivedAddress({

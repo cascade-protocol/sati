@@ -75,6 +75,14 @@ export const CURRENT_LAYOUT_VERSION = 1;
  */
 export const SAS_HEADER_SIZE = 101;
 
+/**
+ * Offset of the `data_len` field within the SAS attestation account.
+ *
+ * Layout: discriminator(1) + nonce(32) + credential(32) + schema(32) = 97
+ * The 4-byte LE `data_len` field starts at offset 97.
+ */
+export const SAS_DATA_LEN_OFFSET = 97;
+
 // ============================================================================
 // Universal Offsets
 // ============================================================================
@@ -117,7 +125,7 @@ export enum DataType {
   Feedback = 0,
   /** Validation attestation (compressed storage) */
   Validation = 1,
-  /** ReputationScore attestation (regular storage) */
+  /** ReputationScoreV3 attestation (regular storage) */
   ReputationScore = 2,
 }
 
@@ -159,7 +167,7 @@ export enum ContentType {
 /**
  * Validation method types.
  *
- * Note: In v2 universal layout, this is stored in JSON content,
+ * Note: In universal layout, this is stored in JSON content,
  * not as a binary field. Kept for SDK convenience.
  */
 export enum ValidationType {
@@ -322,14 +330,14 @@ export function parseValidationContent(content: Uint8Array, contentType: Content
 }
 
 // ============================================================================
-// ReputationScore Schema (data_type = 2)
+// ReputationScoreV3 Schema (data_type = 2)
 // ============================================================================
 
 /**
- * ReputationScore schema - uses universal base layout (regular SAS storage)
+ * ReputationScoreV3 schema - uses universal base layout (regular SAS storage)
  *
  * Provider-computed scores with direct on-chain queryability.
- * One ReputationScore per (provider, agent) pair - updates replace previous.
+ * One ReputationScoreV3 per (provider, agent) pair - updates replace previous.
  *
  * Note: task_ref is deterministic: keccak256(counterparty, agent_mint)
  *
@@ -339,38 +347,89 @@ export function parseValidationContent(content: Uint8Array, contentType: Content
 export interface ReputationScoreData extends BaseLayout {}
 
 /**
- * ReputationScore JSON content structure (optional fields in content)
+ * ReputationScoreV3 JSON content structure (optional fields in content)
  */
 export interface ReputationScoreContent {
   /** Normalized reputation score: 0-100 */
   score?: number;
-  /** Methodology description */
+  /** Scoring algorithm identifier (e.g., "weighted_average", "bayesian") */
   methodology?: string;
-  /** Component scores breakdown */
-  components?: Record<string, number>;
+  /** Number of feedbacks analyzed */
+  feedbackCount?: number;
+  /** Number of validations analyzed */
+  validationCount?: number;
 }
 
 /**
- * Fixed offsets in ReputationScore schema (same as universal)
+ * Fixed offsets in ReputationScoreV3 schema (same as universal)
  */
 export const REPUTATION_SCORE_OFFSETS = OFFSETS;
 
 /**
- * Serialize ReputationScore data to bytes
+ * Serialize ReputationScoreV3 data to bytes
+ *
+ * SAS schema uses VecU8 (type 13) for the content field, which requires
+ * a 4-byte LE length prefix before the content bytes.
+ *
+ * Output: 131 base bytes + 4-byte LE content length + N content bytes
  */
 export function serializeReputationScore(data: ReputationScoreData): Uint8Array {
-  return serializeUniversalLayout(data);
+  // Serialize base layout with empty content (131 bytes)
+  const baseData = serializeUniversalLayout({ ...data, content: new Uint8Array(0) });
+
+  const contentBytes = data.content.slice(0, MAX_CONTENT_SIZE);
+  const contentLen = contentBytes.length;
+
+  // Append VecU8: 4-byte LE length prefix + content bytes
+  const buffer = new Uint8Array(baseData.length + 4 + contentLen);
+  buffer.set(baseData, 0);
+  new DataView(buffer.buffer).setUint32(baseData.length, contentLen, true);
+  if (contentLen > 0) {
+    buffer.set(contentBytes, baseData.length + 4);
+  }
+  return buffer;
 }
 
 /**
- * Deserialize ReputationScore data from bytes
+ * Deserialize ReputationScoreV3 data from bytes
+ *
+ * SAS schema uses VecU8 (type 13) for the content field. The data format is:
+ * 131 base bytes + 4-byte LE content length + N content bytes.
+ *
+ * Reads the VecU8 length prefix to extract exact content bytes,
+ * ignoring any trailing data (e.g., SAS tail bytes).
  */
 export function deserializeReputationScore(bytes: Uint8Array): ReputationScoreData {
-  return deserializeUniversalLayout(bytes);
+  const minSize = MIN_BASE_LAYOUT_SIZE + 4; // 131 base + 4 VecU8 prefix
+  if (bytes.length < minSize) {
+    throw new Error(`Data too small for ReputationScoreV3 (minimum ${minSize} bytes, got ${bytes.length})`);
+  }
+
+  // Parse base fields (layout_version through content_type, 131 bytes)
+  const base = deserializeUniversalLayout(bytes.slice(0, MIN_BASE_LAYOUT_SIZE));
+
+  // Read VecU8 length prefix at offset 131 (4-byte LE)
+  const lenSlice = bytes.slice(MIN_BASE_LAYOUT_SIZE, MIN_BASE_LAYOUT_SIZE + 4);
+  const contentLen = new DataView(lenSlice.buffer).getUint32(0, true);
+
+  // Bounds check: contentLen must not exceed available bytes
+  const contentStart = MIN_BASE_LAYOUT_SIZE + 4;
+  const available = bytes.length - contentStart;
+  if (contentLen > available) {
+    throw new Error(`ReputationScoreV3 content length ${contentLen} exceeds available data (${available} bytes)`);
+  }
+
+  // Extract exact content bytes
+  const content = bytes.slice(contentStart, contentStart + contentLen);
+
+  return {
+    ...base,
+    content,
+  };
 }
 
 /**
- * Parse ReputationScore JSON content
+ * Parse ReputationScoreV3 JSON content
  */
 export function parseReputationScoreContent(
   content: Uint8Array,
@@ -384,6 +443,39 @@ export function parseReputationScoreContent(
     return JSON.parse(text) as ReputationScoreContent;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Validate ReputationScoreV3 JSON content structure.
+ * Throws on invalid content.
+ */
+export function validateReputationScoreContent(content: ReputationScoreContent): void {
+  if (content.score !== undefined) {
+    if (typeof content.score !== "number" || content.score < 0 || content.score > 100) {
+      throw new Error("score must be a number between 0 and 100");
+    }
+  }
+  if (content.methodology !== undefined && typeof content.methodology !== "string") {
+    throw new Error("methodology must be a string");
+  }
+  if (content.feedbackCount !== undefined) {
+    if (
+      typeof content.feedbackCount !== "number" ||
+      content.feedbackCount < 0 ||
+      !Number.isInteger(content.feedbackCount)
+    ) {
+      throw new Error("feedbackCount must be a non-negative integer");
+    }
+  }
+  if (content.validationCount !== undefined) {
+    if (
+      typeof content.validationCount !== "number" ||
+      content.validationCount < 0 ||
+      !Number.isInteger(content.validationCount)
+    ) {
+      throw new Error("validationCount must be a non-negative integer");
+    }
   }
 }
 
@@ -445,7 +537,7 @@ export interface SchemaConfig {
   storageType: StorageType;
   /**
    * Schema for delegation verification (only for AgentOwnerSigned mode).
-   * If set, allows delegates (via DelegateV1 attestations) to sign on behalf of agent owner.
+   * If set, allows delegates (via Delegate attestations) to sign on behalf of agent owner.
    * If null, only the agent owner can sign.
    */
   delegationSchema: Address | null;
@@ -456,18 +548,18 @@ export interface SchemaConfig {
 }
 
 /**
- * Core SATI schema configurations (V1 - first production version)
+ * Core SATI schema configurations.
  * Names are used in SIWS signing messages shown to users.
  *
  * Note: delegationSchema is null here and set at deployment time for schemas
- * that support delegation (Feedback, Validation). The DelegateV1 schema address
+ * that support delegation (Feedback, Validation). The Delegate schema address
  * is used to verify delegation attestations at runtime.
  */
 export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
   Feedback: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
-    delegationSchema: null, // Set at deployment to DelegateV1 schema address
+    delegationSchema: null, // Set at deployment to Delegate schema address
     closeable: false,
     name: "FeedbackV1",
   },
@@ -481,7 +573,7 @@ export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
   Validation: {
     signatureMode: SignatureMode.DualSignature,
     storageType: StorageType.Compressed,
-    delegationSchema: null, // Set at deployment to DelegateV1 schema address
+    delegationSchema: null, // Set at deployment to Delegate schema address
     closeable: false,
     name: "ValidationV1",
   },
@@ -490,7 +582,7 @@ export const SCHEMA_CONFIGS: Record<string, Omit<SchemaConfig, "sasSchema">> = {
     storageType: StorageType.Regular,
     delegationSchema: null, // Provider controls, no delegation
     closeable: true,
-    name: "ReputationScoreV1",
+    name: "ReputationScoreV3",
   },
   Delegate: {
     signatureMode: SignatureMode.AgentOwnerSigned,

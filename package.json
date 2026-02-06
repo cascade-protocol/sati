@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm run -F dashboard dev",
-    "localnet": "light test-validator",
+    "localnet": "light test-validator --sbf-program 22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG target/deploy/sas.so",
     "localnet:init": "cd packages/sdk && pnpm tsx scripts/deploy-and-initialize.ts",
     "build": "anchor build && pnpm -r --if-present run build",
     "lint": "biome check --write",

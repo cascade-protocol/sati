@@ -105,8 +105,11 @@ export function computeAttestationNonce(
 }
 
 /**
- * Compute the deterministic nonce for regular (SAS) ReputationScore attestation.
- * One ReputationScore per (provider, agent) pair.
+ * Compute the deterministic nonce for regular (SAS) ReputationScoreV3 attestation.
+ * One ReputationScoreV3 per (provider, agent) pair.
+ *
+ * Also serves as the deterministic task_ref stored in the attestation data,
+ * since both are keccak256(provider || agentMint) per the spec.
  *
  * @param provider - Reputation provider's address
  * @param agentMint - Agent's mint address
@@ -237,7 +240,7 @@ export function computeDataHashFromStrings(request: string, response: string): U
 /**
  * Create a zero-filled data_hash for SingleSigner schemas.
  *
- * SingleSigner schemas (like ReputationScore) don't use blind commitments,
+ * SingleSigner schemas (like ReputationScoreV3) don't use blind commitments,
  * so data_hash should be zeros.
  *
  * @returns 32-byte zero-filled Uint8Array

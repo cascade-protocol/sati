@@ -120,7 +120,7 @@ Compressed attestations are indexed via [Photon](https://photon.helius.dev/) (fr
 | Feedback (single) | ~$0.002 | ~0.00002 SOL via Light Protocol |
 | Feedback (batched 5/tx) | ~$0.001 | Amortized proof cost |
 | Validation | ~$0.002 | Same as feedback |
-| ReputationScore | ~0.002 SOL | Regular SAS attestation |
+| ReputationScoreV3 | ~0.002 SOL | Regular SAS attestation |
 | Delegation grant | ~0.002 SOL | Regular SAS attestation (reclaimable) |
 
 ## Next Steps

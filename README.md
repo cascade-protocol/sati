@@ -15,7 +15,7 @@ SATI enables agents to establish trust across organizational boundaries without 
 | **SATI Program** | Agent registration, signature verification, attestation storage routing |
 | **Token-2022** | Agent identity NFTs with metadata and collection membership |
 | **Light Protocol** | ZK-compressed attestation storage (~200x cheaper) |
-| **SAS** | Regular attestation storage (ReputationScore) |
+| **SAS** | Regular attestation storage (ReputationScoreV3) |
 
 ```
 ┌───────────────────────────┐
@@ -107,10 +107,10 @@ anchor test
 ## SDK Usage
 
 ```typescript
-import { SATI } from "@cascade-fyi/sati-sdk";
+import { Sati } from "@cascade-fyi/sati-sdk";
 
 // Initialize client (auto-loads deployed schema addresses)
-const sati = new SATI({ network: "mainnet" }); // or "devnet"
+const sati = new Sati({ network: "mainnet" }); // or "devnet"
 
 // Register an agent
 const { mint, memberNumber } = await sati.registerAgent({
@@ -205,7 +205,7 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
-**Deployment Status:** Ready for Devnet
+**Deployment Status:** Deployed on Mainnet and Devnet
 **On-chain Verification:** [Program on Solana Explorer](https://explorer.solana.com/address/satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)
 
 ---

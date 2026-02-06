@@ -2,7 +2,7 @@
  * SATI SAS Integration Module
  *
  * Helpers for interacting with Solana Attestation Service (SAS)
- * for ReputationScore attestations (stored as regular accounts).
+ * for ReputationScoreV3 attestations (stored as regular accounts).
  *
  * Note: Feedback and Validation attestations use Light Protocol
  * (compressed accounts) and are handled by the LightClient.
@@ -55,14 +55,14 @@ export {
 };
 
 /**
- * SATI credential name used for ReputationScore attestations
+ * SATI credential name used for ReputationScoreV3 attestations
  */
 export const SATI_CREDENTIAL_NAME = "SATI";
 
 /**
- * Schema name for ReputationScore attestations in SAS
+ * Schema name for ReputationScoreV3 attestations in SAS
  */
-export const REPUTATION_SCORE_SCHEMA_NAME = "SATIReputationScoreV1";
+export const REPUTATION_SCORE_SCHEMA_NAME = "SATIReputationScoreV3";
 
 /**
  * SAS Schema definition interface
@@ -74,7 +74,36 @@ export interface SASSchemaDefinition {
   fieldNames: string[];
 }
 
-// Schema name constants (V1 - first production version)
+// =============================================================================
+// SAS Schema Layout Type Reference
+// =============================================================================
+//
+// SAS SchemaDataTypes (from solana-attestation-service/program/src/state/schema.rs):
+//   Fixed:    0=U8(1), 1=U16(2), 2=U32(4), 3=U64(8), 4=U128(16)
+//             5=I8(1), 6=I16(2), 7=I32(4), 8=I64(8), 9=I128(16)
+//             10=Bool(1), 11=Char(4)
+//   Variable: 12=String, 13=VecU8, 14-25=other Vec types
+//
+// IMPORTANT: SAS has NO native Pubkey/Address/Bytes32 type. The largest fixed
+// type is U128 at 16 bytes. To represent 32-byte fields (Solana addresses),
+// split into two consecutive U128 fields (hi/lo halves, 16 bytes each).
+// This is a known limitation of SAS's type system -- see:
+//   - https://github.com/solana-foundation/solana-attestation-service/issues/32
+//   - cereal_macro/src/lib.rs line 49: unsupported types panic
+//   - Koranet example uses String (type 12) for addresses, but that adds
+//     4-byte length prefix overhead and requires Borsh serialization changes.
+//
+// SAS validate_data walks the layout, sums byte sizes per type, and requires
+// total == data.len() exactly. It does NOT interpret field semantics.
+//
+// Feedback/Validation/Delegate schemas use incorrect type numbers
+// (7=I32 was mistakenly treated as "pubkey", 9=I128 as "blob").
+// These schemas are only used via Light Protocol compressed path which
+// bypasses SAS validate_data, so they work in practice despite wrong layouts.
+// ReputationScoreV3 (regular SAS path) uses correct types + VecU8 for content.
+// =============================================================================
+
+// Schema name constants
 export const FEEDBACK_SCHEMA_NAME = "SATIFeedbackV1";
 export const FEEDBACK_PUBLIC_SCHEMA_NAME = "SATIFeedbackPublicV1";
 export const VALIDATION_SCHEMA_NAME = "SATIValidationV1";
@@ -83,16 +112,15 @@ export const DELEGATE_SCHEMA_NAME = "SATIDelegateV1";
 /**
  * Feedback schema definition for SAS
  *
- * Layout: task_ref(32) + token_account(32) + counterparty(32) + data_hash(32) +
- *         content_type(1) + outcome(1) + tag1(var) + tag2(var) + content(var)
- *
- * Note: Variable-length fields use blob type (9)
+ * WARNING: Layout uses incorrect type numbers (7=I32 not pubkey, 9=I128 not blob).
+ * Safe because Feedback uses Light Protocol compressed path which bypasses SAS validate_data.
+ * Do NOT use this layout for Regular (non-compressed) SAS attestations.
  */
 export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
   name: FEEDBACK_SCHEMA_NAME,
   description: "Feedback attestation with dual signatures from agent and counterparty",
-  // Layout types: pubkey=7, u8=0, blob=9
-  layout: [7, 7, 7, 7, 0, 0, 9, 9, 9], // task_ref, token, counter, hash, contentType, outcome, tag1, tag2, content
+  // WARNING: wrong types (see Feedback note above), safe only for compressed path
+  layout: [7, 7, 7, 7, 0, 0, 9, 9, 9],
   fieldNames: [
     "task_ref",
     "token_account",
@@ -110,13 +138,14 @@ export const FEEDBACK_SAS_SCHEMA: SASSchemaDefinition = {
  * FeedbackPublic schema definition for SAS
  *
  * Same data layout as Feedback but uses CounterpartySigned mode.
- * Only counterparty signature is verified on-chain; anyone can submit feedback
- * about any agent without requiring the agent's signature.
+ *
+ * WARNING: Layout uses incorrect type numbers (see Feedback note above).
+ * Safe because FeedbackPublic uses Light Protocol compressed path.
  */
 export const FEEDBACK_PUBLIC_SAS_SCHEMA: SASSchemaDefinition = {
   name: FEEDBACK_PUBLIC_SCHEMA_NAME,
   description: "Public feedback attestation with single agent signature (counterparty not verified)",
-  // Same layout as Feedback
+  // WARNING: wrong types (see Feedback note above), safe only for compressed path
   layout: [7, 7, 7, 7, 0, 0, 9, 9, 9],
   fieldNames: [
     "task_ref",
@@ -134,14 +163,14 @@ export const FEEDBACK_PUBLIC_SAS_SCHEMA: SASSchemaDefinition = {
 /**
  * Validation schema definition for SAS
  *
- * Layout: task_ref(32) + token_account(32) + counterparty(32) + data_hash(32) +
- *         content_type(1) + validation_type(1) + response(1) + content(var)
+ * WARNING: Layout uses incorrect type numbers (see Feedback note above).
+ * Safe because Validation uses Light Protocol compressed path.
  */
 export const VALIDATION_SAS_SCHEMA: SASSchemaDefinition = {
   name: VALIDATION_SCHEMA_NAME,
   description: "Validation attestation with dual signatures from agent and validator",
-  // Layout types: pubkey=7, u8=0, blob=9
-  layout: [7, 7, 7, 7, 0, 0, 0, 9], // task_ref, token, counter, hash, contentType, validationType, response, content
+  // WARNING: wrong types, safe only for compressed path
+  layout: [7, 7, 7, 7, 0, 0, 0, 9],
   fieldNames: [
     "task_ref",
     "token_account",
@@ -155,17 +184,35 @@ export const VALIDATION_SAS_SCHEMA: SASSchemaDefinition = {
 };
 
 /**
- * ReputationScore schema definition for SAS
+ * ReputationScoreV3 schema definition for SAS
  *
- * Layout: task_ref(32) + token_account(32) + counterparty(32) + score(1) +
- *         content_type(1) + content(var)
+ * 32-byte fields (addresses, hashes) are split into hi/lo U128 pairs
+ * because SAS has no native 32-byte type (max fixed = U128 at 16 bytes).
+ * Content uses VecU8 (type 13) for variable-length data (JSON metadata, etc.).
+ *
+ * Layout math: 1 + (16+16)*4 + 1 + (16+16) + 1 + VecU8 = 131 fixed + 4 len prefix + N content
+ *
+ * SAS VecU8 validation: reads 4-byte LE length prefix, then consumes that many bytes.
+ * Empty content = 4 bytes (length=0). JSON content = 4 + N bytes.
  */
 export const REPUTATION_SCORE_SAS_SCHEMA: SASSchemaDefinition = {
   name: REPUTATION_SCORE_SCHEMA_NAME,
   description: "Reputation score from an authorized provider for a SATI-registered agent",
-  // Layout types: pubkey=7, u8=0, blob=9
-  layout: [7, 7, 7, 0, 0, 9], // task_ref, token, counter, score, contentType, content
-  fieldNames: ["task_ref", "token_account", "counterparty", "score", "content_type", "content"],
+  layout: [0, 4, 4, 4, 4, 4, 4, 0, 4, 4, 0, 13],
+  fieldNames: [
+    "layout_version",
+    "task_ref_hi",
+    "task_ref_lo",
+    "agent_mint_hi",
+    "agent_mint_lo",
+    "counterparty_hi",
+    "counterparty_lo",
+    "outcome",
+    "data_hash_hi",
+    "data_hash_lo",
+    "content_type",
+    "content",
+  ],
 };
 
 /**
@@ -186,7 +233,8 @@ export const REPUTATION_SCORE_SAS_SCHEMA: SASSchemaDefinition = {
 export const DELEGATE_SAS_SCHEMA: SASSchemaDefinition = {
   name: DELEGATE_SCHEMA_NAME,
   description: "Delegation authorization for hot wallet signing on behalf of agent",
-  // Same universal layout as other schemas
+  // WARNING: wrong types (see Feedback note above). Delegate uses Regular SAS path
+  // so this layout IS broken for validate_data. Needs corrected layout when delegation is enabled.
   layout: [7, 7, 7, 7, 0, 0, 9, 9, 9],
   fieldNames: [
     "task_ref",
@@ -229,7 +277,7 @@ export async function deriveSatiCredentialPda(authority: Address): Promise<reado
  * Derive SATI schema PDA
  *
  * @param credentialPda - SATI credential PDA
- * @param schemaName - Schema name (e.g., "SATIReputationScore")
+ * @param schemaName - Schema name (e.g., "SATIReputationScoreV3")
  * @param version - Schema version (default: 1)
  * @returns Schema PDA and bump
  */
@@ -312,9 +360,9 @@ export function getCreateSatiSchemaInstruction(params: {
 }
 
 /**
- * Compute nonce for ReputationScore attestation
+ * Compute nonce for ReputationScoreV3 attestation
  *
- * One reputation score per (provider, agent) pair.
+ * One ReputationScoreV3 per (provider, agent) pair.
  * nonce = keccak256(provider + agentMint)
  *
  * @param provider - Reputation provider address
@@ -328,9 +376,9 @@ export function computeReputationScoreNonce(provider: Address, agentMint: Addres
 }
 
 /**
- * Serialize ReputationScore data for SAS attestation
+ * Serialize ReputationScoreV3 data for SAS attestation
  *
- * @param data - ReputationScore data
+ * @param data - ReputationScoreV3 data
  * @param schemaData - Schema account data from fetchSchema
  * @returns Serialized data buffer
  */

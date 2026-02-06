@@ -23,6 +23,7 @@ import {
   deserializeUniversalLayout,
   validateBaseLayout,
   validateContentSize,
+  validateReputationScoreContent,
   getMaxContentSize,
   parseFeedbackContent,
   parseValidationContent,
@@ -50,6 +51,7 @@ import {
   type ValidationContent,
   type ReputationScoreContent,
 } from "../../src/schemas";
+import { REPUTATION_SCORE_SAS_SCHEMA } from "../../src/sas";
 import { SignatureMode, StorageType } from "../../src/generated";
 
 // =============================================================================
@@ -381,7 +383,8 @@ describe("ReputationScore Serialization", () => {
     const reputationContent: ReputationScoreContent = {
       score: 88,
       methodology: "weighted_average",
-      components: { accuracy: 90, speed: 85, reliability: 89 },
+      feedbackCount: 42,
+      validationCount: 5,
     };
     const content = createJsonContent(reputationContent);
     const reputationScore = createReputationScoreData({
@@ -396,7 +399,8 @@ describe("ReputationScore Serialization", () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.score).toBe(88);
     expect(parsed?.methodology).toBe("weighted_average");
-    expect(parsed?.components).toEqual({ accuracy: 90, speed: 85, reliability: 89 });
+    expect(parsed?.feedbackCount).toBe(42);
+    expect(parsed?.validationCount).toBe(5);
   });
 });
 
@@ -667,7 +671,7 @@ describe("SCHEMA_CONFIGS", () => {
     expect(SCHEMA_CONFIGS.ReputationScore.signatureMode).toBe(SignatureMode.CounterpartySigned);
     expect(SCHEMA_CONFIGS.ReputationScore.storageType).toBe(StorageType.Regular);
     expect(SCHEMA_CONFIGS.ReputationScore.closeable).toBe(true);
-    expect(SCHEMA_CONFIGS.ReputationScore.name).toBe("ReputationScoreV1");
+    expect(SCHEMA_CONFIGS.ReputationScore.name).toBe("ReputationScoreV3");
   });
 
   test("Delegate config is correct", () => {
@@ -735,5 +739,189 @@ describe("Roundtrip Consistency", () => {
     const serialized2 = serializeReputationScore(deserialized);
 
     expect(serialized1).toEqual(serialized2);
+  });
+});
+
+// =============================================================================
+// Tests: SAS Schema Layout Validation
+// =============================================================================
+//
+// Replicates SAS on-chain validate_data logic (attestation.rs) to prove that
+// the schema layout byte count matches serializeUniversalLayout output.
+// If this test passes, SAS will accept the data on any network.
+
+/**
+ * SAS SchemaDataTypes fixed byte sizes.
+ * Source: solana-attestation-service/program/src/state/schema.rs
+ */
+const SAS_FIXED_TYPE_SIZES: Record<number, number> = {
+  0: 1, // U8
+  1: 2, // U16
+  2: 4, // U32
+  3: 8, // U64
+  4: 16, // U128
+  5: 1, // I8
+  6: 2, // I16
+  7: 4, // I32
+  8: 8, // I64
+  9: 16, // I128
+  10: 1, // Bool
+  11: 4, // Char
+};
+
+/** Compute expected data size from a SAS schema layout (fixed-size types only). */
+function computeSasLayoutSize(layout: number[]): number {
+  let total = 0;
+  for (const typeId of layout) {
+    const size = SAS_FIXED_TYPE_SIZES[typeId];
+    if (size === undefined) {
+      throw new Error(`Variable-length type ${typeId} in layout -- cannot compute fixed size`);
+    }
+    total += size;
+  }
+  return total;
+}
+
+describe("SAS Schema Layout Validation", () => {
+  test("ReputationScoreV3 layout matches serialized data size (no content)", () => {
+    // Fixed part = 131 bytes
+    // VecU8 (type 13) adds 4-byte LE length prefix even for empty content
+    // Total with empty content: 131 + 4 = 135
+    const fixedSize = computeSasLayoutSize(REPUTATION_SCORE_SAS_SCHEMA.layout.filter((t) => t !== 13));
+
+    const data: ReputationScoreData = {
+      taskRef: randomBytes(32),
+      agentMint: randomAddress(),
+      counterparty: randomAddress(),
+      outcome: Outcome.Positive,
+      dataHash: zeroDataHash(),
+      contentType: ContentType.None,
+      content: new Uint8Array(0),
+    };
+    const serialized = serializeReputationScore(data);
+
+    expect(fixedSize).toBe(131);
+    // 131 base + 4 VecU8 length prefix + 0 content = 135
+    expect(serialized.length).toBe(135);
+  });
+
+  test("ReputationScoreV3 layout with JSON content includes VecU8 prefix", () => {
+    const jsonContent = createJsonContent({ score: 85 });
+    const data: ReputationScoreData = {
+      taskRef: randomBytes(32),
+      agentMint: randomAddress(),
+      counterparty: randomAddress(),
+      outcome: Outcome.Positive,
+      dataHash: zeroDataHash(),
+      contentType: ContentType.JSON,
+      content: jsonContent,
+    };
+    const serialized = serializeReputationScore(data);
+
+    // 131 base + 4 VecU8 length prefix + N content bytes
+    expect(serialized.length).toBe(135 + jsonContent.length);
+
+    // Verify VecU8 length prefix at offset 131
+    const lenSlice = serialized.slice(131, 135);
+    const contentLen = new DataView(lenSlice.buffer).getUint32(0, true);
+    expect(contentLen).toBe(jsonContent.length);
+  });
+
+  test("ReputationScoreV3 layout has correct number of field names", () => {
+    expect(REPUTATION_SCORE_SAS_SCHEMA.fieldNames.length).toBe(REPUTATION_SCORE_SAS_SCHEMA.layout.length);
+  });
+
+  test("ReputationScoreV3 layout: last field is VecU8 (type 13)", () => {
+    const layout = REPUTATION_SCORE_SAS_SCHEMA.layout;
+    // First 11 fields are fixed-size types
+    for (let i = 0; i < layout.length - 1; i++) {
+      expect(SAS_FIXED_TYPE_SIZES[layout[i]]).toBeDefined();
+    }
+    // Last field is VecU8 (type 13)
+    expect(layout[layout.length - 1]).toBe(13);
+  });
+
+  test("layout math breakdown is correct", () => {
+    // Verify each fixed field's contribution:
+    // [0,  4,  4,  4,  4,  4,  4,  0,  4,  4,  0,  13]
+    //  U8  U128 U128 U128 U128 U128 U128 U8 U128 U128 U8  VecU8
+    //  1   16  16   16  16   16  16   1  16  16   1   var = 131 fixed + variable
+    const layout = REPUTATION_SCORE_SAS_SCHEMA.layout;
+
+    // layout_version: 1 byte
+    expect(SAS_FIXED_TYPE_SIZES[layout[0]]).toBe(1);
+    // task_ref: 32 bytes (2x U128)
+    expect(SAS_FIXED_TYPE_SIZES[layout[1]] + SAS_FIXED_TYPE_SIZES[layout[2]]).toBe(32);
+    // agent_mint: 32 bytes (2x U128)
+    expect(SAS_FIXED_TYPE_SIZES[layout[3]] + SAS_FIXED_TYPE_SIZES[layout[4]]).toBe(32);
+    // counterparty: 32 bytes (2x U128)
+    expect(SAS_FIXED_TYPE_SIZES[layout[5]] + SAS_FIXED_TYPE_SIZES[layout[6]]).toBe(32);
+    // outcome: 1 byte
+    expect(SAS_FIXED_TYPE_SIZES[layout[7]]).toBe(1);
+    // data_hash: 32 bytes (2x U128)
+    expect(SAS_FIXED_TYPE_SIZES[layout[8]] + SAS_FIXED_TYPE_SIZES[layout[9]]).toBe(32);
+    // content_type: 1 byte
+    expect(SAS_FIXED_TYPE_SIZES[layout[10]]).toBe(1);
+    // content: VecU8 (type 13) - variable length
+    expect(layout[11]).toBe(13);
+
+    // Fixed fields sum to 131
+    const fixedSum = layout
+      .filter((t) => t !== 13)
+      .map((t) => SAS_FIXED_TYPE_SIZES[t])
+      .reduce((a, b) => a + b, 0);
+    expect(fixedSum).toBe(MIN_BASE_LAYOUT_SIZE);
+  });
+});
+
+// =============================================================================
+// Tests: validateReputationScoreContent
+// =============================================================================
+
+describe("validateReputationScoreContent", () => {
+  test("accepts valid content with all fields", () => {
+    expect(() =>
+      validateReputationScoreContent({
+        score: 85,
+        methodology: "weighted_average",
+        feedbackCount: 42,
+        validationCount: 5,
+      }),
+    ).not.toThrow();
+  });
+
+  test("accepts empty content (all fields optional)", () => {
+    expect(() => validateReputationScoreContent({})).not.toThrow();
+  });
+
+  test("accepts boundary scores (0 and 100)", () => {
+    expect(() => validateReputationScoreContent({ score: 0 })).not.toThrow();
+    expect(() => validateReputationScoreContent({ score: 100 })).not.toThrow();
+  });
+
+  test("rejects score below 0", () => {
+    expect(() => validateReputationScoreContent({ score: -1 })).toThrow("score must be a number between 0 and 100");
+  });
+
+  test("rejects score above 100", () => {
+    expect(() => validateReputationScoreContent({ score: 101 })).toThrow("score must be a number between 0 and 100");
+  });
+
+  test("rejects negative feedbackCount", () => {
+    expect(() => validateReputationScoreContent({ feedbackCount: -1 })).toThrow(
+      "feedbackCount must be a non-negative integer",
+    );
+  });
+
+  test("rejects non-integer feedbackCount", () => {
+    expect(() => validateReputationScoreContent({ feedbackCount: 1.5 })).toThrow(
+      "feedbackCount must be a non-negative integer",
+    );
+  });
+
+  test("rejects negative validationCount", () => {
+    expect(() => validateReputationScoreContent({ validationCount: -1 })).toThrow(
+      "validationCount must be a non-negative integer",
+    );
   });
 });

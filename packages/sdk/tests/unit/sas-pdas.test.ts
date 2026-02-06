@@ -145,9 +145,12 @@ describe("deriveReputationSchemaPda", () => {
 // =============================================================================
 
 describe("deriveReputationAttestationPda", () => {
+  const credential = randomAddress();
+  const schema = randomAddress();
+
   test("produces valid address and bump", async () => {
     const nonce = randomBytes32();
-    const [pda, bump] = await deriveReputationAttestationPda(nonce);
+    const [pda, bump] = await deriveReputationAttestationPda(credential, schema, nonce);
 
     expect(typeof pda).toBe("string");
     expect(pda.length).toBeGreaterThan(30);
@@ -157,8 +160,8 @@ describe("deriveReputationAttestationPda", () => {
 
   test("is deterministic with same nonce", async () => {
     const nonce = randomBytes32();
-    const [pda1, bump1] = await deriveReputationAttestationPda(nonce);
-    const [pda2, bump2] = await deriveReputationAttestationPda(nonce);
+    const [pda1, bump1] = await deriveReputationAttestationPda(credential, schema, nonce);
+    const [pda2, bump2] = await deriveReputationAttestationPda(credential, schema, nonce);
 
     expect(pda1).toBe(pda2);
     expect(bump1).toBe(bump2);
@@ -168,8 +171,8 @@ describe("deriveReputationAttestationPda", () => {
     const nonce1 = randomBytes32();
     const nonce2 = randomBytes32();
 
-    const [pda1] = await deriveReputationAttestationPda(nonce1);
-    const [pda2] = await deriveReputationAttestationPda(nonce2);
+    const [pda1] = await deriveReputationAttestationPda(credential, schema, nonce1);
+    const [pda2] = await deriveReputationAttestationPda(credential, schema, nonce2);
 
     expect(pda1).not.toBe(pda2);
   });
@@ -178,8 +181,12 @@ describe("deriveReputationAttestationPda", () => {
     const shortNonce = new Uint8Array(16);
     const longNonce = new Uint8Array(64);
 
-    await expect(deriveReputationAttestationPda(shortNonce)).rejects.toThrow("Nonce must be 32 bytes");
-    await expect(deriveReputationAttestationPda(longNonce)).rejects.toThrow("Nonce must be 32 bytes");
+    await expect(deriveReputationAttestationPda(credential, schema, shortNonce)).rejects.toThrow(
+      "Nonce must be 32 bytes",
+    );
+    await expect(deriveReputationAttestationPda(credential, schema, longNonce)).rejects.toThrow(
+      "Nonce must be 32 bytes",
+    );
   });
 });
 

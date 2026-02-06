@@ -74,7 +74,7 @@ SATI is the canonical feedback extension for x402. Payment tx hash becomes `task
 | Feedback (single) | ~$0.002 | ~0.00002 SOL via Light Protocol |
 | Feedback (batched 5/tx) | ~$0.001 | Amortized proof cost |
 | Validation | ~$0.002 | Same as feedback |
-| ReputationScore | ~0.002 SOL | Regular SAS attestation |
+| ReputationScoreV3 | ~0.002 SOL | Regular SAS attestation |
 | Delegation grant | ~0.002 SOL | Regular SAS attestation (reclaimable) |
 | Delegation revoke | ~0.000005 SOL | Tx fee only; ~0.002 SOL rent returned |
 | Photon indexing | Free | Native indexing for compressed attestations |
@@ -448,7 +448,7 @@ Sign to create this attestation.
 | FeedbackV1 | Compressed | DualSignature | No | DelegateV1 | ✅ MVP |
 | FeedbackPublicV1 | Compressed | CounterpartySigned | No | None | ✅ MVP |
 | ValidationV1 | Compressed | DualSignature | No | DelegateV1 | ✅ MVP |
-| ReputationScoreV1 | Regular | CounterpartySigned | Yes | None | ✅ MVP |
+| ReputationScoreV3 | Regular | CounterpartySigned | Yes | None | ✅ MVP |
 | DelegateV1 | Regular | AgentOwnerSigned | Yes | None | ✅ MVP |
 
 **SignatureMode determines payload signature requirements:**
@@ -547,20 +547,21 @@ Uses universal base layout (131 bytes) + JSON content for validation details.
 
 **Validation types**: `tee` (TEE attestation), `zkml` (ZK-ML proof), `reexecution` (deterministic replay), `consensus` (multi-validator agreement).
 
-### ReputationScoreV1 Schema
+### ReputationScoreV3 Schema
 
-Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses CounterpartySigned mode (provider signature only).
+Provider-computed scores using `StorageType::Regular` for direct on-chain queryability. Uses CounterpartySigned mode (provider signature only). Content is stored as VecU8 (SAS type 13) with a 4-byte LE length prefix.
 
-| Field | Offset | Description |
-|-------|--------|-------------|
-| layout_version | 0 | `1` (current layout version) |
-| task_ref | 1-32 | Deterministic: `keccak256(counterparty \|\| agent_mint)` |
-| agent_mint | 33-64 | Agent mint address being scored |
-| counterparty | 65-96 | Provider (reputation scorer) |
-| outcome | 97 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
-| data_hash | 98-129 | Zero-filled (CounterpartySigned mode, no blind commitment) |
-| content_type | 130 | 1=JSON (recommended) |
-| content | 131+ | JSON with score details (see below) |
+| Field | Offset | Size | Description |
+|-------|--------|------|-------------|
+| layout_version | 0 | 1 | `1` (current layout version) |
+| task_ref | 1 | 32 | Deterministic: `keccak256(counterparty \|\| agent_mint)` |
+| agent_mint | 33 | 32 | Agent mint address being scored |
+| counterparty | 65 | 32 | Provider (reputation scorer) |
+| outcome | 97 | 1 | Provider's categorical assessment (0=Poor, 1=Average, 2=Good) |
+| data_hash | 98 | 32 | Zero-filled (CounterpartySigned mode, no blind commitment) |
+| content_type | 130 | 1 | 1=JSON (recommended) |
+| content_len | 131 | 4 | VecU8 length prefix (little-endian u32) |
+| content | 135 | N | JSON with score details (see below) |
 
 **JSON Content Fields** (all optional):
 
@@ -573,7 +574,9 @@ Provider-computed scores using `StorageType::Regular` for direct on-chain querya
 }
 ```
 
-**Size**: 131 bytes minimum (empty content), typical 150-250 bytes with JSON content.
+**SAS Schema Layout**: `[0, 4, 4, 4, 4, 4, 4, 0, 4, 4, 0, 13]` (12 fields, VecU8 for content).
+
+**Size**: 135 bytes minimum (empty content), typical 160-270 bytes with JSON content.
 
 **Semantics**: One ReputationScore per (provider, agent) pair. Providers update by closing old attestation and creating new one with same deterministic nonce. On-chain creation time is tracked via SAS attestation metadata.
 
@@ -1031,10 +1034,10 @@ Close authorization follows the principle: **the signing party controls closure*
 | FeedbackV1 | No | — | Permanent record |
 | FeedbackPublicV1 | No | — | Permanent record |
 | ValidationV1 | No | — | Permanent record |
-| ReputationScoreV1 | Yes | Provider (counterparty) only | Provider created it; agent cannot delete unfavorable scores |
+| ReputationScoreV3 | Yes | Provider (counterparty) only | Provider created it; agent cannot delete unfavorable scores |
 | DelegateV1 | Yes | Agent owner only | Owner controls their own delegations |
 
-> **Note**: For single-signature modes, only the signing party can close. For DualSignature schemas (if closeable in future), either party could close since both consented to creation. Delegates cannot close attestations—only the original signing party (agent owner for DelegateV1, provider for ReputationScoreV1).
+> **Note**: For single-signature modes, only the signing party can close. For DualSignature schemas (if closeable in future), either party could close since both consented to creation. Delegates cannot close attestations -- only the original signing party (agent owner for DelegateV1, provider for ReputationScoreV3).
 
 ### Delegation Permissions
 
@@ -1119,7 +1122,7 @@ Close authorization follows the principle: **the signing party controls closure*
 - FeedbackV1
 - FeedbackPublicV1
 - ValidationV1
-- ReputationScoreV1
+- ReputationScoreV3
 - DelegateV1
 
 **Note**: Registry Config PDA derived from `["registry"]`. SAS Credential, Schema PDAs, SchemaConfig PDAs, and Lookup Table addresses are deterministic but generated at deployment time. See `packages/sdk/src/deployed/{network}.json` for deployed addresses.

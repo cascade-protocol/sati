@@ -102,6 +102,8 @@ import {
   fetchMaybeCredential,
   fetchMaybeSchema,
 } from "../src/sas";
+import { deriveSatiPda } from "../src/sas-pdas";
+import { fetchCredential, getChangeAuthorizedSignersInstruction } from "sas-lib";
 import type { DeployedSASConfig, SATISASConfig } from "../src/types";
 import {
   LIGHT_SYSTEM_PROGRAM,
@@ -439,22 +441,51 @@ async function deploySASSchemas(
     rpcSubscriptions,
   } as SendAndConfirmConfig);
 
-  // Derive credential PDA
+  // Derive credential PDA and SATI program PDA (authorized signer for CPI)
   const [credentialPda] = await deriveSatiCredentialPda(authority.address);
+  const [satiPda] = await deriveSatiPda();
   console.log(`Credential PDA: ${credentialPda}`);
+  console.log(`SATI PDA (authorized signer): ${satiPda}`);
 
   // Check if credential exists
   const existingCredential = await fetchMaybeCredential(rpc, credentialPda);
 
-  if (existingCredential) {
-    console.log("Credential already exists, skipping creation...");
+  if (existingCredential.exists) {
+    console.log("Credential already exists, checking authorized signers...");
+
+    // Ensure satiPda is in authorized signers (idempotent upgrade path)
+    const credentialData = await fetchCredential(rpc, credentialPda);
+    const hasSatiPda = credentialData.data.authorizedSigners.some((s) => s.toString() === satiPda.toString());
+
+    if (hasSatiPda) {
+      console.log("  satiPda already in authorized signers, skipping...");
+    } else {
+      console.log("  Adding satiPda to authorized signers...");
+      const changeIx = getChangeAuthorizedSignersInstruction({
+        payer: authority,
+        authority,
+        credential: credentialPda,
+        signers: [...credentialData.data.authorizedSigners, satiPda],
+      });
+
+      const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+      const tx = pipe(
+        createTransactionMessage({ version: 0 }),
+        (msg) => setTransactionMessageFeePayer(authority.address, msg),
+        (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+        (msg) => appendTransactionMessageInstructions([changeIx], msg),
+      );
+      const signedTx = await signTransactionMessageWithSigners(tx);
+      await sendAndConfirm(signedTx as SignedBlockhashTransaction, { commitment: "confirmed" });
+      console.log("  Authorized signers updated");
+    }
   } else {
     console.log("Creating credential...");
     const credentialIx = getCreateSatiCredentialInstruction({
       payer: authority,
       authority,
       credentialPda,
-      authorizedSigners: [], // No additional signers needed
+      authorizedSigners: [satiPda],
     });
 
     const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
@@ -466,7 +497,7 @@ async function deploySASSchemas(
     );
     const signedTx = await signTransactionMessageWithSigners(tx);
     await sendAndConfirm(signedTx as SignedBlockhashTransaction, { commitment: "confirmed" });
-    console.log("Credential created");
+    console.log("Credential created with satiPda as authorized signer");
   }
 
   // Deploy each schema
@@ -482,7 +513,7 @@ async function deploySASSchemas(
     console.log(`${schema.name}: ${schemaPda}`);
 
     const existingSchema = await fetchMaybeSchema(rpc, schemaPda);
-    if (existingSchema) {
+    if (existingSchema.exists) {
       console.log(`  (already exists)`);
       continue;
     }

@@ -390,8 +390,7 @@ describe("E2E: agentMint validation", () => {
       TEST_TIMEOUT,
     );
 
-    // Skip: Regular attestations require SAS program deployed on localnet
-    test.skip(
+    test(
       "accepts registered agent mint as agentMint",
       async () => {
         const taskRef = randomBytes32();

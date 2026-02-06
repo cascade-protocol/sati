@@ -35,6 +35,7 @@ export {
   MAX_CONTENT_SIZE,
   MIN_BASE_LAYOUT_SIZE,
   SAS_HEADER_SIZE,
+  SAS_DATA_LEN_OFFSET,
   // Content size limits by signature mode (transaction size constraints)
   MAX_DUAL_SIGNATURE_CONTENT_SIZE,
   MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
@@ -73,6 +74,7 @@ export {
   createJsonContent,
   zeroDataHash,
   validateBaseLayout,
+  validateReputationScoreContent,
   // Content size helpers
   getMaxContentSize,
   validateContentSize,
@@ -174,6 +176,7 @@ export {
   type BuildFeedbackParams,
   type CreateValidationParams,
   type CreateReputationScoreParams,
+  type UpdateReputationScoreParams,
 } from "./client";
 
 // Registration file helpers (ERC-8004 + Phantom compatible)

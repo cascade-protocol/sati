@@ -38,6 +38,9 @@ coverage/
 # Temporary files
 tmp/
 
+# External program binaries (dumped from mainnet for localnet testing)
+target/deploy/sas.so
+
 # VitePress
 docs/.vitepress/cache/
 docs/.vitepress/dist/

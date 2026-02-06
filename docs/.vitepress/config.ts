@@ -48,6 +48,12 @@ export default defineConfig({
         items: [
           { text: 'Specification', link: '/specification' },
         ]
+      },
+      {
+        text: 'Known Issues',
+        items: [
+          { text: 'Close Attestation Offset', link: '/known-issues/close-attestation-offset' },
+        ]
       }
     ],
 

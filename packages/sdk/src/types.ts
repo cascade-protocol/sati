@@ -87,7 +87,7 @@ export interface SATISASConfig {
     feedbackPublic?: Address;
     /** Validation schema (compressed, dual signature) */
     validation: Address;
-    /** ReputationScore schema (regular SAS, single signer) */
+    /** ReputationScoreV3 schema (regular SAS, single signer) */
     reputationScore: Address;
     /** Delegate schema (regular SAS, agent owner signed) */
     delegate: Address;
@@ -166,7 +166,7 @@ export interface CloseCompressedAttestationParams {
 }
 
 /**
- * Parameters for closing a regular SAS attestation (ReputationScore)
+ * Parameters for closing a regular SAS attestation (ReputationScoreV3)
  */
 export interface CloseRegularAttestationParams {
   /** Payer for transaction fees */

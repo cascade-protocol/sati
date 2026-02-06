@@ -103,13 +103,13 @@ SATI uses a universal base layout that all attestation schemas share:
 ┌─────────────────────────────────────────────────────────────┐
 │                Universal Base (131 bytes)                    │
 ├─────────────────────────────────────────────────────────────┤
+│ layout_version: u8      - Layout version (currently 1)      │
 │ task_ref: [u8; 32]      - Payment/interaction reference     │
-│ token_account: [u8; 32] - Agent ATA                         │
+│ agent_mint: [u8; 32]    - Agent's NFT mint address          │
 │ counterparty: [u8; 32]  - Counterparty pubkey               │
 │ outcome: u8             - Outcome/score                     │
 │ data_hash: [u8; 32]     - Hash of schema-specific data      │
 │ content_type: u8        - Content encoding                  │
-│ content: Vec<u8>        - Variable-length content           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -128,7 +128,7 @@ The SATI program verifies signatures against this base layout only. This means:
 | FeedbackV1 | Compressed | DualSignature | Standard feedback (agent + client) |
 | FeedbackPublicV1 | Compressed | CounterpartySigned | Public feedback (client only) |
 | ValidationV1 | Compressed | DualSignature | Third-party validation |
-| ReputationScoreV1 | Regular | CounterpartySigned | Aggregated scores |
+| ReputationScoreV3 | Regular | CounterpartySigned | Aggregated scores |
 | DelegateV1 | Regular | AgentOwnerSigned | Hot wallet delegation |
 
 ## No Reputation Monopoly
