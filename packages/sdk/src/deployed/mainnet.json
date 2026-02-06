@@ -1,16 +1,16 @@
 {
   "network": "mainnet",
   "authority": "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z",
-  "deployedAt": "2026-01-04T02:59:21.370Z",
+  "deployedAt": "2026-02-06T02:29:37.194Z",
   "config": {
     "credential": "DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1",
     "schemas": {
       "feedback": "CPSr2kXADrhfAykcLwr7mxaLtuG4EBkzei9xQCaEmRJS",
       "feedbackPublic": "7SvB6udRrxTsKLYyoMwCvrm2jiNLUCcWBnhzwDVCebss",
       "validation": "Ho7nAWqwrxi3AzasoVST2FTKfAbVopk9S6G5cb3Z3DMi",
-      "reputationScore": "DeczMmsAwGR81DSrkmMaRWKS2qhqJdW9zCeNVuNKaceh",
+      "reputationScore": "7MoXgvrFhMxmB84AfAtp8LGfC4sEXUHD6JCQJpfj2jTj",
       "delegate": "93wrAiBtCWgfVzToT6kU4zkPSvZpWbKDG3XUQEEHXBrk"
     },
-    "lookupTable": "3ZwvNnz6mdyLyLyPaSZVpfthWcsDV3x3r6QSufjcRcoi"
+    "lookupTable": "4XgHCijEGjWBch2wvs35XGBNLBdioQbVxLJhbr9AifAn"
   }
 }

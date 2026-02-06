@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-06
+
+### Added
+
+- `updateReputationScore` method for updating existing reputation scores
+- `validateReputationScoreContent` helper function
+- `SAS_DATA_LEN_OFFSET` constant for cleaner SAS account parsing
+- Content validation in `createReputationScore` and `updateReputationScore`
+- Bounds check on content length in `deserializeReputationScore`
+- Known Issues documentation section
+
+### Fixed
+
+- **BREAKING**: Migrated reputation scores to ReputationScoreV3 with VecU8 content layout, fixing variable-length JSON content support
+- Fixed SAS credential authorized signers: `satiPda` is now correctly added as an authorized signer, enabling `createReputationScore` to succeed
+- Fixed `fetchMaybeSchema` truthiness check that caused false negatives
+- Fixed `deriveReputationAttestationPda` to use correct nonce format
+- Deploy script is now fully idempotent for authorized signer management
+
+### Changed
+
+- `updateReputationScore` defaults to `ContentType.None` (was `ContentType.JSON`)
+- Replaced magic number 97 with named `SAS_DATA_LEN_OFFSET` constant
+
 ## [0.3.0] - 2025-01-27
 
 ### Added
@@ -43,5 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.4.0]: https://github.com/cascade-protocol/sati/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cascade-protocol/sati/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cascade-protocol/sati/releases/tag/v0.2.0
