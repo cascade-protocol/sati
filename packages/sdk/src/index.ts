@@ -113,6 +113,7 @@ export {
   deriveSatiProgramCredentialPda,
   deriveReputationSchemaPda,
   deriveReputationAttestationPda,
+  deriveSasEventAuthorityPda,
   // Constants
   SAS_PROGRAM_ADDRESS,
   CREDENTIAL_SEED,

@@ -271,6 +271,19 @@
           ]
         },
         {
+          "name": "sas_event_authority",
+          "docs": [
+            "SAS event authority PDA (required for SAS close CPI event emission)"
+          ]
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "System program (required by SAS close instruction)"
+          ],
+          "address": "11111111111111111111111111111111"
+        },
+        {
           "name": "event_authority",
           "pda": {
             "seeds": [

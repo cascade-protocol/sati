@@ -114,6 +114,21 @@ export async function deriveReputationAttestationPda(
   });
 }
 
+/**
+ * Derive the SAS event authority PDA.
+ *
+ * Required for CPI calls to SAS that emit events (e.g., close attestation).
+ * Seeds: ["__event_authority"] (derived from SAS program, not SATI program)
+ *
+ * @returns [address, bump] tuple
+ */
+export async function deriveSasEventAuthorityPda(): Promise<readonly [Address, ProgramDerivedAddressBump]> {
+  return getProgramDerivedAddress({
+    programAddress: SAS_PROGRAM_ADDRESS,
+    seeds: ["__event_authority"],
+  });
+}
+
 // NOTE: Generic SAS PDA derivation functions (deriveCredentialPda, deriveSchemaPda,
 // deriveAttestationPda) are available via the re-exports in sas.ts from sas-lib.
 // This file only contains SATI-specific derivation helpers.

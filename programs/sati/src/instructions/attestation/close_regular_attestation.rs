@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 use solana_attestation_service_client::instructions::CloseAttestationCpiBuilder;
 
-use crate::constants::SAS_DATA_OFFSET;
+use crate::constants::{offsets, SAS_DATA_OFFSET};
 use crate::errors::SatiError;
 use crate::events::AttestationClosed;
 use crate::state::{SchemaConfig, StorageType};
@@ -60,6 +60,13 @@ pub struct CloseRegularAttestation<'info> {
     /// Must match agent_mint in attestation data (bytes 33-64).
     /// CHECK: Validated against attestation data in handler.
     pub agent_mint: AccountInfo<'info>,
+
+    /// SAS event authority PDA (required for SAS close CPI event emission)
+    /// CHECK: Derived from SAS program's __event_authority seed
+    pub sas_event_authority: AccountInfo<'info>,
+
+    /// System program (required by SAS close instruction)
+    pub system_program: Program<'info, System>,
 }
 
 pub fn handler<'info>(
@@ -73,14 +80,16 @@ pub fn handler<'info>(
     let attestation_data = ctx.accounts.attestation.try_borrow_data()?;
 
     require!(
-        attestation_data.len() >= SAS_DATA_OFFSET + 96,
+        attestation_data.len() >= SAS_DATA_OFFSET + offsets::OUTCOME,
         SatiError::AttestationDataTooSmall
     );
 
-    let agent_mint_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 32..SAS_DATA_OFFSET + 64]
+    let agent_mint_bytes: [u8; 32] = attestation_data
+        [SAS_DATA_OFFSET + offsets::AGENT_MINT..SAS_DATA_OFFSET + offsets::COUNTERPARTY]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let counterparty_bytes: [u8; 32] = attestation_data[SAS_DATA_OFFSET + 64..SAS_DATA_OFFSET + 96]
+    let counterparty_bytes: [u8; 32] = attestation_data
+        [SAS_DATA_OFFSET + offsets::COUNTERPARTY..SAS_DATA_OFFSET + offsets::OUTCOME]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
@@ -135,6 +144,9 @@ pub fn handler<'info>(
         .authority(&ctx.accounts.sati_pda)
         .credential(&ctx.accounts.sati_credential)
         .attestation(&ctx.accounts.attestation)
+        .event_authority(&ctx.accounts.sas_event_authority)
+        .system_program(&ctx.accounts.system_program)
+        .attestation_program(&ctx.accounts.sas_program)
         .invoke_signed(&[sati_pda_seeds])?;
 
     // 5. Emit event

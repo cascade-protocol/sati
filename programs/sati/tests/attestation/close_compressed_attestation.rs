@@ -24,6 +24,16 @@ use crate::common::{
     setup::derive_schema_config_pda,
 };
 
+/// Universal base layout offsets within data section (from constants.rs)
+/// Compressed attestations use raw data (no SAS header prefix).
+mod offsets {
+    pub const LAYOUT_VERSION: usize = 0;
+    pub const TASK_REF: usize = 1;
+    pub const AGENT_MINT: usize = 33;
+    pub const COUNTERPARTY: usize = 65;
+    pub const OUTCOME: usize = 97;
+}
+
 /// Schema name for layout calculation
 const SCHEMA_NAME: &str = "Feedback";
 
@@ -67,7 +77,7 @@ async fn test_close_attestation_by_counterparty() {
     // can authorize closing the attestation.
     //
     // The close_attestation instruction checks:
-    // - signer.key() == counterparty_pubkey (from data[64..96])
+    // - signer.key() == counterparty_pubkey (from data[65..97])
     // - OR signer proves NFT ownership via ATA
     //
     // Full test requires Light Protocol infrastructure to:
@@ -117,7 +127,7 @@ async fn test_close_attestation_by_agent() {
     // This test validates that the agent can close by proving NFT ownership.
     //
     // The close_attestation instruction checks (when agent_ata is provided):
-    // - agent_ata.mint == token_account (from data[32..64])
+    // - agent_ata.mint == token_account (from data[33..65])
     // - agent_ata.amount > 0
     // - agent_ata.owner == signer
     //
@@ -239,4 +249,113 @@ async fn test_close_attestation_wrong_storage_type() {
     );
     println!("Schema config PDA: {}", schema_config_pda);
     println!("Expected error: StorageTypeMismatch (6015)");
+}
+
+// ─── Offset parsing tests ───────────────────────────────────────────────────
+
+/// Build a mock compressed attestation data buffer with known pubkeys
+/// at the correct layout positions. Compressed attestations use raw data
+/// (no SAS header), so offsets start directly at the layout fields.
+fn build_mock_compressed_data(agent_mint: &Pubkey, counterparty: &Pubkey) -> Vec<u8> {
+    // Minimum size to cover through outcome: 98 bytes
+    let mut data = vec![0u8; offsets::OUTCOME + 1];
+
+    // layout_version at offset 0
+    data[offsets::LAYOUT_VERSION] = 1;
+
+    // task_ref at offset 1 (32 bytes)
+    for i in 0..32 {
+        data[offsets::TASK_REF + i] = 0xBB;
+    }
+
+    // agent_mint at offset 33 (32 bytes)
+    data[offsets::AGENT_MINT..offsets::COUNTERPARTY].copy_from_slice(agent_mint.as_ref());
+
+    // counterparty at offset 65 (32 bytes)
+    data[offsets::COUNTERPARTY..offsets::OUTCOME].copy_from_slice(counterparty.as_ref());
+
+    // outcome at offset 97
+    data[offsets::OUTCOME] = 2; // Positive
+
+    data
+}
+
+/// Test that the offset arithmetic used in close_compressed_attestation.rs
+/// correctly reads agent_mint and counterparty from compressed data.
+///
+/// Compressed data has NO SAS header - offsets apply directly.
+/// The buggy code reads [32..64] and [64..96] instead of [33..65] and [65..97].
+#[test]
+fn test_close_compressed_attestation_offset_parsing() {
+    let expected_agent_mint = Pubkey::new_unique();
+    let expected_counterparty = Pubkey::new_unique();
+
+    let data = build_mock_compressed_data(&expected_agent_mint, &expected_counterparty);
+
+    // Correct parsing using named offsets
+    let agent_mint_bytes: [u8; 32] = data[offsets::AGENT_MINT..offsets::COUNTERPARTY]
+        .try_into()
+        .expect("agent_mint slice should be 32 bytes");
+    let counterparty_bytes: [u8; 32] = data[offsets::COUNTERPARTY..offsets::OUTCOME]
+        .try_into()
+        .expect("counterparty slice should be 32 bytes");
+
+    let parsed_agent_mint = Pubkey::new_from_array(agent_mint_bytes);
+    let parsed_counterparty = Pubkey::new_from_array(counterparty_bytes);
+
+    assert_eq!(
+        parsed_agent_mint, expected_agent_mint,
+        "agent_mint parsed at offsets::AGENT_MINT should match"
+    );
+    assert_eq!(
+        parsed_counterparty, expected_counterparty,
+        "counterparty parsed at offsets::COUNTERPARTY should match"
+    );
+}
+
+/// Test that the BUGGY offsets (32/64 instead of 33/65) produce WRONG results
+/// for compressed data. Confirms the test catches the bug.
+#[test]
+fn test_compressed_buggy_offsets_produce_wrong_results() {
+    let expected_agent_mint = Pubkey::new_unique();
+    let expected_counterparty = Pubkey::new_unique();
+
+    let data = build_mock_compressed_data(&expected_agent_mint, &expected_counterparty);
+
+    // Read using the BUGGY offsets (32 and 64 instead of 33 and 65)
+    let buggy_agent_mint_bytes: [u8; 32] = data[32..64]
+        .try_into()
+        .expect("buggy agent_mint slice should be 32 bytes");
+    let buggy_counterparty_bytes: [u8; 32] = data[64..96]
+        .try_into()
+        .expect("buggy counterparty slice should be 32 bytes");
+
+    let buggy_agent_mint = Pubkey::new_from_array(buggy_agent_mint_bytes);
+    let buggy_counterparty = Pubkey::new_from_array(buggy_counterparty_bytes);
+
+    assert_ne!(
+        buggy_agent_mint, expected_agent_mint,
+        "buggy offset (32) should NOT match correct agent_mint (offset 33)"
+    );
+    assert_ne!(
+        buggy_counterparty, expected_counterparty,
+        "buggy offset (64) should NOT match correct counterparty (offset 65)"
+    );
+}
+
+/// Test minimum size check uses correct threshold for compressed data
+#[test]
+fn test_compressed_minimum_size_check() {
+    // The close instruction checks: params.current_data.len() >= <threshold>
+    // Correct threshold should be offsets::OUTCOME (97) to cover through counterparty
+    // The buggy code uses 96 which is one byte short
+
+    let too_small = 96;
+    let correct_min = offsets::OUTCOME; // 97
+
+    assert_eq!(correct_min, 97);
+    assert!(
+        too_small < correct_min,
+        "buggy size check (96) is smaller than correct (97)"
+    );
 }

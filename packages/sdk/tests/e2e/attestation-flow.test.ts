@@ -681,3 +681,139 @@ describe("E2E: Error Handling", () => {
     TEST_TIMEOUT,
   );
 });
+
+// =============================================================================
+// E2E: ReputationScore Update Flow (Close + Recreate)
+// =============================================================================
+
+/**
+ * Flow-based E2E tests for ReputationScore create/close/update lifecycle.
+ *
+ * Tests the full close_regular_attestation + recreate cycle.
+ * Note: agent-mint-validation.test.ts may create a reputation score at the same
+ * deterministic PDA before these tests run, so we start with updateReputationScore
+ * which handles close+create atomically.
+ *
+ * Uses the global test context for pre-registered agent, schema, and lookup table.
+ */
+describe("E2E: ReputationScore Update Flow", () => {
+  let ctx: GlobalTestContext;
+  let sati: Sati;
+  let payer: KeyPairSigner;
+  let agentMint: Address;
+  let providerSigner: KeyPairSigner;
+  let reputationSchema: Address;
+  let satiCredential: Address;
+  let attestationAddress: Address;
+
+  beforeAll(async () => {
+    ctx = await loadGlobalContext();
+    sati = ctx.sati;
+    payer = ctx.payer;
+    agentMint = ctx.agentMint;
+
+    // Load deployed localnet config for reputationScore schema and credential
+    const { readFileSync } = await import("node:fs");
+    const deployed = JSON.parse(readFileSync(new URL("../../src/deployed/localnet.json", import.meta.url), "utf-8"));
+    reputationSchema = deployed.config.schemas.reputationScore as Address;
+    satiCredential = deployed.config.credential as Address;
+
+    // Create a KeyPairSigner from the provider's test keypair seed
+    const { createKeyPairSignerFromPrivateKeyBytes } = await import("@solana/kit");
+    const seed = ctx.providerKeypair.seed;
+    if (!seed) throw new Error("providerKeypair must have a seed for KeyPairSigner creation");
+    providerSigner = await createKeyPairSignerFromPrivateKeyBytes(seed);
+  }, TEST_TIMEOUT);
+
+  test(
+    "updates reputation score (close + create atomically)",
+    async () => {
+      // updateReputationScore handles both cases:
+      // - If PDA is empty: just creates
+      // - If PDA exists (e.g., from agent-mint-validation test): closes first, then creates
+      const result = await sati.updateReputationScore({
+        payer,
+        provider: providerSigner,
+        sasSchema: reputationSchema,
+        satiCredential,
+        agentMint,
+        outcome: Outcome.Positive,
+      });
+
+      expect(result).toHaveProperty("address");
+      expect(result).toHaveProperty("signature");
+      attestationAddress = result.address;
+    },
+    TEST_TIMEOUT,
+  );
+
+  test(
+    "closes reputation score",
+    async () => {
+      expect(attestationAddress).toBeDefined();
+
+      const result = await sati.closeRegularAttestation({
+        payer,
+        provider: providerSigner,
+        sasSchema: reputationSchema,
+        satiCredential,
+        agentMint,
+        attestation: attestationAddress,
+      });
+
+      expect(result).toHaveProperty("signature");
+    },
+    TEST_TIMEOUT,
+  );
+
+  test(
+    "recreates reputation score at same PDA after close",
+    async () => {
+      // After close, creating at the same PDA should work
+      expect(attestationAddress).toBeDefined();
+
+      const taskRef = randomBytes32();
+      const dataHash = randomBytes32();
+
+      const signatures = await createReputationSignature(reputationSchema, taskRef, dataHash, ctx.providerKeypair);
+
+      const result = await sati.createReputationScore({
+        payer,
+        provider: providerSigner.address,
+        providerSignature: signatures[0].sig,
+        sasSchema: reputationSchema,
+        satiCredential,
+        agentMint,
+        taskRef,
+        dataHash,
+        outcome: Outcome.Positive,
+      });
+
+      expect(result).toHaveProperty("address");
+      expect(result).toHaveProperty("signature");
+      // PDA is deterministic - should be the same address
+      expect(result.address).toBe(attestationAddress);
+    },
+    TEST_TIMEOUT,
+  );
+
+  test(
+    "updates again after recreate (full cycle)",
+    async () => {
+      // Verifies the close+create cycle works repeatedly
+      const result = await sati.updateReputationScore({
+        payer,
+        provider: providerSigner,
+        sasSchema: reputationSchema,
+        satiCredential,
+        agentMint,
+        outcome: Outcome.Positive,
+      });
+
+      expect(result).toHaveProperty("address");
+      expect(result).toHaveProperty("signature");
+      expect(result.address).toBe(attestationAddress);
+    },
+    TEST_TIMEOUT,
+  );
+});

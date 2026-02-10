@@ -3,4 +3,5 @@
 //! Uses Light Protocol's LightProgramTest for compressed account testing.
 
 mod close_compressed_attestation;
+mod close_regular_attestation;
 mod create_compressed_attestation;

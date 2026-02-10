@@ -122,7 +122,7 @@ import { importEd25519PublicKey } from "@cascade-fyi/compression-kit";
 
 // Note: SAS schema setup is available via setupSASSchemas() from "@cascade-fyi/sati-sdk/sas"
 
-import { deriveReputationAttestationPda, SAS_PROGRAM_ADDRESS } from "./sas-pdas";
+import { deriveReputationAttestationPda, deriveSasEventAuthorityPda, SAS_PROGRAM_ADDRESS } from "./sas-pdas";
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
@@ -2120,6 +2120,7 @@ export class Sati {
     // If attestation already exists, close it first
     const existingAccount = await this.rpc.getAccountInfo(attestationPda, { encoding: "base64" }).send();
     if (existingAccount.value) {
+      const [sasEventAuthority] = await deriveSasEventAuthorityPda();
       const closeIx = await getCloseRegularAttestationInstructionAsync({
         payer,
         signer: provider,
@@ -2127,6 +2128,7 @@ export class Sati {
         agentMint,
         satiCredential,
         attestation: attestationPda,
+        sasEventAuthority,
         program: SATI_PROGRAM_ADDRESS,
       });
       instructions.push(closeIx);
@@ -2185,6 +2187,7 @@ export class Sati {
     const { payer, provider, sasSchema, satiCredential, agentMint, attestation } = params;
 
     const [schemaConfigPda] = await findSchemaConfigPda(sasSchema);
+    const [sasEventAuthority] = await deriveSasEventAuthorityPda();
 
     const closeIx = await getCloseRegularAttestationInstructionAsync({
       payer,
@@ -2193,6 +2196,7 @@ export class Sati {
       agentMint,
       satiCredential,
       attestation,
+      sasEventAuthority,
       program: SATI_PROGRAM_ADDRESS,
     });
 

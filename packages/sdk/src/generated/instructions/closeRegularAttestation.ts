@@ -58,6 +58,9 @@ export type CloseRegularAttestationInstruction<
   TAccountAgentAta extends string | AccountMeta<string> = string,
   TAccountTokenProgram extends string | AccountMeta<string> = string,
   TAccountAgentMint extends string | AccountMeta<string> = string,
+  TAccountSasEventAuthority extends string | AccountMeta<string> = string,
+  TAccountSystemProgram extends string | AccountMeta<string> =
+    "11111111111111111111111111111111",
   TAccountEventAuthority extends string | AccountMeta<string> = string,
   TAccountProgram extends string | AccountMeta<string> = string,
   TRemainingAccounts extends readonly AccountMeta<string>[] = [],
@@ -97,6 +100,12 @@ export type CloseRegularAttestationInstruction<
       TAccountAgentMint extends string
         ? ReadonlyAccount<TAccountAgentMint>
         : TAccountAgentMint,
+      TAccountSasEventAuthority extends string
+        ? ReadonlyAccount<TAccountSasEventAuthority>
+        : TAccountSasEventAuthority,
+      TAccountSystemProgram extends string
+        ? ReadonlyAccount<TAccountSystemProgram>
+        : TAccountSystemProgram,
       TAccountEventAuthority extends string
         ? ReadonlyAccount<TAccountEventAuthority>
         : TAccountEventAuthority,
@@ -150,6 +159,8 @@ export type CloseRegularAttestationAsyncInput<
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
   TAccountAgentMint extends string = string,
+  TAccountSasEventAuthority extends string = string,
+  TAccountSystemProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -179,6 +190,10 @@ export type CloseRegularAttestationAsyncInput<
    * Must match agent_mint in attestation data (bytes 33-64).
    */
   agentMint: Address<TAccountAgentMint>;
+  /** SAS event authority PDA (required for SAS close CPI event emission) */
+  sasEventAuthority: Address<TAccountSasEventAuthority>;
+  /** System program (required by SAS close instruction) */
+  systemProgram?: Address<TAccountSystemProgram>;
   eventAuthority?: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
 };
@@ -194,6 +209,8 @@ export async function getCloseRegularAttestationInstructionAsync<
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
   TAccountAgentMint extends string,
+  TAccountSasEventAuthority extends string,
+  TAccountSystemProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -209,6 +226,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     TAccountAgentAta,
     TAccountTokenProgram,
     TAccountAgentMint,
+    TAccountSasEventAuthority,
+    TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -226,6 +245,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     TAccountAgentAta,
     TAccountTokenProgram,
     TAccountAgentMint,
+    TAccountSasEventAuthority,
+    TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
   >
@@ -245,6 +266,11 @@ export async function getCloseRegularAttestationInstructionAsync<
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     agentMint: { value: input.agentMint ?? null, isWritable: false },
+    sasEventAuthority: {
+      value: input.sasEventAuthority ?? null,
+      isWritable: false,
+    },
+    systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -270,6 +296,10 @@ export async function getCloseRegularAttestationInstructionAsync<
   if (!accounts.sasProgram.value) {
     accounts.sasProgram.value =
       "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG" as Address<"22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG">;
+  }
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
   if (!accounts.eventAuthority.value) {
     accounts.eventAuthority.value = await getProgramDerivedAddress({
@@ -298,6 +328,8 @@ export async function getCloseRegularAttestationInstructionAsync<
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.agentMint),
+      getAccountMeta(accounts.sasEventAuthority),
+      getAccountMeta(accounts.systemProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -315,6 +347,8 @@ export async function getCloseRegularAttestationInstructionAsync<
     TAccountAgentAta,
     TAccountTokenProgram,
     TAccountAgentMint,
+    TAccountSasEventAuthority,
+    TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -331,6 +365,8 @@ export type CloseRegularAttestationInput<
   TAccountAgentAta extends string = string,
   TAccountTokenProgram extends string = string,
   TAccountAgentMint extends string = string,
+  TAccountSasEventAuthority extends string = string,
+  TAccountSystemProgram extends string = string,
   TAccountEventAuthority extends string = string,
   TAccountProgram extends string = string,
 > = {
@@ -360,6 +396,10 @@ export type CloseRegularAttestationInput<
    * Must match agent_mint in attestation data (bytes 33-64).
    */
   agentMint: Address<TAccountAgentMint>;
+  /** SAS event authority PDA (required for SAS close CPI event emission) */
+  sasEventAuthority: Address<TAccountSasEventAuthority>;
+  /** System program (required by SAS close instruction) */
+  systemProgram?: Address<TAccountSystemProgram>;
   eventAuthority: Address<TAccountEventAuthority>;
   program: Address<TAccountProgram>;
 };
@@ -375,6 +415,8 @@ export function getCloseRegularAttestationInstruction<
   TAccountAgentAta extends string,
   TAccountTokenProgram extends string,
   TAccountAgentMint extends string,
+  TAccountSasEventAuthority extends string,
+  TAccountSystemProgram extends string,
   TAccountEventAuthority extends string,
   TAccountProgram extends string,
   TProgramAddress extends Address = typeof SATI_PROGRAM_ADDRESS,
@@ -390,6 +432,8 @@ export function getCloseRegularAttestationInstruction<
     TAccountAgentAta,
     TAccountTokenProgram,
     TAccountAgentMint,
+    TAccountSasEventAuthority,
+    TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
   >,
@@ -406,6 +450,8 @@ export function getCloseRegularAttestationInstruction<
   TAccountAgentAta,
   TAccountTokenProgram,
   TAccountAgentMint,
+  TAccountSasEventAuthority,
+  TAccountSystemProgram,
   TAccountEventAuthority,
   TAccountProgram
 > {
@@ -424,6 +470,11 @@ export function getCloseRegularAttestationInstruction<
     agentAta: { value: input.agentAta ?? null, isWritable: false },
     tokenProgram: { value: input.tokenProgram ?? null, isWritable: false },
     agentMint: { value: input.agentMint ?? null, isWritable: false },
+    sasEventAuthority: {
+      value: input.sasEventAuthority ?? null,
+      isWritable: false,
+    },
+    systemProgram: { value: input.systemProgram ?? null, isWritable: false },
     eventAuthority: { value: input.eventAuthority ?? null, isWritable: false },
     program: { value: input.program ?? null, isWritable: false },
   };
@@ -436,6 +487,10 @@ export function getCloseRegularAttestationInstruction<
   if (!accounts.sasProgram.value) {
     accounts.sasProgram.value =
       "22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG" as Address<"22zoJMtdu4tQc2PzL74ZUT7FrwgB1Udec8DdW4yw4BdG">;
+  }
+  if (!accounts.systemProgram.value) {
+    accounts.systemProgram.value =
+      "11111111111111111111111111111111" as Address<"11111111111111111111111111111111">;
   }
 
   const getAccountMeta = getAccountMetaFactory(programAddress, "programId");
@@ -451,6 +506,8 @@ export function getCloseRegularAttestationInstruction<
       getAccountMeta(accounts.agentAta),
       getAccountMeta(accounts.tokenProgram),
       getAccountMeta(accounts.agentMint),
+      getAccountMeta(accounts.sasEventAuthority),
+      getAccountMeta(accounts.systemProgram),
       getAccountMeta(accounts.eventAuthority),
       getAccountMeta(accounts.program),
     ],
@@ -468,6 +525,8 @@ export function getCloseRegularAttestationInstruction<
     TAccountAgentAta,
     TAccountTokenProgram,
     TAccountAgentMint,
+    TAccountSasEventAuthority,
+    TAccountSystemProgram,
     TAccountEventAuthority,
     TAccountProgram
   >);
@@ -505,8 +564,12 @@ export type ParsedCloseRegularAttestationInstruction<
      * Must match agent_mint in attestation data (bytes 33-64).
      */
     agentMint: TAccountMetas[9];
-    eventAuthority: TAccountMetas[10];
-    program: TAccountMetas[11];
+    /** SAS event authority PDA (required for SAS close CPI event emission) */
+    sasEventAuthority: TAccountMetas[10];
+    /** System program (required by SAS close instruction) */
+    systemProgram: TAccountMetas[11];
+    eventAuthority: TAccountMetas[12];
+    program: TAccountMetas[13];
   };
   data: CloseRegularAttestationInstructionData;
 };
@@ -519,7 +582,7 @@ export function parseCloseRegularAttestationInstruction<
     InstructionWithAccounts<TAccountMetas> &
     InstructionWithData<ReadonlyUint8Array>,
 ): ParsedCloseRegularAttestationInstruction<TProgram, TAccountMetas> {
-  if (instruction.accounts.length < 12) {
+  if (instruction.accounts.length < 14) {
     // TODO: Coded error.
     throw new Error("Not enough accounts");
   }
@@ -548,6 +611,8 @@ export function parseCloseRegularAttestationInstruction<
       agentAta: getNextOptionalAccount(),
       tokenProgram: getNextOptionalAccount(),
       agentMint: getNextAccount(),
+      sasEventAuthority: getNextAccount(),
+      systemProgram: getNextAccount(),
       eventAuthority: getNextAccount(),
       program: getNextAccount(),
     },

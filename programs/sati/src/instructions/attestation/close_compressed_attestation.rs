@@ -8,6 +8,7 @@ use light_sdk::{
     },
 };
 
+use crate::constants::offsets;
 use crate::errors::SatiError;
 use crate::events::AttestationClosed;
 use crate::state::{CloseParams, CompressedAttestation, SchemaConfig, StorageType};
@@ -53,14 +54,15 @@ pub fn handler<'info>(
 
     // 1. Parse agent_mint and counterparty from current_data
     require!(
-        params.current_data.len() >= 96,
+        params.current_data.len() >= offsets::OUTCOME,
         SatiError::AttestationDataTooSmall
     );
 
-    let agent_mint_bytes: [u8; 32] = params.current_data[32..64]
+    let agent_mint_bytes: [u8; 32] = params.current_data
+        [offsets::AGENT_MINT..offsets::COUNTERPARTY]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
-    let counterparty_bytes: [u8; 32] = params.current_data[64..96]
+    let counterparty_bytes: [u8; 32] = params.current_data[offsets::COUNTERPARTY..offsets::OUTCOME]
         .try_into()
         .map_err(|_| SatiError::InvalidSignature)?;
 
