@@ -11,6 +11,7 @@ import {
   type AgentIdentity,
   type ParsedAttestation,
   type ParsedValidationAttestation,
+  type ReputationScoreData,
   // Registration file helpers
   fetchRegistrationFile,
   getImageUrl,
@@ -18,6 +19,7 @@ import {
   loadDeployedConfig,
   // Content parsing
   parseFeedbackContent,
+  parseReputationScoreContent,
   ContentType,
   type FeedbackContent,
 } from "@cascade-fyi/sati-sdk";
@@ -313,6 +315,41 @@ export async function getCurrentSlot(): Promise<bigint> {
   }
 }
 
+/**
+ * Get deployed reputation score schema address (always fresh for current network)
+ */
+export function getReputationScoreSchema(): Address | undefined {
+  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
+  return deployedConfig?.schemas?.reputationScore as Address | undefined;
+}
+
+/**
+ * Get deployed SATI credential address (always fresh for current network)
+ */
+export function getSatiCredential(): Address | undefined {
+  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
+  return deployedConfig?.credential as Address | undefined;
+}
+
+/**
+ * List reputation scores for a specific agent.
+ */
+export async function listAgentReputationScores(agentMint: Address): Promise<ReputationScoreData[]> {
+  const sati = getSatiClient();
+  const reputationSchema = getReputationScoreSchema();
+
+  if (!reputationSchema) {
+    return [];
+  }
+
+  try {
+    return await sati.listReputationScores(agentMint, reputationSchema);
+  } catch (e) {
+    console.error("Failed to list agent reputation scores:", e);
+    return [];
+  }
+}
+
 // Re-export getSolscanUrl from network module
 export { getSolscanUrl } from "./network";
 
@@ -474,5 +511,5 @@ export function parseFeedback(data: { content: Uint8Array; contentType: number }
 }
 
 // Re-export types and content parsing utilities
-export type { AgentIdentity, FeedbackContent };
-export { ContentType };
+export type { AgentIdentity, FeedbackContent, ReputationScoreData };
+export { ContentType, parseReputationScoreContent };

@@ -48,6 +48,9 @@ export function Header() {
               <NavLink to="/predict" className={({ isActive }) => getNavLinkClasses(isActive)}>
                 Predict
               </NavLink>
+              <NavLink to="/credit" className={({ isActive }) => getNavLinkClasses(isActive)}>
+                Credit
+              </NavLink>
               <NavLink to="/profile" className={({ isActive }) => getNavLinkClasses(isActive)}>
                 My Profile
               </NavLink>
@@ -103,6 +106,9 @@ export function Header() {
                     </NavLink>
                     <NavLink to="/predict" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       Predict
+                    </NavLink>
+                    <NavLink to="/credit" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
+                      Credit
                     </NavLink>
                     <NavLink to="/profile" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       My Profile

@@ -19,6 +19,8 @@ import {
   serializeValidation,
   buildCounterpartyMessage,
   ContentType,
+  type ParsedAttestation,
+  type ParsedValidationAttestation,
 } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
@@ -26,6 +28,7 @@ import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { parse } from "../env";
 import { fetchPopularMarket, generatePrediction, passesConfidenceThreshold } from "./predict";
+import { computeCreditScore, computeLendingDecision } from "../react-app/lib/credit-engine";
 
 // =============================================================================
 // Types
@@ -42,6 +45,11 @@ interface EchoRequest {
   taskRef: string; // hex-encoded 32 bytes
   agentMint: string;
   dataHash: string; // hex-encoded 32 bytes
+}
+
+interface CreditScoreRequest {
+  agentMint: string;
+  network: "devnet" | "mainnet";
 }
 
 interface BuildFeedbackTxRequest {
@@ -88,6 +96,8 @@ function getNetworkConfig(network: "devnet" | "mainnet") {
     feedbackSchema: config?.schemas?.feedback,
     feedbackPublicSchema: config?.schemas?.feedbackPublic,
     validationSchema: config?.schemas?.validation,
+    reputationScoreSchema: config?.schemas?.reputationScore,
+    credential: config?.credential,
     lookupTable: config?.lookupTable,
   };
 }
@@ -876,6 +886,123 @@ function createApp(bindings: WorkerBindings) {
         },
         500,
       );
+    }
+  });
+
+  // =============================================================================
+  // POST /api/credit-score - Compute and publish on-chain credit score
+  // =============================================================================
+  //
+  // Reads an agent's feedback + validation history, computes a credit score,
+  // publishes it as a ReputationScoreV3 attestation, and returns lending terms.
+  // No x402 gate - free endpoint for demo purposes.
+  //
+  app.post("/api/credit-score", async (c) => {
+    if (!agentSignerBytes) {
+      return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
+    }
+
+    let body: CreditScoreRequest;
+    try {
+      body = await c.req.json<CreditScoreRequest>();
+    } catch {
+      return c.json({ error: "Invalid request body" }, 400);
+    }
+
+    if (!body.agentMint || !body.network) {
+      return c.json({ error: "Missing required fields: agentMint, network" }, 400);
+    }
+
+    if (body.network !== "devnet" && body.network !== "mainnet") {
+      return c.json({ error: "Invalid network" }, 400);
+    }
+
+    if (!isAddress(body.agentMint)) {
+      return c.json({ error: "Invalid agentMint address" }, 400);
+    }
+
+    const networkConfig = getNetworkConfig(body.network);
+
+    if (!networkConfig.reputationScoreSchema) {
+      return c.json({ error: "ReputationScore schema not configured for network" }, 500);
+    }
+
+    if (!networkConfig.credential) {
+      return c.json({ error: "Credential not configured for network" }, 500);
+    }
+
+    try {
+      const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[body.network];
+      const sati = new Sati({ network: body.network, rpcUrl, wsUrl, photonRpcUrl: rpcUrl });
+
+      // Fetch feedbacks from both schemas
+      const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(
+        Boolean,
+      ) as string[];
+
+      const allFeedbacks: ParsedAttestation[] = [];
+      for (const schema of feedbackSchemas) {
+        const result = await sati.listFeedbacks({ sasSchema: schema as Address, agentMint: body.agentMint as Address });
+        allFeedbacks.push(...result.items);
+      }
+
+      // Fetch validations
+      const allValidations: ParsedValidationAttestation[] = [];
+      if (networkConfig.validationSchema) {
+        const result = await sati.listValidations({
+          sasSchema: networkConfig.validationSchema as Address,
+          agentMint: body.agentMint as Address,
+        });
+        allValidations.push(...result.items);
+      }
+
+      // Compute credit score
+      const creditScore = computeCreditScore(allFeedbacks, allValidations);
+      const lendingDecision = computeLendingDecision(creditScore);
+
+      // Publish ReputationScoreV3 on-chain
+      const serverPayer = await createKeyPairSignerFromBytes(agentSignerBytes);
+
+      const content = new TextEncoder().encode(
+        JSON.stringify({
+          s: creditScore.score,
+          m: "sati-credit-v1",
+          t: creditScore.tier,
+          fc: creditScore.feedbackCount,
+          vc: creditScore.validationCount,
+          pr: Math.round(creditScore.positiveRate * 100),
+          vr: Math.round(creditScore.validationPassRate * 100),
+        }),
+      );
+
+      const result = await sati.updateReputationScore({
+        payer: serverPayer,
+        provider: serverPayer,
+        sasSchema: networkConfig.reputationScoreSchema as Address,
+        satiCredential: networkConfig.credential as Address,
+        agentMint: body.agentMint as Address,
+        outcome: creditScore.score >= 60 ? OutcomeEnum.Positive : OutcomeEnum.Negative,
+        contentType: ContentType.JSON,
+        content,
+      });
+
+      return c.json({
+        success: true,
+        data: {
+          creditScore,
+          lendingDecision,
+          attestation: {
+            address: result.address,
+            signature: result.signature,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("[credit-score] ERROR:", error);
+      if (error instanceof Error && error.stack) {
+        console.error("[credit-score] Stack:", error.stack);
+      }
+      return c.json({ error: error instanceof Error ? error.message : "Failed to compute credit score" }, 500);
     }
   });
 

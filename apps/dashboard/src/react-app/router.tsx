@@ -5,6 +5,7 @@ import { Explore } from "./pages/Explore";
 import { AgentDetails } from "./pages/AgentDetails";
 import { SigningTest } from "./pages/SigningTest";
 import { Predict } from "./pages/Predict";
+import { Credit } from "./pages/Credit";
 
 export const router = createBrowserRouter([
   {
@@ -18,6 +19,8 @@ export const router = createBrowserRouter([
       { path: "agent/:mint", element: <AgentDetails /> },
       // AI Predictions demo
       { path: "predict", element: <Predict /> },
+      // Credit scoring demo
+      { path: "credit", element: <Credit /> },
       // OCMSF signing test page
       { path: "signing-test", element: <SigningTest /> },
     ],

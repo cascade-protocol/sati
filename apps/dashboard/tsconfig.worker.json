@@ -20,6 +20,6 @@
       "@cascade-fyi/compression-kit/*": ["../../packages/compression-kit/src/*"]
     }
   },
-  "include": ["src/worker", "src/env.ts"],
+  "include": ["src/worker", "src/env.ts", "src/react-app/lib/credit-engine.ts"],
   "references": [{ "path": "../../packages/sdk" }]
 }
