@@ -157,6 +157,9 @@ export {
   deserializeEncryptedPayload,
 } from "./encryption";
 
+// Metadata uploaders (pluggable storage providers)
+export { createPinataUploader, type MetadataUploader } from "./uploaders";
+
 // Type definitions
 export * from "./types";
 

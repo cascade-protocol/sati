@@ -45,6 +45,12 @@ const EndpointSchema = z.object({
   name: z.string(),
   endpoint: z.string(),
   version: z.string().optional(),
+  mcpTools: z.array(z.string()).optional(),
+  mcpPrompts: z.array(z.string()).optional(),
+  mcpResources: z.array(z.string()).optional(),
+  a2aSkills: z.array(z.string()).optional(),
+  skills: z.array(z.string()).optional(),
+  domains: z.array(z.string()).optional(),
 });
 
 const RegistrationEntrySchema = z.object({
@@ -89,6 +95,12 @@ export interface Endpoint {
   name: string;
   endpoint: string;
   version?: string;
+  mcpTools?: string[];
+  mcpPrompts?: string[];
+  mcpResources?: string[];
+  a2aSkills?: string[];
+  skills?: string[];
+  domains?: string[];
 }
 
 /** Cross-chain registration entry (ERC-8004) */

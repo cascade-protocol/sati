@@ -45,9 +45,9 @@
     "lint:fix": "biome check --write",
     "check": "pnpm run \"/^(type-check|lint:fix)$/\"",
     "test": "vitest run",
-    "test:unit": "vitest run tests/unit tests/integration",
-    "test:e2e": "vitest run tests/e2e",
-    "test:watch": "vitest tests/unit tests/integration",
+    "test:unit": "vitest run --project unit",
+    "test:e2e": "vitest run --project e2e",
+    "test:watch": "vitest --project unit",
     "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist src/generated"
   },

@@ -1,0 +1,79 @@
+{
+  "name": "@cascade-fyi/sati-agent0-sdk",
+  "version": "0.1.0",
+  "description": "Agent0-compatible adapter for SATI - Solana Agent Trust Infrastructure",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsdown --publint",
+    "prepublishOnly": "pnpm build",
+    "dev": "tsdown --watch",
+    "type-check": "tsc --noEmit",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "check": "pnpm run \"/^(type-check|lint:fix)$/\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "solana",
+    "sati",
+    "agent0",
+    "erc-8004",
+    "agent-trust"
+  ],
+  "author": "Cascade",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cascade-protocol/sati.git",
+    "directory": "packages/sati-agent0-sdk"
+  },
+  "homepage": "https://github.com/cascade-protocol/sati/tree/main/packages/sati-agent0-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/cascade-protocol/sati/issues"
+  },
+  "engines": {
+    "node": ">=20.18.0"
+  },
+  "peerDependencies": {
+    "@cascade-fyi/sati-sdk": ">=0.4.0",
+    "@solana/kit": "^5.0.0",
+    "agent0-sdk": ">=1.5.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@cascade-fyi/sati-sdk": "workspace:*",
+    "@solana/kit": "^5.1.0",
+    "agent0-sdk": "^1.5.3",
+    "dotenv": "^16.4.0",
+    "publint": "^0.3.16",
+    "tsx": "^4.20.6",
+    "tsdown": "^0.18.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

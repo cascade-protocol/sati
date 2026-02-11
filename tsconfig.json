@@ -1,5 +1,10 @@
 {
   "extends": "./tsconfig.options.json",
   "files": [],
-  "references": [{ "path": "packages/sdk" }, { "path": "packages/compression-kit" }, { "path": "apps/dashboard" }]
+  "references": [
+    { "path": "packages/sdk" },
+    { "path": "packages/compression-kit" },
+    { "path": "packages/sati-agent0-sdk" },
+    { "path": "apps/dashboard" }
+  ]
 }

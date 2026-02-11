@@ -126,6 +126,10 @@ import { deriveReputationAttestationPda, deriveSasEventAuthorityPda, SAS_PROGRAM
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
+import { buildRegistrationFile, type RegistrationFileParams } from "./registration";
+
+import type { MetadataUploader } from "./uploaders";
+
 import type {
   SATIClientOptions,
   AgentIdentity,
@@ -626,6 +630,26 @@ export class Sati {
       memberNumber: finalMemberNumber,
       signature: signature.toString(),
     };
+  }
+
+  /**
+   * Build a registration file from params, upload it via the provided uploader,
+   * and return the resulting URI.
+   *
+   * @example
+   * ```typescript
+   * import { createPinataUploader } from "@cascade-fyi/sati-sdk";
+   *
+   * const uploader = createPinataUploader(process.env.PINATA_JWT!);
+   * const uri = await sati.uploadRegistrationFile(
+   *   { name: "MyAgent", description: "AI assistant", image: "https://example.com/img.png" },
+   *   uploader,
+   * );
+   * ```
+   */
+  async uploadRegistrationFile(params: RegistrationFileParams, uploader: MetadataUploader): Promise<string> {
+    const regFile = buildRegistrationFile(params);
+    return uploader.upload(regFile);
   }
 
   /**
