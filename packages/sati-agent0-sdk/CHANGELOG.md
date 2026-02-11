@@ -2,12 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.0] - 2026-02-10
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.1.0] - 2026-02-11
 
 ### Added
 
-- Initial scaffold with adapter types, SDK class, and Agent class
-- Agent0-compatible type definitions
-- Data format converters (stubs)
+- `SatiSDK` class with agent0-sdk compatible interface backed by SATI's Solana infrastructure
+- `SatiAgent` class with fluent builders for endpoints, metadata, trust models, and on-chain registration (IPFS and HTTP)
+- CAIP-2 agent IDs (`solana:<chainRef>:<mintAddress>`) for cross-chain compatibility
+- Agent search with 20+ filters (name, capabilities, endpoints, trust models, feedback stats)
+- Feedback creation via `giveFeedback()` (server-side) and `prepareFeedback()`/`submitPreparedFeedback()` (browser wallet flow)
+- `SatiFeedbackOptions` for governance use cases: typed `outcome` (Negative/Neutral/Positive) and deterministic `taskRef` parameters
+- Feedback search, revocation, and reputation summary
+- Validation attestation search via `searchValidations()`
+- Config accessors for schema addresses and lookup tables
+- Data format converters between SATI and agent0: `toAgentSummary`, `toAgent0RegistrationFile`, `fromAgent0RegistrationFile`, `toAgent0Endpoints`, `fromAgent0Endpoints`, `toFeedback`
+- Endpoint capability auto-fetching for MCP and A2A (tools, prompts, resources, skills)
+- OASF skill and domain management
+- Transaction sender support for browser wallet integration
+- Re-exports of agent0-sdk types and SATI constants for consumer convenience
 
 [0.1.0]: https://github.com/cascade-protocol/sati/releases/tag/@cascade-fyi/sati-agent0-sdk@0.1.0
