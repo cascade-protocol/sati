@@ -3,25 +3,22 @@
  *
  * This example demonstrates how to:
  * 1. Search for agents by various criteria
- * 2. Filter by capabilities (MCP, A2A, active)
- * 3. Get agent summaries
+ * 2. Filter by capabilities (MCP, A2A, active, mcpTools, etc.)
+ * 3. Get agent summaries with optional feedback stats
  *
- * Note: SATI search supports name, hasMCP, hasA2A, active, hasEndpoints,
- * and supportedTrust filters. mcpTools and feedback-based filters are
- * available in the EVM agent0-sdk but not yet on Solana.
+ * Supports most agent0-sdk SearchFilters. Unsupported (require indexer):
+ * `keyword`, `registeredAtFrom/To`, `updatedAtFrom/To`, `hasMetadataKey`,
+ * `metadataValue`, `operators`.
  */
 
 import { RPC_URL, NETWORK } from "./_env.js";
 import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
-import { generateKeyPairSigner } from "@solana/kit";
 
 async function main() {
-  // Initialize SDK in read-only mode (throwaway signer, no funds needed)
-  const readOnlySigner = await generateKeyPairSigner();
+  // Initialize SDK in read-only mode (no signer needed for search)
   const sdk = new SatiSDK({
     network: NETWORK,
     rpcUrl: RPC_URL,
-    signer: readOnlySigner,
   });
 
   // 1. Search agents by name
@@ -35,7 +32,6 @@ async function main() {
   console.log(`Found ${mcpResults.length} agents with MCP`);
 
   // 3. Search active agents
-  // Note: On SATI, mcpTools filter is not supported. Use hasMCP instead.
   console.log("\nSearching active agents...");
   const activeResults = await sdk.searchAgents({ active: true });
   console.log(`Found ${activeResults.length} active agents`);

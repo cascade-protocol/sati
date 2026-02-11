@@ -119,11 +119,13 @@ export function fromAgent0Endpoints(agent0Endpoints: Agent0Endpoint[]): SatiEndp
  * @param identity - On-chain agent identity
  * @param chain - CAIP-2 chain reference (e.g. "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp")
  * @param regFile - Off-chain registration file (optional)
+ * @param feedbackStats - Pre-computed feedback stats (optional, from includeFeedbackStats)
  */
 export function toAgentSummary(
   identity: AgentIdentity,
   chain: string,
   regFile?: SatiRegistrationFile | null,
+  feedbackStats?: { count: number; averageValue: number } | null,
 ): AgentSummary {
   const endpoints = regFile?.endpoints ?? [];
 
@@ -132,6 +134,8 @@ export function toAgentSummary(
   const oasfEp = endpoints.find((e) => e.name.toUpperCase() === "OASF");
   const ensEp = endpoints.find((e) => e.name.toUpperCase() === "ENS");
   const didEp = endpoints.find((e) => e.name.toUpperCase() === "DID");
+  const walletEp = endpoints.find((e) => e.name.toUpperCase() === "AGENTWALLET" || e.name.toUpperCase() === "WALLET");
+  const webEp = endpoints.find((e) => e.name.toUpperCase() === "WEB");
 
   return {
     chainId: 0,
@@ -143,8 +147,10 @@ export function toAgentSummary(
     operators: [],
     mcp: mcpEp?.endpoint,
     a2a: a2aEp?.endpoint,
+    web: webEp?.endpoint,
     ens: ensEp?.endpoint,
     did: didEp?.endpoint,
+    walletAddress: walletEp?.endpoint,
     supportedTrusts: regFile?.supportedTrust ?? [],
     mcpTools: mcpEp?.mcpTools ?? [],
     mcpPrompts: mcpEp?.mcpPrompts ?? [],
@@ -155,8 +161,19 @@ export function toAgentSummary(
     active: regFile?.active ?? true,
     x402support: regFile?.x402support ?? false,
     agentURI: identity.uri,
+    agentURIType: identity.uri ? detectURIType(identity.uri) : undefined,
+    feedbackCount: feedbackStats?.count,
+    averageValue: feedbackStats?.averageValue,
     extras: {},
   };
+}
+
+/** Detect URI type from prefix. */
+function detectURIType(uri: string): string {
+  if (uri.startsWith("ipfs://") || uri.includes("/ipfs/")) return "ipfs";
+  if (uri.startsWith("ar://") || uri.includes("arweave.net")) return "arweave";
+  if (uri.startsWith("https://") || uri.startsWith("http://")) return "https";
+  return "unknown";
 }
 
 // ============================================================================
@@ -260,6 +277,8 @@ export function toFeedback(opts: {
   };
   txSignature?: string;
   createdAt?: number;
+  /** SATI on-chain outcome (0=Negative, 1=Neutral, 2=Positive) */
+  outcome?: number;
 }): Feedback {
   const agentId = formatSatiAgentId(opts.agentMint, opts.chain);
   const tags: string[] = [];
@@ -267,6 +286,11 @@ export function toFeedback(opts: {
   if (opts.content.tag2) tags.push(opts.content.tag2);
 
   const id: FeedbackIdTuple = [agentId, opts.reviewer, opts.feedbackIndex];
+
+  const context: Record<string, unknown> = { ...opts.content.context };
+  if (opts.outcome !== undefined) {
+    context.outcome = opts.outcome;
+  }
 
   return {
     id,
@@ -277,7 +301,7 @@ export function toFeedback(opts: {
     tags,
     endpoint: opts.content.endpoint,
     text: opts.content.text,
-    context: opts.content.context,
+    context: Object.keys(context).length > 0 ? context : opts.content.context,
     createdAt: opts.createdAt ?? Math.floor(Date.now() / 1000),
     answers: [],
     isRevoked: false,

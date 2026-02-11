@@ -61,18 +61,19 @@
   "peerDependencies": {
     "@cascade-fyi/sati-sdk": ">=0.4.0",
     "@solana/kit": "^5.0.0",
+    "@solana-program/token-2022": ">=0.5.0",
     "agent0-sdk": ">=1.5.0"
   },
-  "dependencies": {},
   "devDependencies": {
-    "@types/node": "^22.15.0",
     "@cascade-fyi/sati-sdk": "workspace:*",
+    "@solana-program/token-2022": "^0.6.1",
     "@solana/kit": "^5.1.0",
+    "@types/node": "^22.15.0",
     "agent0-sdk": "^1.5.3",
     "dotenv": "^16.4.0",
     "publint": "^0.3.16",
-    "tsx": "^4.20.6",
     "tsdown": "^0.18.3",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }

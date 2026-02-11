@@ -60,23 +60,22 @@ async function main() {
   console.log();
 
   // ========================================
-  // Method 3: Read-only mode (throwaway signer)
+  // Method 3: Read-only mode (no signer)
   // ========================================
-  console.log("Method 3: Read-Only Mode (Throwaway Signer)");
+  console.log("Method 3: Read-Only Mode (No Signer)");
   console.log("----------------------------------------------");
 
-  const readOnlySigner = await generateKeyPairSigner();
   const readOnlySdk = new SatiSDK({
     network: NETWORK,
     rpcUrl: RPC_URL,
-    signer: readOnlySigner,
   });
 
   console.log(`SDK initialized in read-only mode (network: ${readOnlySdk.network})`);
+  console.log(`  isReadOnly: ${readOnlySdk.isReadOnly}`);
   console.log("  Can search agents: yes");
   console.log("  Can read feedback: yes");
-  console.log("  Can register agents: no (requires funded signer)");
-  console.log("  Can give feedback: no (requires funded signer)");
+  console.log("  Can register agents: no (throws - requires signer)");
+  console.log("  Can give feedback: no (throws - requires signer)");
   console.log();
 
   // ========================================

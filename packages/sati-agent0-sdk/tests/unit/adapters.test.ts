@@ -244,5 +244,49 @@ describe("adapters", () => {
       expect(result.tags).toEqual([]);
       expect(result.endpoint).toBeUndefined();
     });
+
+    it("should store outcome as raw number in context", () => {
+      const result = toFeedback({
+        agentMint: TEST_MINT,
+        chain: MAINNET_CHAIN,
+        reviewer: "Reviewer",
+        feedbackIndex: 0,
+        content: {},
+        outcome: 2,
+      });
+
+      expect(result.context?.outcome).toBe(2);
+      // No label translation
+      expect(result.context?.satiOutcome).toBeUndefined();
+      expect(result.context?.satiOutcomeRaw).toBeUndefined();
+    });
+
+    it("should not derive value from outcome", () => {
+      const result = toFeedback({
+        agentMint: TEST_MINT,
+        chain: MAINNET_CHAIN,
+        reviewer: "Reviewer",
+        feedbackIndex: 0,
+        content: {},
+        outcome: 2,
+      });
+
+      // value should only come from explicit content.value, not from outcome mapping
+      expect(result.value).toBeUndefined();
+    });
+
+    it("should use explicit content.value when provided alongside outcome", () => {
+      const result = toFeedback({
+        agentMint: TEST_MINT,
+        chain: MAINNET_CHAIN,
+        reviewer: "Reviewer",
+        feedbackIndex: 0,
+        content: { value: 75 },
+        outcome: 0,
+      });
+
+      expect(result.value).toBe(75);
+      expect(result.context?.outcome).toBe(0);
+    });
   });
 });

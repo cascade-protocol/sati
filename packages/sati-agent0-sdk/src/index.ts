@@ -13,8 +13,17 @@
 export { SatiSDK } from "./sdk.js";
 export { SatiAgent } from "./agent.js";
 
-// SATI-specific config
-export type { SatiSDKConfig } from "./types.js";
+// SATI-specific config and types
+export type {
+  SatiSDKConfig,
+  SatiSearchOptions,
+  SatiFeedbackSearchOptions,
+  SatiFeedbackOptions,
+  SatiTransactionSender,
+  PreparedFeedback,
+  WriteAccess,
+  ValidationResult,
+} from "./types.js";
 
 // Adapters (SATI <-> agent0 converters)
 export {
@@ -48,3 +57,13 @@ export type {
 } from "agent0-sdk";
 
 export { EndpointType, TrustModel, EndpointCrawler } from "agent0-sdk";
+
+// Re-export Sati type for TypeScript consumers using sdk.sati
+export type { Sati } from "@cascade-fyi/sati-sdk";
+
+// Re-export SATI constants and helpers so dashboard frontend doesn't need direct sati-sdk dependency
+export { MAX_SINGLE_SIGNATURE_CONTENT_SIZE, SATI_PROGRAM_ADDRESS } from "@cascade-fyi/sati-sdk";
+export { parseFeedbackContent, ContentType, Outcome } from "@cascade-fyi/sati-sdk";
+export { getImageUrl, buildRegistrationFile, stringifyRegistrationFile } from "@cascade-fyi/sati-sdk";
+export { handleTransactionError } from "@cascade-fyi/sati-sdk";
+export type { FeedbackContent, RegistrationFile as SatiRegistrationFile } from "@cascade-fyi/sati-sdk";

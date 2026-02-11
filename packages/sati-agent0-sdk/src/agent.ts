@@ -7,10 +7,26 @@
 
 import type { RegistrationFile, Endpoint, AgentId, URI, Address } from "agent0-sdk";
 import { EndpointType, TrustModel, EndpointCrawler } from "agent0-sdk";
-import { createPinataUploader, type AgentIdentity } from "@cascade-fyi/sati-sdk";
-import { address as solAddress } from "@solana/kit";
+import {
+  createPinataUploader,
+  getRegisterAgentInstructionAsync,
+  findRegistryConfigPda,
+  fetchRegistryConfig,
+  findAssociatedTokenAddress,
+  findAgentIndexPda,
+  type AgentIdentity,
+} from "@cascade-fyi/sati-sdk";
+import { address as solAddress, generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
+import {
+  getUpdateTokenMetadataFieldInstruction,
+  tokenMetadataField,
+  getTransferInstruction,
+} from "@solana-program/token-2022";
+import { getCreateAssociatedTokenIdempotentInstruction } from "@solana-program/token-2022";
 import type { SatiSDK } from "./sdk.js";
+import type { WriteAccess } from "./types.js";
 import { formatSatiAgentId, fromAgent0RegistrationFile } from "./adapters.js";
+import { TOKEN_2022_PROGRAM_ADDRESS } from "@cascade-fyi/sati-sdk";
 
 /**
  * Agent0-compatible agent class backed by SATI's Solana infrastructure.
@@ -110,6 +126,44 @@ export class SatiAgent {
     return this._identity;
   }
 
+  get ensEndpoint(): string | undefined {
+    return this._registrationFile.endpoints.find((e) => e.type === EndpointType.ENS)?.value;
+  }
+
+  get didEndpoint(): string | undefined {
+    return this._registrationFile.endpoints.find((e) => e.type === EndpointType.DID)?.value;
+  }
+
+  get mcpTools(): string[] {
+    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP);
+    return (ep?.meta?.mcpTools as string[]) ?? [];
+  }
+
+  get mcpPrompts(): string[] {
+    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP);
+    return (ep?.meta?.mcpPrompts as string[]) ?? [];
+  }
+
+  get mcpResources(): string[] {
+    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP);
+    return (ep?.meta?.mcpResources as string[]) ?? [];
+  }
+
+  get a2aSkills(): string[] {
+    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.A2A);
+    return (ep?.meta?.a2aSkills as string[]) ?? [];
+  }
+
+  get oasfSkills(): string[] {
+    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.OASF);
+    return (ep?.meta?.skills as string[]) ?? [];
+  }
+
+  get oasfDomains(): string[] {
+    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.OASF);
+    return (ep?.meta?.domains as string[]) ?? [];
+  }
+
   // =========================================================================
   // Endpoint management (mirrors agent0-sdk Agent)
   // =========================================================================
@@ -197,6 +251,49 @@ export class SatiAgent {
         return !(typeMatches && valueMatches);
       });
     }
+    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    return this;
+  }
+
+  /**
+   * Remove all endpoints (alias for removeEndpoint() with no args).
+   */
+  removeEndpoints(): this {
+    return this.removeEndpoint();
+  }
+
+  // =========================================================================
+  // Wallet management (mirrors agent0-sdk Agent)
+  // =========================================================================
+
+  /**
+   * Get wallet address from the registration file.
+   */
+  getWallet(): Address | undefined {
+    return this._registrationFile.walletAddress;
+  }
+
+  /**
+   * Set wallet address and add a WALLET endpoint.
+   * In-memory only - call registerIPFS() or registerHTTP() to persist on-chain.
+   */
+  setWallet(addr: Address): this {
+    this._registrationFile.walletAddress = addr;
+    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.WALLET);
+    this._registrationFile.endpoints.push({
+      type: EndpointType.WALLET,
+      value: addr,
+    });
+    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    return this;
+  }
+
+  /**
+   * Remove wallet address and wallet endpoint.
+   */
+  unsetWallet(): this {
+    this._registrationFile.walletAddress = undefined;
+    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.WALLET);
     this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
@@ -329,6 +426,7 @@ export class SatiAgent {
    *
    * @throws Error if image URL is not set
    * @throws Error if pinataJwt is not configured
+   * @throws Error if SDK is in read-only mode
    */
   async registerIPFS(): Promise<{ signature: string; agentId: AgentId }> {
     if (!this._registrationFile.image) {
@@ -345,54 +443,189 @@ export class SatiAgent {
     const uploader = createPinataUploader(pinataJwt);
     const uri = await this._sdk.sati.uploadRegistrationFile(satiParams, uploader);
 
-    // Register on-chain
-    const signer = this._sdk.config.signer;
-    const result = await this._sdk.sati.registerAgent({
-      payer: signer,
-      name: this._registrationFile.name,
-      uri,
+    return this._registerOnChain(uri);
+  }
+
+  /**
+   * Register agent on-chain with an HTTP URI.
+   *
+   * Same as registerIPFS but takes a URI directly instead of uploading to IPFS.
+   * Use this when you already have a hosted registration file.
+   *
+   * @throws Error if SDK is in read-only mode
+   */
+  async registerHTTP(agentUri: URI): Promise<{ signature: string; agentId: AgentId }> {
+    return this._registerOnChain(agentUri);
+  }
+
+  /**
+   * Update the agent's on-chain URI (metadata pointer).
+   *
+   * @throws Error if agent is not registered on-chain
+   * @throws Error if SDK is in read-only mode
+   */
+  async setAgentURI(agentURI: URI): Promise<{ signature: string }> {
+    if (!this._identity) {
+      throw new Error("Agent is not registered on-chain. Call registerIPFS() or registerHTTP() first.");
+    }
+
+    const access = this._requireWriteAccess();
+
+    if (access.type === "keypair") {
+      const result = await this._sdk.sati.updateAgentMetadata({
+        payer: access.signer,
+        owner: access.signer,
+        mint: solAddress(this._identity.mint),
+        updates: { uri: agentURI },
+      });
+      this._identity.uri = agentURI;
+      this._registrationFile.agentURI = agentURI;
+      return result;
+    }
+
+    // Sender path: build instruction and send via wallet
+    const updateIx = getUpdateTokenMetadataFieldInstruction({
+      metadata: this._identity.mint,
+      updateAuthority: { address: solAddress(access.sender.address) } as KeyPairSigner,
+      field: tokenMetadataField("Uri"),
+      value: agentURI,
     });
 
-    // Store identity
-    this._identity = {
-      mint: result.mint,
-      owner: signer.address,
-      name: this._registrationFile.name,
-      uri,
-      memberNumber: result.memberNumber,
-      additionalMetadata: {},
-      nonTransferable: false,
-    };
-
-    const agentId = formatSatiAgentId(result.mint, this._sdk.chain);
-    this._registrationFile.agentId = agentId;
-    this._registrationFile.agentURI = uri;
-
-    return { signature: result.signature, agentId };
+    const signature = await access.sender.signAndSend([updateIx]);
+    this._identity.uri = agentURI;
+    this._registrationFile.agentURI = agentURI;
+    return { signature };
   }
 
   /**
    * Transfer agent ownership to a new Solana address.
    *
    * @throws Error if agent is not registered on-chain
+   * @throws Error if SDK is in read-only mode
    */
   async transfer(newOwner: Address): Promise<{ signature: string }> {
     if (!this._identity) {
-      throw new Error("Agent is not registered on-chain. Call registerIPFS() first.");
+      throw new Error("Agent is not registered on-chain. Call registerIPFS() or registerHTTP() first.");
     }
 
-    const signer = this._sdk.config.signer;
-    return this._sdk.sati.transferAgent({
-      payer: signer,
-      owner: signer,
+    const access = this._requireWriteAccess();
+
+    if (access.type === "keypair") {
+      return this._sdk.sati.transferAgent({
+        payer: access.signer,
+        owner: access.signer,
+        mint: this._identity.mint,
+        newOwner: solAddress(newOwner),
+      });
+    }
+
+    // Sender path: build ATA creation + transfer instructions
+    const ownerAddr = solAddress(access.sender.address);
+    const [sourceAta] = await findAssociatedTokenAddress(this._identity.mint, ownerAddr);
+    const [destAta] = await findAssociatedTokenAddress(this._identity.mint, solAddress(newOwner));
+
+    const createAtaIx = getCreateAssociatedTokenIdempotentInstruction({
+      payer: { address: ownerAddr } as KeyPairSigner,
+      owner: solAddress(newOwner),
       mint: this._identity.mint,
-      newOwner: solAddress(newOwner),
+      ata: destAta,
+      tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
     });
+
+    const transferIx = getTransferInstruction({
+      source: sourceAta,
+      destination: destAta,
+      authority: { address: ownerAddr } as KeyPairSigner,
+      amount: 1n,
+    });
+
+    const signature = await access.sender.signAndSend([createAtaIx, transferIx]);
+    return { signature };
   }
 
   // =========================================================================
   // Private helpers
   // =========================================================================
+
+  private _requireWriteAccess(): WriteAccess {
+    if (this._sdk.config.signer) return { type: "keypair", signer: this._sdk.config.signer };
+    if (this._sdk.config.transactionSender) return { type: "sender", sender: this._sdk.config.transactionSender };
+    throw new Error(
+      "This operation requires a signer or transactionSender. Initialize SatiSDK with one for write operations.",
+    );
+  }
+
+  /**
+   * Shared registration logic for registerIPFS/registerHTTP.
+   * Supports both keypair and sender paths.
+   */
+  private async _registerOnChain(uri: string): Promise<{ signature: string; agentId: AgentId }> {
+    const access = this._requireWriteAccess();
+
+    if (access.type === "keypair") {
+      const result = await this._sdk.sati.registerAgent({
+        payer: access.signer,
+        name: this._registrationFile.name,
+        uri,
+      });
+      const agentId = this._storeIdentity(result.mint, access.signer.address, uri, result.memberNumber);
+      return { signature: result.signature, agentId };
+    }
+
+    // Sender path: build register instruction manually
+    const agentMint = await generateKeyPairSigner();
+    const rpc = this._sdk.sati.getRpc();
+    const [registryConfigAddress] = await findRegistryConfigPda();
+    const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
+    const groupMint = registryConfig.data.groupMint;
+    const ownerAddress = solAddress(access.sender.address);
+    const [agentTokenAccount] = await findAssociatedTokenAddress(agentMint.address, ownerAddress);
+    const memberNumber = registryConfig.data.totalAgents + 1n;
+    const [agentIndex] = await findAgentIndexPda(memberNumber);
+
+    const registerIx = await getRegisterAgentInstructionAsync({
+      payer: { address: ownerAddress } as KeyPairSigner,
+      owner: ownerAddress,
+      groupMint,
+      agentMint,
+      agentTokenAccount,
+      agentIndex,
+      name: this._registrationFile.name,
+      symbol: "",
+      uri,
+      additionalMetadata: null,
+      nonTransferable: false,
+    });
+
+    const signature = await access.sender.signAndSend([registerIx], [agentMint]);
+
+    // Re-fetch to get final member number
+    const updatedConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
+    const finalMemberNumber = updatedConfig.data.totalAgents;
+    const agentId = this._storeIdentity(agentMint.address, ownerAddress, uri, finalMemberNumber);
+    return { signature, agentId };
+  }
+
+  private _storeIdentity(
+    mint: import("@solana/kit").Address,
+    owner: import("@solana/kit").Address,
+    uri: string,
+    memberNumber: bigint,
+  ): AgentId {
+    this._identity = {
+      mint,
+      owner,
+      name: this._registrationFile.name,
+      uri,
+      memberNumber,
+      additionalMetadata: {},
+      nonTransferable: false,
+    };
+    const agentId = formatSatiAgentId(mint, this._sdk.chain);
+    this._registrationFile.agentId = agentId;
+    this._registrationFile.agentURI = uri;
+    return agentId;
+  }
 
   private _getOrCreateOasfEndpoint(): Endpoint {
     const existing = this._registrationFile.endpoints.find((ep) => ep.type === EndpointType.OASF);
