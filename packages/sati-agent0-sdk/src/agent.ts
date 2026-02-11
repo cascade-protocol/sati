@@ -16,7 +16,7 @@ import {
   findAgentIndexPda,
   type AgentIdentity,
 } from "@cascade-fyi/sati-sdk";
-import { address as solAddress, generateKeyPairSigner, type KeyPairSigner } from "@solana/kit";
+import { address as solAddress, generateKeyPairSigner, type TransactionSigner } from "@solana/kit";
 import {
   getUpdateTokenMetadataFieldInstruction,
   tokenMetadataField,
@@ -486,7 +486,7 @@ export class SatiAgent {
     // Sender path: build instruction and send via wallet
     const updateIx = getUpdateTokenMetadataFieldInstruction({
       metadata: this._identity.mint,
-      updateAuthority: { address: solAddress(access.sender.address) } as KeyPairSigner,
+      updateAuthority: { address: solAddress(access.sender.address) } as TransactionSigner,
       field: tokenMetadataField("Uri"),
       value: agentURI,
     });
@@ -525,7 +525,7 @@ export class SatiAgent {
     const [destAta] = await findAssociatedTokenAddress(this._identity.mint, solAddress(newOwner));
 
     const createAtaIx = getCreateAssociatedTokenIdempotentInstruction({
-      payer: { address: ownerAddr } as KeyPairSigner,
+      payer: { address: ownerAddr } as TransactionSigner,
       owner: solAddress(newOwner),
       mint: this._identity.mint,
       ata: destAta,
@@ -535,7 +535,7 @@ export class SatiAgent {
     const transferIx = getTransferInstruction({
       source: sourceAta,
       destination: destAta,
-      authority: { address: ownerAddr } as KeyPairSigner,
+      authority: ownerAddr,
       amount: 1n,
     });
 
@@ -572,38 +572,52 @@ export class SatiAgent {
       return { signature: result.signature, agentId };
     }
 
-    // Sender path: build register instruction manually
+    // Sender path: build register instruction manually.
+    // Retry on collision - concurrent registrations can race on memberNumber PDA.
     const agentMint = await generateKeyPairSigner();
     const rpc = this._sdk.sati.getRpc();
     const [registryConfigAddress] = await findRegistryConfigPda();
-    const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
-    const groupMint = registryConfig.data.groupMint;
     const ownerAddress = solAddress(access.sender.address);
     const [agentTokenAccount] = await findAssociatedTokenAddress(agentMint.address, ownerAddress);
-    const memberNumber = registryConfig.data.totalAgents + 1n;
-    const [agentIndex] = await findAgentIndexPda(memberNumber);
 
-    const registerIx = await getRegisterAgentInstructionAsync({
-      payer: { address: ownerAddress } as KeyPairSigner,
-      owner: ownerAddress,
-      groupMint,
-      agentMint,
-      agentTokenAccount,
-      agentIndex,
-      name: this._registrationFile.name,
-      symbol: "",
-      uri,
-      additionalMetadata: null,
-      nonTransferable: false,
-    });
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1500;
+    let lastError: unknown;
 
-    const signature = await access.sender.signAndSend([registerIx], [agentMint]);
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        const registryConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
+        const groupMint = registryConfig.data.groupMint;
+        const memberNumber = registryConfig.data.totalAgents + 1n;
+        const [agentIndex] = await findAgentIndexPda(memberNumber);
 
-    // Re-fetch to get final member number
-    const updatedConfig = await fetchRegistryConfig(rpc, registryConfigAddress);
-    const finalMemberNumber = updatedConfig.data.totalAgents;
-    const agentId = this._storeIdentity(agentMint.address, ownerAddress, uri, finalMemberNumber);
-    return { signature, agentId };
+        const registerIx = await getRegisterAgentInstructionAsync({
+          payer: { address: ownerAddress } as TransactionSigner,
+          owner: ownerAddress,
+          groupMint,
+          agentMint,
+          agentTokenAccount,
+          agentIndex,
+          name: this._registrationFile.name,
+          symbol: "",
+          uri,
+          additionalMetadata: null,
+          nonTransferable: false,
+        });
+
+        const signature = await access.sender.signAndSend([registerIx], [agentMint]);
+        const agentId = this._storeIdentity(agentMint.address, ownerAddress, uri, memberNumber);
+        return { signature, agentId };
+      } catch (error) {
+        lastError = error;
+        if (!isRegistrationCollisionError(error)) throw error;
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        }
+      }
+    }
+
+    throw new Error(`Registration failed after ${MAX_RETRIES} attempts`, { cause: lastError });
   }
 
   private _storeIdentity(
@@ -639,4 +653,10 @@ export class SatiAgent {
     this._registrationFile.endpoints.push(oasfEndpoint);
     return oasfEndpoint;
   }
+}
+
+/** Detect PDA collision errors from concurrent registrations. */
+function isRegistrationCollisionError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return msg.includes("already in use") || msg.includes("already been initialized") || msg.includes("0x0");
 }

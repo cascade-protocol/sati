@@ -43,8 +43,9 @@ import type {
   WriteAccess,
   PreparedFeedback,
   ValidationResult,
+  SatiWarning,
 } from "./types.js";
-import type { KeyPairSigner } from "@solana/kit";
+import type { KeyPairSigner, TransactionSigner } from "@solana/kit";
 import { SatiAgent } from "./agent.js";
 import {
   SOLANA_CAIP2_CHAINS,
@@ -248,18 +249,20 @@ export class SatiSDK {
             const result = await this._sati.listFeedbacks({ sasSchema: schema, agentMint: agent.mint });
             const scores = result.items
               .map((item) => {
-                if (item.data.contentType === ContentType.JSON && item.data.content.length > 0) {
-                  const raw = JSON.parse(new TextDecoder().decode(item.data.content)) as Record<string, unknown>;
-                  return raw?.score as number | undefined;
-                }
-                return undefined;
+                const raw = this._parseContentJson(item.data.content, item.data.contentType);
+                return raw?.score as number | undefined;
               })
               .filter((s): s is number => s !== undefined);
             const count = scores.length;
             const averageValue = count > 0 ? scores.reduce((a, b) => a + b, 0) / count : 0;
             feedbackStatsMap?.set(agent.mint, { count, averageValue });
-          } catch {
-            /* skip on error */
+          } catch (error) {
+            this._warn({
+              code: "RPC_ERROR",
+              message: "Failed to fetch feedback stats",
+              context: agent.mint,
+              cause: error,
+            });
           }
         }),
       );
@@ -415,7 +418,7 @@ export class SatiSDK {
     const [destAta] = await findAssociatedTokenAddress(identity.mint, solAddress(newOwner));
 
     const createAtaIx = getCreateAssociatedTokenIdempotentInstruction({
-      payer: { address: ownerAddr } as KeyPairSigner,
+      payer: { address: ownerAddr } as TransactionSigner,
       owner: solAddress(newOwner),
       mint: identity.mint,
       ata: destAta,
@@ -425,7 +428,7 @@ export class SatiSDK {
     const transferIx = getTransferInstruction({
       source: sourceAta,
       destination: destAta,
-      authority: { address: ownerAddr } as KeyPairSigner,
+      authority: ownerAddr,
       amount: 1n,
     });
 
@@ -721,10 +724,25 @@ export class SatiSDK {
       satiFilter.agentMint = knownIdentity.mint;
     }
 
-    // Resolve reviewer to counterparty
+    // Pass first reviewer to RPC filter (even though underlying queryAttestations
+    // doesn't apply it, future versions may). We apply client-side filtering below.
     if (filters.reviewers?.length) {
       satiFilter.counterparty = solAddress(filters.reviewers[0]);
     }
+
+    // Build sets for client-side filtering (underlying RPC only filters by sasSchema + agentMint)
+    const reviewerSet = filters.reviewers?.length ? new Set(filters.reviewers) : null;
+    const agentMintSet =
+      filters.agents?.length && filters.agents.length > 1
+        ? new Set(
+            await Promise.all(
+              filters.agents.map(async (id) => {
+                const identity = await this._resolveIdentity(id);
+                return identity.mint as string;
+              }),
+            ),
+          )
+        : null;
 
     const result = await this._sati.listFeedbacks(satiFilter);
 
@@ -736,11 +754,12 @@ export class SatiSDK {
     for (let i = 0; i < result.items.length; i++) {
       const item = result.items[i];
 
-      // Parse content JSON
-      const rawContent =
-        item.data.contentType === ContentType.JSON && item.data.content.length > 0
-          ? (JSON.parse(new TextDecoder().decode(item.data.content)) as Record<string, unknown>)
-          : null;
+      // Client-side counterparty/agent filtering
+      if (reviewerSet && !reviewerSet.has(item.data.counterparty)) continue;
+      if (agentMintSet && !agentMintSet.has(item.data.agentMint)) continue;
+
+      // Parse content JSON (safe - malformed content returns null)
+      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
 
       const score = rawContent?.score as number | undefined;
       const tags = (rawContent?.tags as string[]) ?? [];
@@ -818,8 +837,13 @@ export class SatiSDK {
           try {
             const sigs = await photon.getCompressionSignaturesForAddress(solAddress(addr), { limit: 1 });
             fb.txHash = sigs.items[0]?.signature;
-          } catch {
-            /* skip on error */
+          } catch (error) {
+            this._warn({
+              code: "SIGNATURE_LOOKUP_FAILED",
+              message: "Failed to fetch tx signature",
+              context: addr,
+              cause: error,
+            });
           }
         }),
       );
@@ -869,10 +893,7 @@ export class SatiSDK {
     let count = 0;
 
     for (const item of result.items) {
-      const rawContent =
-        item.data.contentType === ContentType.JSON && item.data.content.length > 0
-          ? (JSON.parse(new TextDecoder().decode(item.data.content)) as Record<string, unknown>)
-          : null;
+      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
 
       const score = rawContent?.score as number | undefined;
       const tags = (rawContent?.tags as string[]) ?? [];
@@ -921,7 +942,13 @@ export class SatiSDK {
       const photon = this._sati.getLightClient().getRpc();
       const result = await photon.getCompressionSignaturesForAddress(solAddress(compressedAddress), { limit: 1 });
       return result.items[0]?.signature ?? null;
-    } catch {
+    } catch (error) {
+      this._warn({
+        code: "RPC_ERROR",
+        message: "Failed to fetch creation signature",
+        context: compressedAddress,
+        cause: error,
+      });
       return null;
     }
   }
@@ -960,6 +987,27 @@ export class SatiSDK {
       counterparty: signer,
       sasSchema: item.attestation.sasSchema,
       attestationAddress,
+      lookupTableAddress: sasConfig.lookupTable,
+    });
+  }
+
+  /**
+   * Revoke (close) a feedback by its compressed account address.
+   *
+   * Preferred over `revokeFeedback()` - uses a stable identifier instead of
+   * a fragile array index. Get the address from `feedback.context.satiCompressedAddress`.
+   *
+   * @param compressedAddress - Base58 compressed account address
+   */
+  async revokeFeedbackByAddress(compressedAddress: string): Promise<{ signature: string }> {
+    const sasConfig = this._requireSASConfig();
+    const signer = this._requireSigner();
+
+    return this._sati.closeCompressedAttestation({
+      payer: signer,
+      counterparty: signer,
+      sasSchema: sasConfig.schemas.feedbackPublic ?? sasConfig.schemas.feedback,
+      attestationAddress: solAddress(compressedAddress),
       lookupTableAddress: sasConfig.lookupTable,
     });
   }
@@ -1043,6 +1091,21 @@ export class SatiSDK {
   // =========================================================================
   // Private helpers
   // =========================================================================
+
+  /** Safely parse JSON content from an attestation. Returns null on invalid JSON. */
+  private _parseContentJson(content: Uint8Array, contentType: number): Record<string, unknown> | null {
+    if (contentType !== ContentType.JSON || content.length === 0) return null;
+    try {
+      return JSON.parse(new TextDecoder().decode(content)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fire a non-fatal warning via the optional onWarning callback. */
+  private _warn(warning: SatiWarning): void {
+    this._config.onWarning?.(warning);
+  }
 
   private _requireSigner(): KeyPairSigner {
     if (!this._config.signer) {

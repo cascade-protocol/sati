@@ -20,6 +20,7 @@ export type {
   SatiFeedbackSearchOptions,
   SatiFeedbackOptions,
   SatiTransactionSender,
+  SatiWarning,
   PreparedFeedback,
   WriteAccess,
   ValidationResult,

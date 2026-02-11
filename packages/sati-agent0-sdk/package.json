@@ -1,6 +1,6 @@
 {
   "name": "@cascade-fyi/sati-agent0-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent0-compatible adapter for SATI - Solana Agent Trust Infrastructure",
   "type": "module",
   "sideEffects": false,

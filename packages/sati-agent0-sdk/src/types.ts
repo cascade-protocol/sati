@@ -75,6 +75,8 @@ export interface SatiSDKConfig {
   rpcUrl?: string;
   /** Pinata JWT for IPFS uploads (required for registerIPFS) */
   pinataJwt?: string;
+  /** Optional callback for non-fatal warnings (RPC failures, transient errors). */
+  onWarning?: (warning: SatiWarning) => void;
 }
 
 /**
@@ -164,6 +166,20 @@ export interface SatiFeedbackOptions {
   outcome?: Outcome;
   /** Deterministic 32-byte task reference. Default: cryptographically random */
   taskRef?: Uint8Array;
+}
+
+/**
+ * Non-fatal warning from SDK operations.
+ *
+ * Reported via `SatiSDKConfig.onWarning` callback. Parse errors on untrusted
+ * on-chain data are silently skipped (noise). RPC/infrastructure errors are
+ * reported so consumers can wire into telemetry (Sentry, PostHog, etc.).
+ */
+export interface SatiWarning {
+  code: "PARSE_ERROR" | "RPC_ERROR" | "SIGNATURE_LOOKUP_FAILED";
+  message: string;
+  context?: string;
+  cause?: unknown;
 }
 
 /**
