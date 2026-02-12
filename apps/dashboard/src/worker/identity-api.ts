@@ -31,6 +31,41 @@ import bs58 from "bs58";
 import type { Env } from "../env";
 
 // =============================================================================
+// Rate Limiter (per-isolate, best-effort)
+// =============================================================================
+
+/** Per-IP sliding window rate limiter. State lives in module scope (shared within a CF Worker isolate). */
+const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(key: string, maxRequests: number, windowMs: number): boolean {
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+  bucket.count++;
+  return bucket.count > maxRequests;
+}
+
+// Periodic cleanup of stale buckets (runs at most once per minute)
+let lastCleanup = 0;
+function cleanupBuckets() {
+  const now = Date.now();
+  if (now - lastCleanup < 60_000) return;
+  lastCleanup = now;
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (now >= bucket.resetAt) rateLimitBuckets.delete(key);
+  }
+}
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const MAX_METADATA_SIZE = 100 * 1024; // 100 KB
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -576,6 +611,88 @@ export function createIdentityApi(env: Env) {
         console.error("[feedback] Stack:", error.stack);
       }
       return c.json({ error: error instanceof Error ? error.message : "Failed to submit feedback" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/photon/:network - Photon RPC proxy
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/photon/:network", async (c) => {
+    cleanupBuckets();
+
+    const network = c.req.param("network");
+    if (network !== "devnet" && network !== "mainnet") {
+      return c.json({ error: "Invalid network - must be devnet or mainnet" }, 400);
+    }
+
+    // Rate limit: 120 requests per minute per IP
+    const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
+    if (isRateLimited(`photon:${ip}`, 120, 60_000)) {
+      return c.json({ error: "Rate limit exceeded - max 120 requests per minute" }, 429);
+    }
+
+    const rpcUrl = env.RPC_URLS[network].rpc;
+    const body = await c.req.text();
+
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+
+    const result = await response.text();
+    return new Response(result, {
+      status: response.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/upload-metadata - Upload metadata JSON to IPFS
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/upload-metadata", async (c) => {
+    cleanupBuckets();
+
+    // Rate limit: 10 uploads per minute per IP
+    const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
+    if (isRateLimited(`upload:${ip}`, 10, 60_000)) {
+      return c.json({ error: "Rate limit exceeded - max 10 uploads per minute" }, 429);
+    }
+
+    if (!env.PINATA_JWT) {
+      return c.json({ error: "Server misconfigured: missing PINATA_JWT" }, 500);
+    }
+
+    // Payload size cap
+    const contentLength = Number(c.req.header("content-length") ?? 0);
+    if (contentLength > MAX_METADATA_SIZE) {
+      return c.json({ error: `Payload too large - max ${MAX_METADATA_SIZE / 1024}KB` }, 413);
+    }
+
+    let data: unknown;
+    try {
+      const body = await c.req.text();
+      if (body.length > MAX_METADATA_SIZE) {
+        return c.json({ error: `Payload too large - max ${MAX_METADATA_SIZE / 1024}KB` }, 413);
+      }
+      data = JSON.parse(body);
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    if (!data || typeof data !== "object") {
+      return c.json({ error: "Request body must be a JSON object" }, 400);
+    }
+
+    try {
+      const uploader = createPinataUploader(env.PINATA_JWT);
+      const uri = await uploader.upload(data);
+      return c.json({ uri });
+    } catch (error) {
+      console.error("[upload-metadata] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Upload failed" }, 500);
     }
   });
 

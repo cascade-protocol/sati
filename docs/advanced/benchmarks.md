@@ -1,6 +1,11 @@
-#### 2025-12-17 14:50:51.180068 UTC
+---
+title: Compute Unit Benchmarks
+description: CU measurements for all SATI program instructions
+---
 
-Solana CLI Version: solana-cli 3.1.1 (src:7096e605; feat:3652419286, client:Agave)
+# Compute Unit Benchmarks
+
+Measured 2025-12-17 with Solana CLI 3.1.1 (Agave).
 
 | Name | CUs | Delta |
 |------|------|-------|

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-12
+
+### Added
+
+- `photonRpcUrl` option in `SatiSDKConfig` for overriding the default Photon RPC endpoint
+
+### Changed
+
+- `registerIPFS()` and `updateIPFS()` now fall back to hosted SATI uploader when `pinataJwt` is not configured (zero-config experience - no Pinata JWT needed)
+- `pinataJwt` is now optional for all IPFS operations (was required, threw `PINATA_JWT_REQUIRED`)
+
+### Dependencies
+
+- Requires `@cascade-fyi/sati-sdk` >= 0.6.0 (hosted uploader + Photon proxy defaults)
+
 ## [0.2.0] - 2026-02-12
 
 ### Breaking Changes
@@ -84,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transaction sender support for browser wallet integration
 - Re-exports of agent0-sdk types and SATI constants for consumer convenience
 
+[0.3.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.2.0...@cascade-fyi/sati-agent0-sdk@0.3.0
 [0.2.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.1.1...@cascade-fyi/sati-agent0-sdk@0.2.0
 [0.1.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.1.0...@cascade-fyi/sati-agent0-sdk@0.1.1
 [0.1.0]: https://github.com/cascade-protocol/sati/releases/tag/@cascade-fyi/sati-agent0-sdk@0.1.0

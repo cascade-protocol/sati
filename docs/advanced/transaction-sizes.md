@@ -1,4 +1,9 @@
-# SATI Transaction Size Guide
+---
+title: Transaction Sizes
+description: Solana transaction size constraints and how SATI optimizes for them
+---
+
+# Transaction Sizes
 
 Understanding Solana's transaction size constraints and how SATI optimizes for them.
 
@@ -335,4 +340,4 @@ console.log(`Transaction size: ${txBytes.length} bytes`);
 - [Solana Transaction Size Limits](https://solana.com/docs/core/transactions#transaction-size)
 - [Address Lookup Tables](https://solana.com/docs/advanced/lookup-tables)
 - [Ed25519 Instruction Format](https://docs.solanalabs.com/runtime/programs#ed25519-program)
-- [SATI Specification](./specification.md)
+- [SATI Specification](/specification)

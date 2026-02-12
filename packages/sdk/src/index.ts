@@ -158,7 +158,7 @@ export {
 } from "./encryption";
 
 // Metadata uploaders (pluggable storage providers)
-export { createPinataUploader, type MetadataUploader } from "./uploaders";
+export { createPinataUploader, createSatiUploader, type MetadataUploader } from "./uploaders";
 
 // Type definitions
 export * from "./types";

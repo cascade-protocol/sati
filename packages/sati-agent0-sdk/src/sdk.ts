@@ -97,6 +97,7 @@ export class SatiSDK {
     this._sati = new Sati({
       network: config.network,
       rpcUrl: config.rpcUrl,
+      photonRpcUrl: config.photonRpcUrl,
     });
     this._sasConfig = loadDeployedConfig(config.network);
     this._chain = SOLANA_CAIP2_CHAINS[config.network] ?? `solana:${config.network}`;

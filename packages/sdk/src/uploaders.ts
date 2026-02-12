@@ -25,6 +25,43 @@ export interface MetadataUploader {
   upload(data: unknown): Promise<string>;
 }
 
+const SATI_UPLOAD_URL = "https://sati.cascade.fyi/api/upload-metadata";
+
+/**
+ * Create a hosted SATI metadata uploader.
+ *
+ * Uploads JSON to the SATI Identity Service which pins it to IPFS via Pinata.
+ * No API keys needed - zero-config alternative to `createPinataUploader()`.
+ *
+ * @returns MetadataUploader that uploads via sati.cascade.fyi
+ *
+ * @example
+ * ```typescript
+ * const uploader = createSatiUploader();
+ * const uri = await uploader.upload({ name: "MyAgent" });
+ * // "ipfs://QmXyz..."
+ * ```
+ */
+export function createSatiUploader(): MetadataUploader {
+  return {
+    async upload(data: unknown): Promise<string> {
+      const response = await fetch(SATI_UPLOAD_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Metadata upload failed (${response.status}): ${text}`);
+      }
+
+      const result = (await response.json()) as { uri: string };
+      return result.uri;
+    },
+  };
+}
+
 interface PinataV3Response {
   data: {
     id: string;

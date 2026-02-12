@@ -73,7 +73,9 @@ export interface SatiSDKConfig {
   transactionSender?: SatiTransactionSender;
   /** Custom RPC URL (overrides network default) */
   rpcUrl?: string;
-  /** Pinata JWT for IPFS uploads (required for registerIPFS) */
+  /** Custom Photon RPC URL for Light Protocol queries (overrides hosted default) */
+  photonRpcUrl?: string;
+  /** Pinata JWT for IPFS uploads (falls back to hosted uploader if not set) */
   pinataJwt?: string;
   /** Optional callback for non-fatal warnings (RPC failures, transient errors). */
   onWarning?: (warning: SatiWarning) => void;

@@ -1,52 +1,75 @@
 import { defineConfig } from 'vitepress'
+import llmstxt, { copyOrDownloadAsMarkdownButtons } from 'vitepress-plugin-llms'
 
 export default defineConfig({
+  markdown: {
+    config(md) {
+      md.use(copyOrDownloadAsMarkdownButtons)
+    },
+  },
+
+  vite: {
+    plugins: [llmstxt({ excludeIndexPage: false })],
+  },
+
   title: 'SATI',
-  description: 'Solana Agent Trust Infrastructure - Open trust layer for AI agents',
+  description: 'Solana Agent Trust Infrastructure - On-chain identity and reputation for AI agents',
   base: '/sati/',
 
   head: [
     ['meta', { name: 'theme-color', content: '#14F195' }],
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'SATI - Solana Agent Trust Infrastructure' }],
-    ['meta', { property: 'og:description', content: 'Production-ready agent reputation on Solana. ~$0.002 per attestation.' }],
+    ['meta', { property: 'og:title', content: 'SATI - On-chain identity for AI agents' }],
+    ['meta', { property: 'og:description', content: 'Verifiable track record for AI agents on Solana. Proof of participation, zero infrastructure, ~$0.002 per attestation.' }],
   ],
 
   themeConfig: {
     nav: [
-      { text: 'Guide', link: '/getting-started' },
-      { text: 'Specification', link: '/specification' },
-      { text: 'SDK', link: 'https://www.npmjs.com/package/@cascade-fyi/sati-sdk' },
+      { text: 'Getting Started', link: '/getting-started' },
+      { text: 'Guides', link: '/guides/agent-marketplace' },
+      { text: 'Reference', link: '/reference/' },
       { text: 'GitHub', link: 'https://github.com/cascade-protocol/sati' },
     ],
 
     sidebar: [
       {
-        text: 'Introduction',
+        text: 'Start Here',
         items: [
-          { text: 'What is SATI?', link: '/' },
+          { text: 'Home', link: '/' },
           { text: 'Getting Started', link: '/getting-started' },
+          { text: 'How It Works', link: '/how-it-works' },
         ]
       },
       {
-        text: 'Guide',
+        text: 'Guides',
         items: [
-          { text: 'Core Concepts', link: '/guide/concepts' },
-          { text: 'Agent Registration', link: '/guide/agent-registration' },
-          { text: 'Feedback & Reputation', link: '/guide/feedback' },
-          { text: 'Delegation', link: '/guide/delegation' },
+          { text: 'Agent Marketplace', link: '/guides/agent-marketplace' },
+          { text: 'x402 Payment Feedback', link: '/guides/x402-feedback' },
+          { text: 'Register an MCP Agent', link: '/guides/mcp-agent' },
+          { text: 'Query Reputation', link: '/guides/query-reputation' },
+          { text: 'Browser Wallet Flow', link: '/guides/browser-wallet' },
         ]
       },
       {
-        text: 'Concepts',
+        text: 'API Reference',
         items: [
-          { text: 'Validation', link: '/concepts/validation' },
+          { text: 'Overview', link: '/reference/' },
+          { text: 'sati-agent0-sdk', link: '/reference/sati-agent0-sdk' },
+          { text: 'sati-sdk', link: '/reference/sati-sdk' },
         ]
       },
       {
-        text: 'Reference',
+        text: 'Deep Dive',
         items: [
           { text: 'Specification', link: '/specification' },
+        ]
+      },
+      {
+        text: 'Advanced',
+        collapsed: true,
+        items: [
+          { text: 'Transaction Sizes', link: '/advanced/transaction-sizes' },
+          { text: 'Compute Unit Benchmarks', link: '/advanced/benchmarks' },
         ]
       },
     ],

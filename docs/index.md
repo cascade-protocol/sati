@@ -3,81 +3,70 @@ layout: home
 
 hero:
   name: SATI
-  text: Solana Agent Trust Infrastructure
-  tagline: Agent trust infrastructure with cryptographic proof of participation.
+  text: Your agent endpoint is invisible
+  tagline: On-chain identity and verifiable track record for AI agents on Solana.
   actions:
     - theme: brand
       text: Get Started
       link: /getting-started
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/cascade-protocol/sati
+      text: How It Works
+      link: /how-it-works
 
 features:
-  - icon: "\U0001F510"
-    title: Proof of Participation
-    details: Agent signs BEFORE knowing feedback sentiment — cannot selectively participate. ERC-8004 removed this guarantee in Jan 2026.
-  - icon: "\U0001F517"
-    title: x402 Native
-    details: Canonical feedback extension for x402 payments. Payment tx becomes task reference (CAIP-220).
+  - icon: "\U0001F464"
+    title: On-Chain Identity
+    details: Agents register as Token-2022 NFTs - visible in Phantom, Solflare, Backpack. Advertise MCP/A2A endpoints, skills, and trust models.
   - icon: "\u2705"
-    title: ERC-8004 Compatible
-    details: Full compatibility with the Ethereum agent registry standard. Cross-chain identity linking supported.
+    title: Proof of Participation
+    details: Agents cryptographically commit before knowing feedback sentiment. They can't cherry-pick positive reviews.
+  - icon: "\U0001F50D"
+    title: Zero Infrastructure
+    details: No custom indexer, no database, no API keys. The SDK ships with hosted IPFS uploads and Photon RPC - just install and build.
   - icon: "\U0001F4B0"
-    title: Cost-Efficient Storage
-    details: ZK Compression via Light Protocol. ~$0.002 per attestation with native Photon indexing.
-  - icon: "\U0001F3D7"
-    title: Production Ready
-    details: "Deployed to mainnet: satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe"
-  - icon: "\U0001F9E9"
-    title: Schema Agnostic
-    details: Program verifies signatures on universal base layout. New schemas without program upgrades.
+    title: Sub-Cent Attestations
+    details: ~$0.002 per feedback via ZK Compression (Light Protocol). Economically viable to store every interaction, not just aggregates.
 ---
 
-## Built On Solana Foundation Infrastructure
+## The Problem
 
-| Component | Purpose |
-|-----------|---------|
-| **Token-2022** | Agent identity as NFT with metadata |
-| **SAS** | Schema definitions + regular attestation storage |
-| **Light Protocol** | ZK Compressed attestation storage |
-| **Photon** | Native indexing for compressed accounts |
+Thousands of agent endpoints, all anonymous. No identity, no track record, no way to verify delivery before paying. Agents try multiple endpoints before finding one that works. There's no trust layer.
 
-## Quick Example
+A database of reviews doesn't fix this - the service provider controls the database. They can delete bad reviews, fabricate good ones, or selectively publish only favorable feedback.
 
-```typescript
-import { Sati } from '@cascade-fyi/sati-sdk'
+## What SATI Gives You
 
-const sati = new Sati({
-  network: 'mainnet',
-  rpcUrl: 'https://mainnet.helius-rpc.com?api-key=YOUR_KEY',
-})
+**A verifiable track record that no one controls.** Feedback lives on Solana - tamper-proof and portable across every platform that reads it. An agent's reputation follows it everywhere, not just on your marketplace.
 
-// Register an agent
-const { mint } = await sati.registerAgent({
-  payer: walletKeypair,
-  name: "MyAgent",
-  uri: "ipfs://QmRegistrationFile",
-})
+The core mechanism: **proof of participation**. The agent signs a cryptographic commitment with every response, before knowing what score the reviewer will give. This means agents cannot ignore negative reviews - they already committed to the interaction on-chain.
 
-// Submit feedback (~$0.002)
-await sati.createFeedback({
-  payer: walletKeypair,
-  sasSchema: feedbackSchema,
-  agentMint: targetAgent,
-  counterparty: clientPubkey,
-  outcome: Outcome.Positive,
-  // ... signatures
-})
-```
+## Who Is SATI For?
 
-## Deployed Addresses
+- **Agent marketplace builders** - add identity, reputation, and discovery to your platform with one SDK integration
+- **x402 sellers** - link feedback directly to payment transactions, so your track record proves you delivered
+- **Platform operators** - register all your platform's agents with a single integration, give them portable reputation
+- **Reputation providers** - publish competing scoring algorithms on top of the same on-chain data
+
+## Ready to Build?
+
+<div class="tip custom-block" style="padding-top: 8px">
+
+Start with the [Getting Started](/getting-started) guide to go from zero to working in 5 minutes, or read [How It Works](/how-it-works) to understand the architecture first.
+
+</div>
+
+### Costs
+
+| Operation | Cost |
+|-----------|------|
+| Agent registration | ~0.003 SOL |
+| Feedback (single) | ~$0.002 |
+| Feedback (batched 5/tx) | ~$0.001 |
+| Validation | ~$0.002 |
+
+### Deployed Addresses
 
 | Network | Program ID |
 |---------|------------|
 | Mainnet | `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe` |
 | Devnet | `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe` |
-
-| Asset | Address |
-|-------|---------|
-| TokenGroup Mint | `satiG7i9iyFxjq23sdyeLB4ibAHf6GXCARuosGeqane` |

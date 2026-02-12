@@ -162,6 +162,13 @@ const WS_URLS = {
   localnet: "ws://127.0.0.1:8900",
 } as const;
 
+// Default Photon RPC URLs (hosted proxy for zero-config experience)
+const PHOTON_URLS = {
+  mainnet: "https://sati.cascade.fyi/api/photon/mainnet",
+  devnet: "https://sati.cascade.fyi/api/photon/devnet",
+  localnet: "http://127.0.0.1:8899",
+} as const;
+
 // ============================================================
 // TYPES
 // ============================================================
@@ -523,9 +530,8 @@ export class Sati {
       rpcSubscriptions: this.rpcSubscriptions,
     });
 
-    // Default Photon URL to RPC URL (works with Helius and other providers)
-    // Override with photonRpcUrl if indexer is on a different endpoint
-    const photonUrl = options.photonRpcUrl ?? rpcUrl;
+    // Use hosted Photon proxy by default (zero-config), override with photonRpcUrl
+    const photonUrl = options.photonRpcUrl ?? PHOTON_URLS[options.network];
     this.lightClient = createSATILightClient(photonUrl);
   }
 

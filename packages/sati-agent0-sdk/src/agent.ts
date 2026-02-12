@@ -9,6 +9,7 @@ import type { RegistrationFile, Endpoint, AgentId, URI, Address } from "agent0-s
 import { EndpointType, TrustModel, EndpointCrawler } from "agent0-sdk";
 import {
   createPinataUploader,
+  createSatiUploader,
   getRegisterAgentInstructionAsync,
   findRegistryConfigPda,
   fetchRegistryConfig,
@@ -440,14 +441,10 @@ export class SatiAgent {
       );
     }
 
-    const pinataJwt = this._sdk.config.pinataJwt;
-    if (!pinataJwt) {
-      throw new SatiError("PINATA_JWT_REQUIRED", "pinataJwt is required for IPFS uploads. Set it in SatiSDKConfig.");
-    }
-
     // Convert agent0 registration file to SATI format and upload to IPFS
     const satiParams = fromAgent0RegistrationFile(this._registrationFile);
-    const uploader = createPinataUploader(pinataJwt);
+    const pinataJwt = this._sdk.config.pinataJwt;
+    const uploader = pinataJwt ? createPinataUploader(pinataJwt) : createSatiUploader();
     const uri = await this._sdk.sati.uploadRegistrationFile(satiParams, uploader);
 
     return this._registerOnChain(uri);
@@ -483,13 +480,9 @@ export class SatiAgent {
       throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() first.");
     }
 
-    const pinataJwt = this._sdk.config.pinataJwt;
-    if (!pinataJwt) {
-      throw new SatiError("PINATA_JWT_REQUIRED", "pinataJwt is required for IPFS uploads. Set it in SatiSDKConfig.");
-    }
-
     const satiParams = fromAgent0RegistrationFile(this._registrationFile);
-    const uploader = createPinataUploader(pinataJwt);
+    const pinataJwt = this._sdk.config.pinataJwt;
+    const uploader = pinataJwt ? createPinataUploader(pinataJwt) : createSatiUploader();
     const newUri = await this._sdk.sati.uploadRegistrationFile(satiParams, uploader);
     return this.setAgentURI(newUri);
   }
