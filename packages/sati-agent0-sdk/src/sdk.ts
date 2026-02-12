@@ -553,7 +553,7 @@ export class SatiSDK {
 
       // Build SIWS message and sign with counterparty (signer)
       const { messageBytes } = buildCounterpartyMessage({
-        schemaName: "FeedbackPublic",
+        schemaName: "FeedbackPublicV1",
         data: serializedData,
       });
       const sig = await signBytes(signer.keyPair.privateKey, messageBytes);
@@ -673,7 +673,7 @@ export class SatiSDK {
 
     // Build SIWS message
     const { messageBytes } = buildCounterpartyMessage({
-      schemaName: "FeedbackPublic",
+      schemaName: "FeedbackPublicV1",
       data: serializedData,
     });
 
