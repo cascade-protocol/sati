@@ -93,7 +93,7 @@ async function main() {
 
   console.log(`Agent created in memory: ${agent.name}`);
   console.log("  Ready for configuration and registration");
-  console.log("  Note: Actual registration requires a funded signer + PINATA_JWT");
+  console.log("  Note: Actual registration requires a funded signer");
 }
 
 main().catch(console.error);

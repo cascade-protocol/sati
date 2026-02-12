@@ -10,23 +10,18 @@
  * need to poll or wait for the transfer to settle (unlike EVM).
  */
 
-import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "../shared/_env.js";
+import { loadSigner, RPC_URL, NETWORK } from "../shared/_env.js";
 import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 import { generateKeyPairSigner } from "@solana/kit";
 
 async function main() {
   const signer = await loadSigner();
 
-  if (!PINATA_JWT || PINATA_JWT.trim() === "") {
-    throw new Error("PINATA_JWT is required for this example (registerIPFS uses Pinata)");
-  }
-
-  // Initialize SDK
+  // Initialize SDK (uses hosted uploader by default, no Pinata JWT needed)
   const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,
-    pinataJwt: PINATA_JWT,
   });
 
   // Create + register a fresh agent (self-contained example)
