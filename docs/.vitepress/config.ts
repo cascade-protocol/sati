@@ -73,6 +73,14 @@ export default defineConfig({
           { text: 'Compute Unit Benchmarks', link: '/advanced/benchmarks' },
         ]
       },
+      {
+        text: 'LLM-Friendly Docs',
+        collapsed: true,
+        items: [
+          { text: 'llms.txt', link: '/llms.txt' },
+          { text: 'llms-full.txt', link: '/llms-full.txt' },
+        ]
+      },
     ],
 
     socialLinks: [
