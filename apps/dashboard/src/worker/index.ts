@@ -70,7 +70,7 @@ interface BuildFeedbackTxRequest {
   counterpartySignature?: string; // Optional for DualSignature schemas
   // For CounterpartySigned mode (FeedbackPublic): SIWS message bytes user signed
   counterpartyMessage?: string; // hex-encoded - triggers server-paid submission
-  // Optional content (JSON string with tags/score/message)
+  // Optional content (JSON string with value/tag1/tag2/message)
   content?: string;
   contentType?: number; // ContentType enum (1 = JSON)
 }
@@ -846,7 +846,7 @@ function createApp(bindings: WorkerBindings) {
           // SIWS message bytes the user signed
           counterpartyMessage: counterpartyMessageBytes,
           lookupTableAddress: networkConfig.lookupTable as Address,
-          // Optional content (JSON with tags/score/message)
+          // Optional content (JSON with value/tag1/tag2/message)
           ...(body.content && {
             contentType: body.contentType ?? 1, // 1 = JSON
             content: new TextEncoder().encode(body.content),
@@ -891,7 +891,7 @@ function createApp(bindings: WorkerBindings) {
           // counterpartyMessage required when counterpartySignature is provided
           counterpartyMessage: counterpartyMessageBytes,
           lookupTableAddress: networkConfig.lookupTable as Address,
-          // Optional content (JSON with tags/score/message)
+          // Optional content (JSON with value/tag1/tag2/message)
           ...(body.content && {
             contentType: body.contentType ?? 1, // 1 = JSON
             content: new TextEncoder().encode(body.content),

@@ -264,7 +264,7 @@ const maxDual = getMaxContentSize(SignatureMode.DualSignature);   // 70
 const maxSingle = getMaxContentSize(SignatureMode.SingleSigner);  // 240
 
 // Validate content before building transaction
-const content = new TextEncoder().encode('{"score":85}');
+const content = new TextEncoder().encode('{"value":85}');
 
 // Option 1: Throws on error (default)
 validateContentSize(content, SignatureMode.DualSignature);
@@ -293,12 +293,12 @@ if (!result.valid) {
 
 **DualSignature (< 70 bytes):**
 ```json
-{"score":85,"tags":["helpful"]}
+{"value":85,"tag1":"helpful"}
 ```
 
 **SingleSignature (< 240 bytes):**
 ```json
-{"score":92,"methodology":"weighted_average","confidence":0.95,"factors":{"response_time":0.9,"accuracy":0.95,"satisfaction":0.91}}
+{"score":92,"methodology":"weighted_average","feedbackCount":42,"validationCount":5}
 ```
 
 ---

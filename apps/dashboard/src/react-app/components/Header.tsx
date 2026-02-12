@@ -55,7 +55,7 @@ export function Header() {
                 My Profile
               </NavLink>
               <a
-                href="https://cascade-protocol.github.io/sati/"
+                href="https://docs.sati.cascade.fyi/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -114,7 +114,7 @@ export function Header() {
                       My Profile
                     </NavLink>
                     <a
-                      href="https://cascade-protocol.github.io/sati/"
+                      href="https://docs.sati.cascade.fyi/"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="block rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:text-foreground"

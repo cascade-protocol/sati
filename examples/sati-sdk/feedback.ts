@@ -3,8 +3,8 @@
  *
  * Demonstrates how to:
  * 1. Give feedback to an agent (on-chain compressed attestation)
- * 2. Search feedback by agent, tags, score range
- * 3. Get reputation summary (aggregate score)
+ * 2. Search feedback by agent, tag, value range
+ * 3. Get reputation summary (aggregate value)
  * 4. Revoke feedback
  *
  * Requirements:
@@ -37,8 +37,10 @@ async function main() {
   const result = await sati.giveFeedback({
     payer: signer,
     agentMint,
-    score: 85,
-    tags: ["quality", "latency"],
+    value: 85,
+    valueDecimals: 0,
+    tag1: "quality",
+    tag2: "latency",
     endpoint: "https://api.example.com/mcp",
     message: "Fast and accurate responses.",
   });
@@ -52,21 +54,24 @@ async function main() {
   console.log(`Found ${feedbacks.length} feedback entries`);
 
   for (const fb of feedbacks.slice(0, 5)) {
-    console.log(`  - score=${fb.score ?? "N/A"} tags=${fb.tags.join(",")} ` + `from=${fb.counterparty.slice(0, 8)}...`);
+    console.log(
+      `  - value=${fb.value ?? "N/A"} tag1=${fb.tag1 ?? ""} tag2=${fb.tag2 ?? ""} ` +
+        `from=${fb.counterparty.slice(0, 8)}...`,
+    );
   }
 
   // 3. Search with tag filter
-  console.log('\nSearching feedback with tag "latency"...');
-  const latency = await sati.searchFeedback({
+  console.log('\nSearching feedback with tag1 "quality"...');
+  const quality = await sati.searchFeedback({
     agentMint,
-    tags: ["latency"],
+    tag1: "quality",
   });
-  console.log(`Found ${latency.length} entries with tag "latency"`);
+  console.log(`Found ${quality.length} entries with tag1 "quality"`);
 
   // 4. Get reputation summary
   console.log("\nGetting reputation summary...");
   const summary = await sati.getReputationSummary(agentMint);
-  console.log(`Reputation: ${summary.averageScore.toFixed(1)} from ${summary.count} reviews`);
+  console.log(`Reputation: ${summary.averageValue.toFixed(1)} from ${summary.count} reviews`);
 
   // 5. Revoke the feedback we just submitted
   console.log("\nRevoking feedback...");

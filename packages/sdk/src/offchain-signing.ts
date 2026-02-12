@@ -182,7 +182,7 @@ export interface CounterpartyMessageParams {
  *   outcome: Outcome.Positive,
  *   dataHash: dataHash,
  *   contentType: ContentType.JSON,
- *   content: new TextEncoder().encode('{"score": 95, "tags": ["fast"]}'),
+ *   content: new TextEncoder().encode('{"value": 95, "valueDecimals": 0, "tag1": "quality"}'),
  * });
  *
  * // Build counterparty message

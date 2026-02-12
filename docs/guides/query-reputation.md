@@ -36,14 +36,14 @@ That's it. No signer, no keys. All read operations work immediately.
 
 ## Reputation Summary
 
-Get the aggregate score for an agent:
+Get the aggregate value for an agent:
 
 ```typescript
 const summary = await sdk.getReputationSummary(agentId);
 console.log(`${summary.count} reviews, average ${summary.averageValue}/100`);
 ```
 
-Filter by tags to get category-specific scores:
+Filter by tags to get category-specific values:
 
 ```typescript
 const quality = await sdk.getReputationSummary(agentId, "quality");

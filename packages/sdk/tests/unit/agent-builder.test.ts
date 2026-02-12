@@ -25,7 +25,7 @@ describe("SatiAgentBuilder", () => {
     expect(params.description).toBe("A test agent");
     expect(params.image).toBe("https://img.example.com/a.png");
     expect(params.active).toBe(true);
-    expect(params.endpoints).toEqual([]);
+    expect(params.services).toEqual([]);
   });
 
   it("should have no identity before registration", () => {
@@ -62,7 +62,7 @@ describe("SatiAgentBuilder", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setMCP("https://mcp.example.com");
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "MCP");
+    const ep = builder.params.services?.find((e) => e.name === "MCP");
     expect(ep).toBeDefined();
     expect(ep?.endpoint).toBe("https://mcp.example.com");
     expect(ep?.version).toBeUndefined();
@@ -77,7 +77,7 @@ describe("SatiAgentBuilder", () => {
       resources: ["project-context"],
     });
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "MCP");
+    const ep = builder.params.services?.find((e) => e.name === "MCP");
     expect(ep?.version).toBe("2025-06-18");
     expect(ep?.mcpTools).toEqual(["search", "summarize"]);
     expect(ep?.mcpPrompts).toEqual(["code-review"]);
@@ -92,7 +92,7 @@ describe("SatiAgentBuilder", () => {
       resources: [],
     });
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "MCP");
+    const ep = builder.params.services?.find((e) => e.name === "MCP");
     expect(ep?.mcpTools).toBeUndefined();
     expect(ep?.mcpPrompts).toBeUndefined();
     expect(ep?.mcpResources).toBeUndefined();
@@ -103,7 +103,7 @@ describe("SatiAgentBuilder", () => {
     builder.setMCP("https://old-mcp.example.com");
     builder.setMCP("https://new-mcp.example.com");
 
-    const mcpEndpoints = builder.params.endpoints?.filter((e) => e.name === "MCP") ?? [];
+    const mcpEndpoints = builder.params.services?.filter((e) => e.name === "MCP") ?? [];
     expect(mcpEndpoints).toHaveLength(1);
     expect(mcpEndpoints[0].endpoint).toBe("https://new-mcp.example.com");
   });
@@ -116,7 +116,7 @@ describe("SatiAgentBuilder", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setA2A("https://a2a.example.com/.well-known/agent-card.json");
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "A2A");
+    const ep = builder.params.services?.find((e) => e.name === "A2A");
     expect(ep).toBeDefined();
     expect(ep?.endpoint).toBe("https://a2a.example.com/.well-known/agent-card.json");
   });
@@ -125,7 +125,7 @@ describe("SatiAgentBuilder", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setA2A("https://a2a.example.com", "1.0", { skills: ["code-review", "translate"] });
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "A2A");
+    const ep = builder.params.services?.find((e) => e.name === "A2A");
     expect(ep?.version).toBe("1.0");
     expect(ep?.a2aSkills).toEqual(["code-review", "translate"]);
   });
@@ -138,7 +138,7 @@ describe("SatiAgentBuilder", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setWallet("WalletAddr123");
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "agentWallet");
+    const ep = builder.params.services?.find((e) => e.name === "agentWallet");
     expect(ep).toBeDefined();
     expect(ep?.endpoint).toBe("WalletAddr123");
   });
@@ -151,7 +151,7 @@ describe("SatiAgentBuilder", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setEndpoint({ name: "custom", endpoint: "https://custom.example.com" });
 
-    const ep = builder.params.endpoints?.find((e) => e.name === "custom");
+    const ep = builder.params.services?.find((e) => e.name === "custom");
     expect(ep).toBeDefined();
     expect(ep?.endpoint).toBe("https://custom.example.com");
   });
@@ -161,7 +161,7 @@ describe("SatiAgentBuilder", () => {
     builder.setEndpoint({ name: "custom", endpoint: "https://v1.example.com" });
     builder.setEndpoint({ name: "custom", endpoint: "https://v2.example.com" });
 
-    const customEndpoints = builder.params.endpoints?.filter((e) => e.name === "custom") ?? [];
+    const customEndpoints = builder.params.services?.filter((e) => e.name === "custom") ?? [];
     expect(customEndpoints).toHaveLength(1);
     expect(customEndpoints[0].endpoint).toBe("https://v2.example.com");
   });
@@ -177,8 +177,8 @@ describe("SatiAgentBuilder", () => {
 
     builder.removeEndpoint("MCP");
 
-    expect(builder.params.endpoints?.find((e) => e.name === "MCP")).toBeUndefined();
-    expect(builder.params.endpoints?.find((e) => e.name === "A2A")).toBeDefined();
+    expect(builder.params.services?.find((e) => e.name === "MCP")).toBeUndefined();
+    expect(builder.params.services?.find((e) => e.name === "A2A")).toBeDefined();
   });
 
   it("removeEndpoint should be a no-op for nonexistent name", () => {
@@ -186,7 +186,7 @@ describe("SatiAgentBuilder", () => {
     builder.setMCP("https://mcp.example.com");
 
     builder.removeEndpoint("nonexistent");
-    expect(builder.params.endpoints).toHaveLength(1);
+    expect(builder.params.services).toHaveLength(1);
   });
 
   // =========================================================================
@@ -206,13 +206,13 @@ describe("SatiAgentBuilder", () => {
 
   it("setX402Support should update x402support flag", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
-    expect(builder.params.x402support).toBeUndefined();
+    expect(builder.params.x402Support).toBeUndefined();
 
     builder.setX402Support(true);
-    expect(builder.params.x402support).toBe(true);
+    expect(builder.params.x402Support).toBe(true);
 
     builder.setX402Support(false);
-    expect(builder.params.x402support).toBe(false);
+    expect(builder.params.x402Support).toBe(false);
   });
 
   it("setSupportedTrust should update trust mechanisms", () => {
@@ -298,19 +298,19 @@ describe("SatiAgentBuilder", () => {
       .setExternalUrl("https://myagent.com");
 
     const params = builder.params;
-    expect(params.endpoints).toHaveLength(3);
+    expect(params.services).toHaveLength(3);
     expect(params.active).toBe(true);
-    expect(params.x402support).toBe(true);
+    expect(params.x402Support).toBe(true);
     expect(params.supportedTrust).toEqual(["reputation"]);
     expect(params.externalUrl).toBe("https://myagent.com");
 
-    const mcp = params.endpoints?.find((e) => e.name === "MCP");
+    const mcp = params.services?.find((e) => e.name === "MCP");
     expect(mcp?.mcpTools).toEqual(["search", "trade", "analyze"]);
 
-    const a2a = params.endpoints?.find((e) => e.name === "A2A");
+    const a2a = params.services?.find((e) => e.name === "A2A");
     expect(a2a?.a2aSkills).toEqual(["market-analysis", "portfolio-management"]);
 
-    const wallet = params.endpoints?.find((e) => e.name === "agentWallet");
+    const wallet = params.services?.find((e) => e.name === "agentWallet");
     expect(wallet?.endpoint).toBe("WalletAddr456");
   });
 

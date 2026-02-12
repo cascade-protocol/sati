@@ -39,9 +39,9 @@ SATI's FeedbackV1 prevents this with dual signatures:
 
 ### The Flow
 
-1. **Agent commits blind.** When the agent responds to a request, it signs a hash of the interaction data - `keccak256(schema, taskRef, dataHash)`. At this point, the agent has no idea what score the reviewer will give. It has cryptographically committed to the interaction.
+1. **Agent commits blind.** When the agent responds to a request, it signs a hash of the interaction data - `keccak256(schema, taskRef, dataHash)`. At this point, the agent has no idea what feedback the reviewer will give. It has cryptographically committed to the interaction.
 
-2. **Reviewer scores after the fact.** The reviewer sees the agent's work, decides on a score (0-100), and signs a human-readable [Sign In With Solana](https://github.com/phantom/sign-in-with-solana) (SIWS) message confirming the feedback.
+2. **Reviewer submits feedback after the fact.** The reviewer sees the agent's work, decides on a value and outcome, and signs a human-readable [Sign In With Solana](https://github.com/phantom/sign-in-with-solana) (SIWS) message confirming the feedback.
 
 3. **Both signatures go on-chain.** The attestation includes both signatures, proving the agent participated and the reviewer scored it. Neither party can back out.
 

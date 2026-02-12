@@ -127,15 +127,15 @@ export function toAgentSummary(
   regFile?: SatiRegistrationFile | null,
   feedbackStats?: { count: number; averageValue: number } | null,
 ): AgentSummary {
-  const endpoints = regFile?.endpoints ?? [];
+  const services = regFile?.services ?? [];
 
-  const mcpEp = endpoints.find((e) => e.name.toUpperCase() === "MCP");
-  const a2aEp = endpoints.find((e) => e.name.toUpperCase() === "A2A");
-  const oasfEp = endpoints.find((e) => e.name.toUpperCase() === "OASF");
-  const ensEp = endpoints.find((e) => e.name.toUpperCase() === "ENS");
-  const didEp = endpoints.find((e) => e.name.toUpperCase() === "DID");
-  const walletEp = endpoints.find((e) => e.name.toUpperCase() === "AGENTWALLET" || e.name.toUpperCase() === "WALLET");
-  const webEp = endpoints.find((e) => e.name.toUpperCase() === "WEB");
+  const mcpEp = services.find((e) => e.name.toUpperCase() === "MCP");
+  const a2aEp = services.find((e) => e.name.toUpperCase() === "A2A");
+  const oasfEp = services.find((e) => e.name.toUpperCase() === "OASF");
+  const ensEp = services.find((e) => e.name.toUpperCase() === "ENS");
+  const didEp = services.find((e) => e.name.toUpperCase() === "DID");
+  const walletEp = services.find((e) => e.name.toUpperCase() === "AGENTWALLET" || e.name.toUpperCase() === "WALLET");
+  const webEp = services.find((e) => e.name.toUpperCase() === "WEB");
 
   return {
     chainId: 0,
@@ -159,7 +159,7 @@ export function toAgentSummary(
     oasfSkills: oasfEp?.skills ?? [],
     oasfDomains: oasfEp?.domains ?? [],
     active: regFile?.active ?? true,
-    x402support: regFile?.x402support ?? false,
+    x402support: regFile?.x402Support ?? false,
     agentURI: identity.uri,
     agentURIType: identity.uri ? detectURIType(identity.uri) : undefined,
     feedbackCount: feedbackStats?.count,
@@ -192,7 +192,7 @@ export function toAgent0RegistrationFile(
   identity?: AgentIdentity,
   chain?: string,
 ): Agent0RegistrationFile {
-  const endpoints = toAgent0Endpoints(satiFile.endpoints ?? []);
+  const endpoints = toAgent0Endpoints(satiFile.services ?? []);
   const trustModels: (TrustModel | string)[] = (satiFile.supportedTrust ?? []).map((t) => {
     if (t === "reputation") return TrustModel.REPUTATION;
     if (t === "crypto-economic") return TrustModel.CRYPTO_ECONOMIC;
@@ -211,7 +211,7 @@ export function toAgent0RegistrationFile(
     owners: identity ? [identity.owner] : [],
     operators: [],
     active: satiFile.active ?? true,
-    x402support: satiFile.x402support ?? false,
+    x402support: satiFile.x402Support ?? false,
     metadata: {},
     updatedAt: Math.floor(Date.now() / 1000),
   };
@@ -228,7 +228,7 @@ export function fromAgent0RegistrationFile(agent0File: Agent0RegistrationFile): 
   description: string;
   image: string;
 } {
-  const endpoints = fromAgent0Endpoints(agent0File.endpoints);
+  const services = fromAgent0Endpoints(agent0File.endpoints);
   const supportedTrust = agent0File.trustModels
     .map((t) => {
       if (t === TrustModel.REPUTATION) return "reputation" as const;
@@ -242,10 +242,10 @@ export function fromAgent0RegistrationFile(agent0File: Agent0RegistrationFile): 
     name: agent0File.name,
     description: agent0File.description,
     image: agent0File.image ?? "",
-    endpoints,
+    services,
     supportedTrust,
     active: agent0File.active,
-    x402support: agent0File.x402support,
+    x402Support: agent0File.x402support,
   };
 }
 

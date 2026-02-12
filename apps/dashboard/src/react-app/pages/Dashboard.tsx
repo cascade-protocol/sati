@@ -191,9 +191,9 @@ export function Dashboard() {
                             <span className={outcomeColor}>{outcomeText}</span>
                           </td>
                           <td className="py-4 pr-4">
-                            {content?.tags && content.tags.length > 0 ? (
+                            {content?.tag1 || content?.tag2 ? (
                               <div className="flex flex-wrap gap-1">
-                                {content.tags.slice(0, 3).map((tag) => (
+                                {[content.tag1, content.tag2].filter(Boolean).map((tag) => (
                                   <span
                                     key={tag}
                                     className="px-2 py-0.5 text-xs bg-muted rounded-full text-muted-foreground"
@@ -201,9 +201,6 @@ export function Dashboard() {
                                     {tag}
                                   </span>
                                 ))}
-                                {content.tags.length > 3 && (
-                                  <span className="text-xs text-muted-foreground">+{content.tags.length - 3}</span>
-                                )}
                               </div>
                             ) : (
                               <span className="text-muted-foreground">—</span>

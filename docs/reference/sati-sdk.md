@@ -172,8 +172,10 @@ Give feedback to an agent. Uses FeedbackPublicV1 schema. Handles SIWS message co
 const result = await sati.giveFeedback({
   payer: signer,             // pays fees + is the reviewer
   agentMint: address("..."), // agent to review
-  score: 85,                 // 0-100
-  tags: ["quality", "speed"],
+  value: 85,                 // ERC-8004 signed fixed-point value
+  valueDecimals: 0,          // decimal places (0-18)
+  tag1: "quality",           // first tag dimension
+  tag2: "speed",             // second tag dimension (optional)
   message: "Fast and accurate",
   endpoint: "https://api.example.com",
   outcome: Outcome.Positive, // optional (defaults to Neutral)
@@ -192,8 +194,10 @@ console.log(result.attestationAddress); // compressed account address
 |-------|------|----------|-------------|
 | `payer` | `KeyPairSigner` | Yes | Pays fees and is the reviewer |
 | `agentMint` | `Address` | Yes | Agent mint address |
-| `score` | `number` | No | Score 0-100 |
-| `tags` | `[string] \| [string, string]` | No | 1 or 2 tag dimensions |
+| `value` | `number` | No | ERC-8004 signed fixed-point value |
+| `valueDecimals` | `number` | No | Decimal places for value (0-18, default 0) |
+| `tag1` | `string` | No | First tag dimension |
+| `tag2` | `string` | No | Second tag dimension |
 | `message` | `string` | No | Human-readable feedback |
 | `endpoint` | `string` | No | Endpoint being reviewed |
 | `outcome` | `Outcome` | No | Defaults to Neutral |
@@ -207,8 +211,8 @@ Prepare feedback for browser wallet signing (step 1 of 2). Returns SIWS message 
 const prepared = await sati.prepareFeedback({
   agentMint: address("..."),
   counterparty: walletAddress,
-  score: 90,
-  tags: ["quality"],
+  value: 90,
+  tag1: "quality",
 });
 
 // Send prepared.messageBytes to the wallet for signing
@@ -234,15 +238,15 @@ Search feedback attestations with client-side filtering.
 const feedbacks = await sati.searchFeedback({
   agentMint: address("..."),
   counterparty: address("..."), // filter by reviewer
-  tags: ["quality"],
-  minScore: 70,
-  maxScore: 100,
+  tag1: "quality",
+  minValue: 70,
+  maxValue: 100,
   includeTxHash: true,
 });
 
 for (const fb of feedbacks) {
-  console.log(`${fb.score}/100 from ${fb.counterparty}`);
-  console.log(`Tags: ${fb.tags}, Message: ${fb.message}`);
+  console.log(`value=${fb.value} from ${fb.counterparty}`);
+  console.log(`tag1=${fb.tag1}, tag2=${fb.tag2}, Message: ${fb.message}`);
 }
 ```
 
@@ -252,9 +256,10 @@ for (const fb of feedbacks) {
 |-------|------|-------------|
 | `agentMint` | `Address` | Filter by agent |
 | `counterparty` | `Address` | Filter by reviewer |
-| `tags` | `string[]` | Filter by tag dimensions (all must match) |
-| `minScore` | `number` | Minimum score (inclusive) |
-| `maxScore` | `number` | Maximum score (inclusive) |
+| `tag1` | `string` | Filter by first tag dimension |
+| `tag2` | `string` | Filter by second tag dimension |
+| `minValue` | `number` | Minimum value (inclusive) |
+| `maxValue` | `number` | Maximum value (inclusive) |
 | `includeTxHash` | `boolean` | Populate `txSignature` per result (extra RPC call each) |
 
 #### ParsedFeedback
@@ -265,8 +270,10 @@ for (const fb of feedbacks) {
 | `agentMint` | `Address` | Agent mint address |
 | `counterparty` | `Address` | Reviewer address |
 | `outcome` | `Outcome` | Feedback outcome |
-| `score` | `number \| undefined` | Numeric score 0-100 |
-| `tags` | `string[]` | Tag dimensions |
+| `value` | `number \| undefined` | ERC-8004 signed fixed-point value |
+| `valueDecimals` | `number \| undefined` | Decimal places (0-18) |
+| `tag1` | `string \| undefined` | First tag dimension |
+| `tag2` | `string \| undefined` | Second tag dimension |
 | `message` | `string \| undefined` | Feedback message |
 | `endpoint` | `string \| undefined` | Endpoint reviewed |
 | `createdAt` | `number` | Approximate Unix timestamp |
@@ -278,13 +285,14 @@ Aggregate feedback stats for an agent.
 
 ```typescript
 const summary = await sati.getReputationSummary(agentMint);
-console.log(`${summary.count} reviews, avg ${summary.averageScore}/100`);
+console.log(`${summary.count} reviews, avg value ${summary.averageValue}`);
 
 // Filter by tags
-const quality = await sati.getReputationSummary(agentMint, ["quality"]);
+const quality = await sati.getReputationSummary(agentMint, "quality");
+const qualityLatency = await sati.getReputationSummary(agentMint, "quality", "latency");
 ```
 
-Returns `{ count: number; averageScore: number }`.
+Returns `{ count: number; averageValue: number }`.
 
 ### revokeFeedback
 
@@ -322,10 +330,10 @@ const results = await sati.searchAgents({
 for (const agent of results) {
   console.log(`${agent.identity.name} (${agent.identity.mint})`);
   if (agent.registrationFile) {
-    console.log(`  MCP: ${agent.registrationFile.endpoints?.find(e => e.name === "MCP")?.endpoint}`);
+    console.log(`  MCP: ${agent.registrationFile.services?.find(e => e.name === "MCP")?.endpoint}`);
   }
   if (agent.feedbackStats) {
-    console.log(`  Score: ${agent.feedbackStats.averageScore}/100 (${agent.feedbackStats.count} reviews)`);
+    console.log(`  Avg value: ${agent.feedbackStats.averageValue} (${agent.feedbackStats.count} reviews)`);
   }
 }
 ```
@@ -401,7 +409,7 @@ const uri = await sati.uploadRegistrationFile(
     name: "MyAgent",
     description: "AI assistant",
     image: "https://example.com/avatar.png",
-    endpoints: [
+    services: [
       { name: "MCP", endpoint: "https://myagent.com/mcp", version: "2025-06-18", mcpTools: ["search"] },
     ],
     supportedTrust: ["reputation"],
@@ -487,7 +495,7 @@ const result = await sati.createFeedback({
   dataHash: requestHash,
   outcome: Outcome.Positive,
   contentType: ContentType.JSON,
-  content: new TextEncoder().encode(JSON.stringify({ score: 85 })),
+  content: new TextEncoder().encode(JSON.stringify({ value: 85, valueDecimals: 0, tag1: "quality" })),
   agentSignature: { pubkey: agentAddress, signature: agentSig },
   counterpartySignature: { pubkey: clientAddress, signature: counterpartySig },
   counterpartyMessage: siwsMessageBytes,

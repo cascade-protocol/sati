@@ -83,12 +83,12 @@ export class SatiAgent {
   static fromIdentity(sdk: SatiAgent0, identity: AgentIdentity, satiRegFile: SatiRegistrationFile): SatiAgent {
     const builder = sdk.sati.createAgentBuilder(satiRegFile.name, satiRegFile.description, satiRegFile.image);
 
-    // Populate builder from SATI registration file endpoints
-    for (const ep of satiRegFile.endpoints ?? []) {
+    // Populate builder from SATI registration file services
+    for (const ep of satiRegFile.services ?? []) {
       builder.setEndpoint(ep);
     }
     if (satiRegFile.active !== undefined) builder.setActive(satiRegFile.active);
-    if (satiRegFile.x402support !== undefined) builder.setX402Support(satiRegFile.x402support);
+    if (satiRegFile.x402Support !== undefined) builder.setX402Support(satiRegFile.x402Support);
     if (satiRegFile.supportedTrust) builder.setSupportedTrust(satiRegFile.supportedTrust);
     if (satiRegFile.external_url) builder.setExternalUrl(satiRegFile.external_url);
 
@@ -230,14 +230,14 @@ export class SatiAgent {
    * Remove endpoint(s).
    */
   removeEndpoint(opts?: { type?: EndpointType; value?: string }): this {
-    const endpoints = this._builder.params.endpoints ?? [];
+    const services = this._builder.params.services ?? [];
     if (!opts || (opts.type === undefined && opts.value === undefined)) {
       // Remove all
-      for (const ep of [...endpoints]) {
+      for (const ep of [...services]) {
         this._builder.removeEndpoint(ep.name);
       }
     } else {
-      for (const ep of [...endpoints]) {
+      for (const ep of [...services]) {
         const satiName = opts.type !== undefined ? (AGENT0_TO_SATI_NAME[opts.type] ?? opts.type) : undefined;
         const typeMatches = satiName === undefined || ep.name === satiName;
         const valueMatches = opts.value === undefined || ep.endpoint === opts.value;
@@ -631,14 +631,14 @@ export class SatiAgent {
 
   /** Find a SATI endpoint by name in the builder's params. */
   private _findEndpoint(name: string): SatiEndpoint | undefined {
-    return this._builder.params.endpoints?.find((ep) => ep.name === name);
+    return this._builder.params.services?.find((ep) => ep.name === name);
   }
 
   /** Construct agent0 RegistrationFile on-demand from builder state. */
   private _toAgent0RegFile(): RegistrationFile {
     const params = this._builder.params;
     const identity = this._builder.identity;
-    const endpoints = toAgent0Endpoints(params.endpoints ?? []);
+    const endpoints = toAgent0Endpoints(params.services ?? []);
     const trustModels: (TrustModel | string)[] = (params.supportedTrust ?? []).map((t) => {
       if (t === "reputation") return TrustModel.REPUTATION;
       if (t === "crypto-economic") return TrustModel.CRYPTO_ECONOMIC;
@@ -646,7 +646,7 @@ export class SatiAgent {
       return t;
     });
 
-    const walletEp = params.endpoints?.find((ep) => ep.name === "agentWallet");
+    const walletEp = params.services?.find((ep) => ep.name === "agentWallet");
 
     return {
       agentId: identity ? formatSatiAgentId(identity.mint, this._sdk.chain) : undefined,
@@ -660,7 +660,7 @@ export class SatiAgent {
       owners: identity ? [identity.owner] : [],
       operators: [],
       active: params.active ?? true,
-      x402support: params.x402support ?? false,
+      x402support: params.x402Support ?? false,
       metadata: { ...this._metadata },
       updatedAt: this._updatedAt,
     };

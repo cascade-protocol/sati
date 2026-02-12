@@ -277,7 +277,7 @@ export interface CreateFeedbackParams {
    * @example
    * ```typescript
    * // Small content (fits in DualSignature)
-   * content: new TextEncoder().encode('{"score":85,"tags":["fast"]}')
+   * content: new TextEncoder().encode('{"value":85,"valueDecimals":0,"tag1":"starred"}')
    *
    * // Large content (use IPFS reference)
    * contentType: ContentType.IPFS,
@@ -2629,8 +2629,9 @@ export class Sati {
    * const result = await sati.giveFeedback({
    *   payer: myKeypair,
    *   agentMint: address("Agent..."),
-   *   score: 85,
-   *   tags: ["quality", "speed"],
+   *   value: 87,
+   *   valueDecimals: 0,
+   *   tag1: "starred",
    *   message: "Great response time",
    * });
    * ```
@@ -2639,15 +2640,20 @@ export class Sati {
     const schema = this._requireFeedbackPublicSchema();
     const payer = params.payer;
 
-    // Validate score
-    if (params.score !== undefined && (!Number.isFinite(params.score) || params.score < 0 || params.score > 100)) {
-      throw new Error(`Feedback score must be a finite number between 0 and 100, got: ${params.score}`);
+    // Validate value
+    if (params.value !== undefined && !Number.isFinite(params.value)) {
+      throw new Error(`Feedback value must be a finite number, got: ${params.value}`);
+    }
+    if (params.valueDecimals !== undefined && (params.valueDecimals < 0 || params.valueDecimals > 18)) {
+      throw new Error(`valueDecimals must be 0-18, got: ${params.valueDecimals}`);
     }
 
-    // Build content JSON
+    // Build content JSON (ERC-8004 field names)
     const contentObj: Record<string, unknown> = {};
-    if (params.score !== undefined) contentObj.score = params.score;
-    if (params.tags?.length) contentObj.tags = params.tags;
+    if (params.value !== undefined) contentObj.value = params.value;
+    if (params.valueDecimals !== undefined) contentObj.valueDecimals = params.valueDecimals;
+    if (params.tag1) contentObj.tag1 = params.tag1;
+    if (params.tag2) contentObj.tag2 = params.tag2;
     if (params.endpoint) contentObj.endpoint = params.endpoint;
     if (params.message) contentObj.m = params.message;
 
@@ -2712,14 +2718,19 @@ export class Sati {
   ): Promise<PreparedFeedbackData> {
     const schema = this._requireFeedbackPublicSchema();
 
-    if (params.score !== undefined && (!Number.isFinite(params.score) || params.score < 0 || params.score > 100)) {
-      throw new Error(`Feedback score must be a finite number between 0 and 100, got: ${params.score}`);
+    if (params.value !== undefined && !Number.isFinite(params.value)) {
+      throw new Error(`Feedback value must be a finite number, got: ${params.value}`);
+    }
+    if (params.valueDecimals !== undefined && (params.valueDecimals < 0 || params.valueDecimals > 18)) {
+      throw new Error(`valueDecimals must be 0-18, got: ${params.valueDecimals}`);
     }
 
-    // Build content JSON
+    // Build content JSON (ERC-8004 field names)
     const contentObj: Record<string, unknown> = {};
-    if (params.score !== undefined) contentObj.score = params.score;
-    if (params.tags?.length) contentObj.tags = params.tags;
+    if (params.value !== undefined) contentObj.value = params.value;
+    if (params.valueDecimals !== undefined) contentObj.valueDecimals = params.valueDecimals;
+    if (params.tag1) contentObj.tag1 = params.tag1;
+    if (params.tag2) contentObj.tag2 = params.tag2;
     if (params.endpoint) contentObj.endpoint = params.endpoint;
     if (params.message) contentObj.m = params.message;
 
@@ -2757,8 +2768,10 @@ export class Sati {
       sasSchema: schema,
       lookupTable: this._deployedConfig?.lookupTable,
       meta: {
-        score: params.score,
-        tags: params.tags ? [...params.tags] : undefined,
+        value: params.value,
+        valueDecimals: params.valueDecimals,
+        tag1: params.tag1,
+        tag2: params.tag2,
         message: params.message,
         endpoint: params.endpoint,
       },
@@ -2842,8 +2855,8 @@ export class Sati {
    * ```typescript
    * const feedbacks = await sati.searchFeedback({
    *   agentMint: address("Agent..."),
-   *   tags: ["quality"],
-   *   minScore: 70,
+   *   tag1: "starred",
+   *   minValue: 70,
    * });
    * ```
    */
@@ -2872,20 +2885,20 @@ export class Sati {
     for (const item of result.items) {
       const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
 
-      const score = rawContent?.score as number | undefined;
-      const tags = (rawContent?.tags as string[]) ?? [];
+      const value = rawContent?.value as number | undefined;
+      const valueDecimals = rawContent?.valueDecimals as number | undefined;
+      const tag1 = rawContent?.tag1 as string | undefined;
+      const tag2 = rawContent?.tag2 as string | undefined;
       const message = rawContent?.m as string | undefined;
       const endpoint = rawContent?.endpoint as string | undefined;
 
       // Client-side tag filtering
-      if (options?.tags?.length) {
-        const hasAll = options.tags.every((t) => tags.includes(t));
-        if (!hasAll) continue;
-      }
+      if (options?.tag1 !== undefined && tag1 !== options.tag1) continue;
+      if (options?.tag2 !== undefined && tag2 !== options.tag2) continue;
 
-      // Client-side score filtering
-      if (options?.minScore !== undefined && (score === undefined || score < options.minScore)) continue;
-      if (options?.maxScore !== undefined && (score === undefined || score > options.maxScore)) continue;
+      // Client-side value filtering
+      if (options?.minValue !== undefined && (value === undefined || value < options.minValue)) continue;
+      if (options?.maxValue !== undefined && (value === undefined || value > options.maxValue)) continue;
 
       // Compute createdAt from slotCreated (~400ms per slot)
       const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
@@ -2898,8 +2911,10 @@ export class Sati {
         agentMint: item.data.agentMint as Address,
         counterparty: item.data.counterparty as Address,
         outcome: item.data.outcome,
-        score,
-        tags,
+        value,
+        valueDecimals,
+        tag1,
+        tag2,
         message,
         endpoint,
         createdAt,
@@ -2932,15 +2947,15 @@ export class Sati {
   /**
    * Get reputation summary for an agent.
    *
-   * Aggregates feedback scores, optionally filtered by tags.
+   * Aggregates feedback values, optionally filtered by tag1 and/or tag2.
    *
    * @example
    * ```typescript
    * const summary = await sati.getReputationSummary(address("Agent..."));
-   * console.log(`${summary.count} reviews, avg ${summary.averageScore}`);
+   * console.log(`${summary.count} reviews, avg ${summary.averageValue}`);
    * ```
    */
-  async getReputationSummary(agentMint: Address, tags?: string[]): Promise<ReputationSummary> {
+  async getReputationSummary(agentMint: Address, tag1?: string, tag2?: string): Promise<ReputationSummary> {
     const schema = this._deployedConfig?.schemas.feedbackPublic ?? this._deployedConfig?.schemas.feedback;
     if (!schema) {
       throw new Error(`No feedback schema deployed for network "${this.network}"`);
@@ -2952,7 +2967,7 @@ export class Sati {
     if (!cached) this._feedbackCache.set(cacheKey, result);
 
     if (result.items.length === 0) {
-      return { count: 0, averageScore: 0 };
+      return { count: 0, averageValue: 0 };
     }
 
     let sum = 0;
@@ -2960,21 +2975,23 @@ export class Sati {
 
     for (const item of result.items) {
       const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
-      const score = rawContent?.score as number | undefined;
-      const itemTags = (rawContent?.tags as string[]) ?? [];
+      const value = rawContent?.value as number | undefined;
+      const itemTag1 = rawContent?.tag1 as string | undefined;
+      const itemTag2 = rawContent?.tag2 as string | undefined;
 
       // Apply tag filters
-      if (tags?.length && !tags.every((t) => itemTags.includes(t))) continue;
+      if (tag1 !== undefined && itemTag1 !== tag1) continue;
+      if (tag2 !== undefined && itemTag2 !== tag2) continue;
 
-      if (score !== undefined) {
-        sum += score;
+      if (value !== undefined) {
+        sum += value;
         count++;
       }
     }
 
     return {
       count,
-      averageScore: count > 0 ? sum / count : 0,
+      averageValue: count > 0 ? sum / count : 0,
     };
   }
 
@@ -3064,12 +3081,12 @@ export class Sati {
     for (let i = 0; i < agents.length; i++) {
       const identity = agents[i];
       const regFile = regFiles[i];
-      const endpoints = regFile?.endpoints ?? [];
+      const services = regFile?.services ?? [];
 
       if (options?.active !== undefined && (regFile?.active ?? true) !== options.active) continue;
       if (options?.endpointTypes?.length) {
         const hasAllTypes = options.endpointTypes.every((type) =>
-          endpoints.some((e) => e.name.toUpperCase() === type.toUpperCase()),
+          services.some((e) => e.name.toUpperCase() === type.toUpperCase()),
         );
         if (!hasAllTypes) continue;
       }

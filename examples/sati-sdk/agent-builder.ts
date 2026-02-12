@@ -56,12 +56,12 @@ async function main() {
   const params = builder.params;
   console.log("Agent configuration:");
   console.log(`  Name: ${params.name}`);
-  console.log(`  Endpoints: ${params.endpoints?.length ?? 0}`);
-  for (const ep of params.endpoints ?? []) {
+  console.log(`  Services: ${params.services?.length ?? 0}`);
+  for (const ep of params.services ?? []) {
     console.log(`    - ${ep.name}: ${ep.endpoint}`);
   }
   console.log(`  Trust: ${params.supportedTrust?.join(", ")}`);
-  console.log(`  Active: ${params.active}, x402: ${params.x402support}`);
+  console.log(`  Active: ${params.active}, x402: ${params.x402Support}`);
 
   // Register on-chain
   console.log("\nRegistering...");
@@ -82,7 +82,7 @@ async function main() {
 
   // Remove an endpoint
   builder.removeEndpoint("web");
-  console.log(`\nEndpoints after removal: ${builder.params.endpoints?.length ?? 0}`);
+  console.log(`\nServices after removal: ${builder.params.services?.length ?? 0}`);
 }
 
 main().catch(console.error);

@@ -382,8 +382,8 @@ import {
   toAgentSummary,              // SATI identity => AgentSummary
   toAgent0RegistrationFile,    // SATI reg => agent0 RegistrationFile
   fromAgent0RegistrationFile,  // agent0 RegistrationFile => SATI params
-  toAgent0Endpoints,           // SATI endpoints => agent0 Endpoint[]
-  fromAgent0Endpoints,         // agent0 Endpoint[] => SATI endpoints
+  toAgent0Endpoints,           // SATI services => agent0 Endpoint[]
+  fromAgent0Endpoints,         // agent0 Endpoint[] => SATI services
   toFeedback,                  // SATI attestation => agent0 Feedback
 } from "@cascade-fyi/sati-agent0-sdk";
 ```

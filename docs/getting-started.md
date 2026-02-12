@@ -85,17 +85,18 @@ const reg = await builder.register({
 console.log(reg.mint);         // agent mint address
 console.log(reg.signature);    // transaction signature
 
-// 4. Give feedback (0-100 score with optional tags)
+// 4. Give feedback (ERC-8004 value/tag fields)
 const fb = await sati.giveFeedback({
   payer: signer,
   agentMint: reg.mint,
-  score: 85,
-  tags: ["quality", "speed"],
+  value: 85,
+  tag1: "quality",
+  tag2: "speed",
 });
 
 // 5. Query reputation
 const summary = await sati.getReputationSummary(reg.mint);
-console.log(`${summary.count} reviews, avg ${summary.averageScore}`);
+console.log(`${summary.count} reviews, avg ${summary.averageValue}`);
 ```
 
 ```typescript [sati-agent0-sdk]
@@ -121,7 +122,7 @@ const regHandle = await agent.registerIPFS();
 console.log(agent.agentId);   // solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1:MintAddr...
 console.log(regHandle.hash);  // transaction signature
 
-// 4. Give feedback (0-100 score with optional tags)
+// 4. Give feedback (ERC-8004 value/tag fields)
 const fbHandle = await sdk.giveFeedback(agent.agentId!, 85, "quality", "speed");
 const { result: feedback } = await fbHandle.waitMined();
 
@@ -149,7 +150,7 @@ import { Sati } from "@cascade-fyi/sati-sdk";
 const sati = new Sati({ network: "devnet" });
 
 // With convenience writes - pass a payer to each write method
-const result = await sati.giveFeedback({ payer: signer, agentMint, score: 85 });
+const result = await sati.giveFeedback({ payer: signer, agentMint, value: 85 });
 ```
 
 ## Next Steps

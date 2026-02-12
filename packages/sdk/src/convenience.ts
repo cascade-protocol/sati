@@ -20,13 +20,17 @@ export interface GiveFeedbackParams {
   payer: KeyPairSigner;
   /** Agent mint address to review */
   agentMint: Address;
-  /** Numeric score 0-100 (auto-maps to outcome if not provided) */
-  score?: number;
-  /** Tag dimensions for the feedback (1 or 2 tags) */
-  tags?: [string] | [string, string];
+  /** ERC-8004 signed fixed-point value (e.g. 87 for score, -32 for -3.2% yield) */
+  value?: number;
+  /** Decimal places for value (0-18). E.g. valueDecimals=0 means integer, =2 means 2 decimal places. Default 0. */
+  valueDecimals?: number;
+  /** First tag dimension (e.g. "starred", "uptime", "successRate") */
+  tag1?: string;
+  /** Second tag dimension (optional sub-category) */
+  tag2?: string;
   /** Human-readable feedback message */
   message?: string;
-  /** Endpoint being reviewed */
+  /** Endpoint URI being reviewed */
   endpoint?: string;
   /** Explicit outcome (defaults to Neutral if not set) */
   outcome?: Outcome;
@@ -65,7 +69,7 @@ export interface PreparedFeedbackData {
   /** Address lookup table (if available) */
   lookupTable?: Address;
   /** Original input values for reconstructing display data */
-  meta: { score?: number; tags?: string[]; message?: string; endpoint?: string };
+  meta: { value?: number; valueDecimals?: number; tag1?: string; tag2?: string; message?: string; endpoint?: string };
 }
 
 // ============================================================================
@@ -78,12 +82,14 @@ export interface FeedbackSearchOptions {
   agentMint?: Address;
   /** Filter by counterparty (reviewer) */
   counterparty?: Address;
-  /** Filter by tag dimensions */
-  tags?: string[];
-  /** Minimum score (inclusive) */
-  minScore?: number;
-  /** Maximum score (inclusive) */
-  maxScore?: number;
+  /** Filter by tag1 */
+  tag1?: string;
+  /** Filter by tag2 */
+  tag2?: string;
+  /** Minimum value (inclusive) */
+  minValue?: number;
+  /** Maximum value (inclusive) */
+  maxValue?: number;
   /** Include transaction hash in results (extra RPC call) */
   includeTxHash?: boolean;
 }
@@ -98,10 +104,14 @@ export interface ParsedFeedback {
   counterparty: Address;
   /** Feedback outcome */
   outcome: Outcome;
-  /** Numeric score 0-100 (from JSON content) */
-  score?: number;
-  /** Tag dimensions */
-  tags: string[];
+  /** ERC-8004 signed fixed-point value */
+  value?: number;
+  /** Decimal places for value (0-18) */
+  valueDecimals?: number;
+  /** First tag dimension */
+  tag1?: string;
+  /** Second tag dimension */
+  tag2?: string;
   /** Feedback message */
   message?: string;
   /** Endpoint reviewed */
@@ -114,10 +124,10 @@ export interface ParsedFeedback {
 
 /** Reputation summary aggregated from feedback. */
 export interface ReputationSummary {
-  /** Number of feedback attestations */
+  /** Number of feedback attestations with values */
   count: number;
-  /** Average score (0-100) across attestations with scores */
-  averageScore: number;
+  /** Average value across attestations (raw, not adjusted for valueDecimals) */
+  averageValue: number;
 }
 
 // ============================================================================

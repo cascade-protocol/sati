@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-12
+
+### Breaking Changes
+
+- **Feedback content fields renamed for ERC-8004 alignment**: `score` -> `value`, `tags` -> `tag1`/`tag2`, added `valueDecimals`
+  - `GiveFeedbackParams`: `score?` -> `value?`, `tags?` -> `tag1?`/`tag2?`, added `valueDecimals?`
+  - `ParsedFeedback`: `score?` -> `value?`, `tags` -> `tag1?`/`tag2?`, added `valueDecimals?`
+  - `FeedbackSearchOptions`: `minScore`/`maxScore` -> `minValue`/`maxValue`, `tags?` -> `tag1?`/`tag2?`
+  - `ReputationSummary`: `averageScore` -> `averageValue`
+  - `FeedbackContent`: `score?` -> `value?`, `tags?` -> `tag1?`/`tag2?`, added `valueDecimals?`
+- **`getReputationSummary` signature changed**: `(agentMint, tags?)` -> `(agentMint, tag1?, tag2?)`
+- **Registration file fields renamed**: `endpoints` -> `services`, `x402support` -> `x402Support`
+
 ## [0.7.0] - 2026-02-12
 
 ### Added
@@ -144,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.8.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.7.0...@cascade-fyi/sati-sdk@0.8.0
 [0.7.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.6.0...@cascade-fyi/sati-sdk@0.7.0
 [0.6.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.5.0...@cascade-fyi/sati-sdk@0.6.0
 [0.5.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.4.2...@cascade-fyi/sati-sdk@0.5.0

@@ -92,12 +92,12 @@ export function FeedbackDetailModal({ feedback, currentSlot, children }: Feedbac
           <Separator />
 
           {/* Tags */}
-          {content?.tags && content.tags.length > 0 && (
+          {(content?.tag1 || content?.tag2) && (
             <>
               <div>
                 <span className="text-sm font-medium text-muted-foreground block mb-2">Tags</span>
                 <div className="flex flex-wrap gap-2">
-                  {content.tags.map((tag) => (
+                  {[content.tag1, content.tag2].filter(Boolean).map((tag) => (
                     <span key={tag} className="px-3 py-1 text-sm bg-muted rounded-full">
                       {tag}
                     </span>
@@ -108,12 +108,15 @@ export function FeedbackDetailModal({ feedback, currentSlot, children }: Feedbac
             </>
           )}
 
-          {/* Score */}
-          {content?.score !== undefined && (
+          {/* Value */}
+          {content?.value !== undefined && (
             <>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-muted-foreground">Score</span>
-                <span className="text-lg font-semibold">{content.score}/100</span>
+                <span className="text-sm font-medium text-muted-foreground">Value</span>
+                <span className="text-lg font-semibold">
+                  {content.value}
+                  {content.valueDecimals ? ` (${content.valueDecimals} decimals)` : ""}
+                </span>
               </div>
               <Separator />
             </>

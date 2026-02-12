@@ -67,11 +67,11 @@ const RegistrationFileSchema = z.object({
   image: z.url(),
   properties: PropertiesSchema,
   external_url: z.url().optional(),
-  endpoints: z.array(EndpointSchema).optional(),
+  services: z.array(EndpointSchema).optional(),
   registrations: z.array(RegistrationEntrySchema).optional(),
   supportedTrust: z.array(TrustMechanismSchema).optional(),
   active: z.boolean().optional().default(true),
-  x402support: z.boolean().optional(),
+  x402Support: z.boolean().optional(),
 });
 
 // ============================================================================
@@ -130,8 +130,8 @@ export interface RegistrationFile {
   properties: Properties;
   /** Project website URL */
   external_url?: string;
-  /** Service endpoints (A2A, MCP, agentWallet) */
-  endpoints?: Endpoint[];
+  /** Service endpoints (A2A, MCP, agentWallet) - ERC-8004 "services" array */
+  services?: Endpoint[];
   /** Cross-chain registration entries */
   registrations?: RegistrationEntry[];
   /** Supported trust mechanisms */
@@ -139,7 +139,7 @@ export interface RegistrationFile {
   /** Agent operational status */
   active?: boolean;
   /** Accepts x402 payments */
-  x402support?: boolean;
+  x402Support?: boolean;
 }
 
 /** Input parameters for buildRegistrationFile */
@@ -149,11 +149,11 @@ export interface RegistrationFileParams {
   image: string;
   imageMimeType?: string;
   externalUrl?: string;
-  endpoints?: Endpoint[];
+  services?: Endpoint[];
   registrations?: RegistrationEntry[];
   supportedTrust?: TrustMechanism[];
   active?: boolean;
-  x402support?: boolean;
+  x402Support?: boolean;
 }
 
 // ============================================================================
@@ -202,7 +202,7 @@ export function buildRegistrationFile(params: RegistrationFileParams): Registrat
       category: "image" as const,
     },
     ...(params.externalUrl && { external_url: params.externalUrl }),
-    ...(params.endpoints?.length && { endpoints: params.endpoints }),
+    ...(params.services?.length && { services: params.services }),
     ...(params.registrations?.length && {
       registrations: params.registrations,
     }),
@@ -210,8 +210,8 @@ export function buildRegistrationFile(params: RegistrationFileParams): Registrat
       supportedTrust: params.supportedTrust,
     }),
     active: params.active ?? true,
-    ...(params.x402support !== undefined && {
-      x402support: params.x402support,
+    ...(params.x402Support !== undefined && {
+      x402Support: params.x402Support,
     }),
   };
 

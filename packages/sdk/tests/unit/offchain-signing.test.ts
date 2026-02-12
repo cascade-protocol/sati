@@ -43,7 +43,7 @@ function buildTestData(
 ): Uint8Array {
   const outcome = options.outcome ?? Outcome.Positive;
   const contentType = options.contentType ?? ContentType.JSON;
-  const content = options.content ?? new TextEncoder().encode('{"score": 95}');
+  const content = options.content ?? new TextEncoder().encode('{"value": 95, "valueDecimals": 0}');
 
   // Universal layout: task_ref(32) + agent_mint(32) + counterparty(32) + outcome(1) + data_hash(32) + content_type(1) + content
   const data = new Uint8Array(OFFSETS.CONTENT + content.length);
@@ -206,7 +206,7 @@ describe("buildCounterpartyMessage", () => {
   });
 
   test("includes JSON content as text", () => {
-    const content = new TextEncoder().encode('{"score": 95, "tags": ["fast"]}');
+    const content = new TextEncoder().encode('{"value": 95, "valueDecimals": 0, "tag1": "quality"}');
     const data = buildTestData({
       contentType: ContentType.JSON,
       content,
@@ -216,7 +216,7 @@ describe("buildCounterpartyMessage", () => {
       data,
     });
 
-    expect(result.text).toContain('Details: {"score": 95, "tags": ["fast"]}');
+    expect(result.text).toContain('Details: {"value": 95, "valueDecimals": 0, "tag1": "quality"}');
   });
 
   test("includes UTF8 content as text", () => {

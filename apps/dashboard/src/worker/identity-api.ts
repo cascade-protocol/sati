@@ -199,10 +199,10 @@ export function createIdentityApi(env: Env) {
         description: body.description.trim(),
         image: body.image.trim(),
         externalUrl: body.externalUrl,
-        endpoints: body.services as Endpoint[],
+        services: body.services as Endpoint[],
         supportedTrust: body.supportedTrust as TrustMechanism[],
         active: body.active ?? true,
-        x402support: body.x402Support,
+        x402Support: body.x402Support,
       });
 
       // Upload to IPFS
@@ -293,9 +293,9 @@ export function createIdentityApi(env: Env) {
           uri: agent.uri,
           memberNumber: Number(agent.memberNumber),
           active: regFile?.active ?? true,
-          services: regFile?.endpoints ?? [],
+          services: regFile?.services ?? [],
           supportedTrust: regFile?.supportedTrust ?? [],
-          x402Support: regFile?.x402support ?? false,
+          x402Support: regFile?.x402Support ?? false,
         });
       }
 
@@ -344,8 +344,8 @@ export function createIdentityApi(env: Env) {
         for (const fb of feedbacks.items) {
           const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
           feedbackCount++;
-          if (parsed?.score !== undefined) {
-            totalValue += parsed.score;
+          if (parsed?.value !== undefined) {
+            totalValue += parsed.value;
           }
         }
       }
@@ -360,9 +360,9 @@ export function createIdentityApi(env: Env) {
         uri: agent.uri,
         memberNumber: Number(agent.memberNumber),
         active: regFile?.active ?? true,
-        services: regFile?.endpoints ?? [],
+        services: regFile?.services ?? [],
         supportedTrust: regFile?.supportedTrust ?? [],
-        x402Support: regFile?.x402support ?? false,
+        x402Support: regFile?.x402Support ?? false,
         registrations: regFile?.registrations ?? [],
         reputation: {
           count: feedbackCount,
@@ -418,8 +418,7 @@ export function createIdentityApi(env: Env) {
           if (clientAddresses.length > 0 && !clientAddresses.includes(fb.data.counterparty)) continue;
 
           count++;
-          // Support both old (score) and new (value) format
-          const value = (contentJson?.value as number) ?? (contentJson?.score as number);
+          const value = contentJson?.value as number | undefined;
           if (value !== undefined) {
             totalValue += value;
             hasValues = true;
@@ -479,7 +478,7 @@ export function createIdentityApi(env: Env) {
           feedbackItems.push({
             clientAddress: fb.data.counterparty,
             feedbackIndex: feedbackIndex++,
-            value: (contentJson?.value as number) ?? (contentJson?.score as number) ?? 0,
+            value: (contentJson?.value as number) ?? 0,
             valueDecimals: (contentJson?.valueDecimals as number) ?? 0,
             tag1: (contentJson?.tag1 as string) ?? "",
             tag2: (contentJson?.tag2 as string) ?? "",

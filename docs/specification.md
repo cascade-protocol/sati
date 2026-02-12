@@ -326,7 +326,7 @@ SATI feedback
 Agent: 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU
 Task: 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
 Outcome: Positive
-Details: {"score":85,"tags":["helpful","fast"],"m":"Great service!"}
+Details: {"value":85,"valueDecimals":0,"tag1":"helpful","tag2":"fast","m":"Great service!"}
 
 Sign to create this attestation.
 ```
@@ -480,9 +480,12 @@ Uses universal base layout (131 bytes) + JSON content for extensibility.
 
 ```json
 {
-  "score": 85,                         // ERC-8004 score (0-100)
-  "tags": ["helpful", "fast"],         // Category tags
-  "m": "Great service!"                // Message/comment
+  "value": 85,                         // ERC-8004 signed fixed-point value
+  "valueDecimals": 0,                  // decimal places (0-18)
+  "tag1": "helpful",                   // first tag dimension
+  "tag2": "fast",                      // second tag dimension
+  "endpoint": "https://api.example.com", // endpoint reviewed
+  "m": "Great service!"                // message/comment
 }
 ```
 
@@ -490,7 +493,7 @@ Uses universal base layout (131 bytes) + JSON content for extensibility.
 
 **Fixed offset benefit**: `outcome` at offset 97 enables Photon memcmp filtering by feedback sentiment.
 
-**ERC-8004 compatibility**: Include `score` in JSON content for ERC-8004 interoperability. The `outcome` field provides categorical filtering (Negative/Neutral/Positive) while `score` provides granular 0-100 values.
+**ERC-8004 field mapping**: `value` + `valueDecimals` map directly to ERC-8004's `int128 value` + `uint8 valueDecimals`. `tag1`/`tag2` map to ERC-8004's `tag1`/`tag2` string fields. The `outcome` field provides categorical filtering (Negative/Neutral/Positive) while `value` provides granular numeric feedback.
 
 ### FeedbackPublicV1 Schema
 
@@ -720,8 +723,8 @@ The `content_type` field determines how to interpret the variable-length `conten
 **Examples:**
 
 ```json
-// content_type=1 (JSON), ~60 bytes
-{"score":85,"tags":["helpful"],"m":"Fast and accurate"}
+// content_type=1 (JSON), ~80 bytes
+{"value":85,"valueDecimals":0,"tag1":"helpful","m":"Fast and accurate"}
 
 // content_type=2 (UTF-8), ~30 bytes
 "Excellent service, would recommend"
@@ -800,7 +803,7 @@ import { encryptContent, deriveEncryptionKeypair } from '@cascade-fyi/sati-sdk';
 const { publicKey } = deriveEncryptionKeypair(agentEd25519Seed);
 
 // Encrypt feedback content
-const plaintext = JSON.stringify({ score: 85, m: "Private feedback" });
+const plaintext = JSON.stringify({ value: 85, valueDecimals: 0, m: "Private feedback" });
 const encrypted = encryptContent(
   new TextEncoder().encode(plaintext),
   publicKey
@@ -1247,11 +1250,11 @@ The registration file is an off-chain JSON document referenced by the on-chain `
 | `properties.files` | Metaplex | Yes* | Image with MIME type for wallet display |
 | `properties.category` | Metaplex | No | Asset category |
 | `external_url` | Metaplex | No | Project website |
-| `endpoints` | ERC-8004 | No | Service endpoints (A2A, MCP, etc.) |
+| `services` | ERC-8004 | No | Service endpoints (A2A, MCP, etc.) |
 | `registrations` | ERC-8004 | No | Cross-chain registration entries |
 | `supportedTrust` | ERC-8004 | No | Supported trust mechanisms |
 | `active` | SATI | No | Operational status |
-| `x402support` | SATI | No | x402 payment support |
+| `x402Support` | ERC-8004 | No | x402 payment support |
 
 *Required for Phantom wallet image rendering
 
@@ -1270,7 +1273,7 @@ The registration file is an off-chain JSON document referenced by the on-chain `
   },
   "external_url": "https://myagent.example.com",
 
-  "endpoints": [
+  "services": [
     { "name": "A2A", "endpoint": "https://agent.example/agent-card.json", "version": "0.3.0" },
     { "name": "MCP", "endpoint": "https://mcp.agent.example/", "version": "2025-06-18" },
     { "name": "agentWallet", "endpoint": "solana:5eykt4...:7S3P4..." }
@@ -1281,7 +1284,7 @@ The registration file is an off-chain JSON document referenced by the on-chain `
   ],
   "supportedTrust": ["reputation"],
   "active": true,
-  "x402support": true
+  "x402Support": true
 }
 ```
 
@@ -1304,9 +1307,9 @@ Including both ensures compatibility with both ecosystems.
 
 | Consumer | Reads | Ignores |
 |----------|-------|---------|
-| Phantom/Solflare | name, description, image, properties.files, external_url | type, endpoints, registrations, supportedTrust, active, x402support |
+| Phantom/Solflare | name, description, image, properties.files, external_url | type, services, registrations, supportedTrust, active, x402Support |
 | Solscan | name, description, image, properties.files | Same as wallets |
-| ERC-8004 clients | type, name, description, image, endpoints, registrations, supportedTrust | properties, external_url, active, x402support |
+| ERC-8004 clients | type, name, description, image, services, registrations, supportedTrust | properties, external_url, active, x402Support |
 | SATI SDK | All fields | — |
 
 Custom fields from either standard are preserved but ignored by consumers that don't understand them.

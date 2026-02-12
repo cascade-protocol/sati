@@ -36,7 +36,7 @@ export class SatiAgentBuilder {
       name,
       description,
       image,
-      endpoints: [],
+      services: [],
       active: true,
     };
   }
@@ -61,9 +61,9 @@ export class SatiAgentBuilder {
 
   /** Set a generic endpoint. */
   setEndpoint(endpoint: Endpoint): this {
-    if (!this._params.endpoints) this._params.endpoints = [];
-    this._params.endpoints = this._params.endpoints.filter((ep) => ep.name !== endpoint.name);
-    this._params.endpoints.push(endpoint);
+    if (!this._params.services) this._params.services = [];
+    this._params.services = this._params.services.filter((ep) => ep.name !== endpoint.name);
+    this._params.services.push(endpoint);
     return this;
   }
 
@@ -104,8 +104,8 @@ export class SatiAgentBuilder {
 
   /** Remove an endpoint by name. */
   removeEndpoint(name: string): this {
-    if (this._params.endpoints) {
-      this._params.endpoints = this._params.endpoints.filter((ep) => ep.name !== name);
+    if (this._params.services) {
+      this._params.services = this._params.services.filter((ep) => ep.name !== name);
     }
     return this;
   }
@@ -118,7 +118,7 @@ export class SatiAgentBuilder {
 
   /** Set x402 payment support. */
   setX402Support(x402: boolean): this {
-    this._params.x402support = x402;
+    this._params.x402Support = x402;
     return this;
   }
 

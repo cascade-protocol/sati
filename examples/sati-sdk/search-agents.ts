@@ -41,10 +41,10 @@ async function main() {
   console.log(`Found ${active.length} active agents`);
 
   for (const agent of active.slice(0, 5)) {
-    const endpoints = agent.registrationFile?.endpoints ?? [];
-    const types = endpoints.map((e) => e.name).join(", ");
+    const services = agent.registrationFile?.services ?? [];
+    const types = services.map((e) => e.name).join(", ");
     console.log(`  - ${agent.identity.name} (${agent.identity.mint})`);
-    console.log(`    Endpoints: ${types || "none"}`);
+    console.log(`    Services: ${types || "none"}`);
   }
 
   // 5. Include feedback stats (slower - extra RPC calls per agent)
@@ -57,7 +57,7 @@ async function main() {
   for (const agent of withStats) {
     const stats = agent.feedbackStats;
     console.log(
-      `  - ${agent.identity.name}: ` + `${stats?.count ?? 0} reviews, avg ${stats?.averageScore?.toFixed(1) ?? "N/A"}`,
+      `  - ${agent.identity.name}: ` + `${stats?.count ?? 0} reviews, avg ${stats?.averageValue?.toFixed(1) ?? "N/A"}`,
     );
   }
 }

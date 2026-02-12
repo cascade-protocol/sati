@@ -1,0 +1,16 @@
+{
+  "name": "examples",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cascade-fyi/sati-sdk": "workspace:*",
+    "@cascade-fyi/sati-agent0-sdk": "workspace:*",
+    "@solana/kit": "^5.0.0",
+    "@solana-program/token-2022": ">=0.5.0",
+    "agent0-sdk": ">=1.5.0",
+    "dotenv": "^16.4.7"
+  }
+}

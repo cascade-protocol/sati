@@ -132,17 +132,17 @@ export enum DataType {
 /**
  * Feedback outcome values (ERC-8004 compatible)
  *
- * For ERC-8004 score mapping:
- * - Negative(0) → 0
- * - Neutral(1) → 50
- * - Positive(2) → 100
+ * Maps to ERC-8004 outcome semantics:
+ * - Negative(0) - unfavorable interaction
+ * - Neutral(1) - default / no strong signal
+ * - Positive(2) - favorable interaction
  */
 export enum Outcome {
-  /** Negative feedback (score 0) */
+  /** Negative feedback */
   Negative = 0,
-  /** Neutral feedback (score 50) */
+  /** Neutral feedback (default) */
   Neutral = 1,
-  /** Positive feedback (score 100) */
+  /** Positive feedback */
   Positive = 2,
 }
 
@@ -220,8 +220,8 @@ export interface BaseLayout {
 /**
  * Feedback schema - uses universal base layout
  *
- * Schema-specific fields (tags, score, message) go in JSON content:
- * { "score": 85, "tags": ["fast", "accurate"], "m": "Great response!" }
+ * Schema-specific fields (value, tags, message) go in JSON content:
+ * { "value": 85, "valueDecimals": 0, "tag1": "quality", "tag2": "latency", "m": "Great response!" }
  */
 export interface FeedbackData extends BaseLayout {}
 
@@ -229,10 +229,16 @@ export interface FeedbackData extends BaseLayout {}
  * Feedback JSON content structure (optional fields in content)
  */
 export interface FeedbackContent {
-  /** ERC-8004 compatible score: 0-100 */
-  score?: number;
-  /** Category tags (max 32 chars each) */
-  tags?: string[];
+  /** ERC-8004 signed fixed-point value */
+  value?: number;
+  /** Decimal places for value (0-18) */
+  valueDecimals?: number;
+  /** First tag dimension */
+  tag1?: string;
+  /** Second tag dimension */
+  tag2?: string;
+  /** Endpoint URI being reviewed */
+  endpoint?: string;
   /** Feedback message */
   m?: string;
 }
@@ -341,8 +347,8 @@ export function parseValidationContent(content: Uint8Array, contentType: Content
  *
  * Note: task_ref is deterministic: keccak256(counterparty, agent_mint)
  *
- * Schema-specific fields (score, methodology) go in JSON content:
- * { "score": 85, "methodology": "weighted_average", "components": {...} }
+ * Schema-specific fields go in JSON content:
+ * { "score": 85, "methodology": "weighted_average", "feedbackCount": 42 }
  */
 export interface ReputationScoreData extends BaseLayout {}
 

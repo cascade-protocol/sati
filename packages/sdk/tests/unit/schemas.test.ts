@@ -275,8 +275,10 @@ describe("Feedback Serialization", () => {
 
   test("serializes with JSON content", () => {
     const feedbackContent: FeedbackContent = {
-      score: 85,
-      tags: ["fast", "accurate"],
+      value: 85,
+      valueDecimals: 0,
+      tag1: "quality",
+      tag2: "latency",
       m: "Great response!",
     };
     const content = createJsonContent(feedbackContent);
@@ -290,8 +292,10 @@ describe("Feedback Serialization", () => {
     const parsed = parseFeedbackContent(deserialized.content, deserialized.contentType);
 
     expect(parsed).not.toBeNull();
-    expect(parsed?.score).toBe(85);
-    expect(parsed?.tags).toEqual(["fast", "accurate"]);
+    expect(parsed?.value).toBe(85);
+    expect(parsed?.valueDecimals).toBe(0);
+    expect(parsed?.tag1).toBe("quality");
+    expect(parsed?.tag2).toBe("latency");
     expect(parsed?.m).toBe("Great response!");
   });
 });
@@ -695,7 +699,7 @@ describe("Roundtrip Consistency", () => {
       outcome: Outcome.Positive,
       dataHash: randomBytes(32),
       contentType: ContentType.JSON,
-      content: createJsonContent({ score: 85, tags: ["test"], m: "Message" }),
+      content: createJsonContent({ value: 85, valueDecimals: 0, tag1: "test", m: "Message" }),
     };
 
     const serialized1 = serializeFeedback(original);

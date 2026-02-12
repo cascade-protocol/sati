@@ -249,7 +249,7 @@ export class SatiAgent0 {
     for (let i = 0; i < agents.length; i++) {
       const identity = agents[i];
       const regFile = regFiles[i];
-      const endpoints = regFile?.endpoints ?? [];
+      const services = regFile?.services ?? [];
 
       if (filters?.hasRegistrationFile === true && !regFile) continue;
       if (filters?.hasRegistrationFile === false && regFile) continue;
@@ -257,34 +257,34 @@ export class SatiAgent0 {
         if (!regFile?.description?.toLowerCase().includes(filters.description.toLowerCase())) continue;
       }
       if (filters?.active !== undefined && (regFile?.active ?? true) !== filters.active) continue;
-      if (filters?.x402support !== undefined && (regFile?.x402support ?? false) !== filters.x402support) continue;
-      if (filters?.hasMCP && !endpoints.some((e) => e.name.toUpperCase() === "MCP")) continue;
-      if (filters?.hasA2A && !endpoints.some((e) => e.name.toUpperCase() === "A2A")) continue;
-      if (filters?.hasOASF && !endpoints.some((e) => e.name.toUpperCase() === "OASF")) continue;
-      if (filters?.hasWeb && !endpoints.some((e) => e.name.toUpperCase() === "WEB")) continue;
-      if (filters?.hasEndpoints === true && endpoints.length === 0) continue;
+      if (filters?.x402support !== undefined && (regFile?.x402Support ?? false) !== filters.x402support) continue;
+      if (filters?.hasMCP && !services.some((e) => e.name.toUpperCase() === "MCP")) continue;
+      if (filters?.hasA2A && !services.some((e) => e.name.toUpperCase() === "A2A")) continue;
+      if (filters?.hasOASF && !services.some((e) => e.name.toUpperCase() === "OASF")) continue;
+      if (filters?.hasWeb && !services.some((e) => e.name.toUpperCase() === "WEB")) continue;
+      if (filters?.hasEndpoints === true && services.length === 0) continue;
       if (filters?.mcpContains) {
-        const ep = endpoints.find((e) => e.name.toUpperCase() === "MCP");
+        const ep = services.find((e) => e.name.toUpperCase() === "MCP");
         if (!ep?.endpoint.includes(filters.mcpContains)) continue;
       }
       if (filters?.a2aContains) {
-        const ep = endpoints.find((e) => e.name.toUpperCase() === "A2A");
+        const ep = services.find((e) => e.name.toUpperCase() === "A2A");
         if (!ep?.endpoint.includes(filters.a2aContains)) continue;
       }
       if (filters?.ensContains) {
-        const ep = endpoints.find((e) => e.name.toUpperCase() === "ENS");
+        const ep = services.find((e) => e.name.toUpperCase() === "ENS");
         if (!ep?.endpoint.includes(filters.ensContains)) continue;
       }
       if (filters?.didContains) {
-        const ep = endpoints.find((e) => e.name.toUpperCase() === "DID");
+        const ep = services.find((e) => e.name.toUpperCase() === "DID");
         if (!ep?.endpoint.includes(filters.didContains)) continue;
       }
       if (filters?.webContains) {
-        const ep = endpoints.find((e) => e.name.toUpperCase() === "WEB");
+        const ep = services.find((e) => e.name.toUpperCase() === "WEB");
         if (!ep?.endpoint.includes(filters.webContains)) continue;
       }
       if (filters?.walletAddress) {
-        const walletEp = endpoints.find(
+        const walletEp = services.find(
           (e) => e.name.toUpperCase() === "AGENTWALLET" || e.name.toUpperCase() === "WALLET",
         );
         if (!walletEp?.endpoint.includes(filters.walletAddress)) continue;
@@ -299,27 +299,27 @@ export class SatiAgent0 {
           continue;
       }
       if (filters?.mcpTools?.length) {
-        const tools = endpoints.find((e) => e.name.toUpperCase() === "MCP")?.mcpTools ?? [];
+        const tools = services.find((e) => e.name.toUpperCase() === "MCP")?.mcpTools ?? [];
         if (!filters.mcpTools.some((t) => tools.includes(t))) continue;
       }
       if (filters?.mcpPrompts?.length) {
-        const prompts = endpoints.find((e) => e.name.toUpperCase() === "MCP")?.mcpPrompts ?? [];
+        const prompts = services.find((e) => e.name.toUpperCase() === "MCP")?.mcpPrompts ?? [];
         if (!filters.mcpPrompts.some((t) => prompts.includes(t))) continue;
       }
       if (filters?.mcpResources?.length) {
-        const resources = endpoints.find((e) => e.name.toUpperCase() === "MCP")?.mcpResources ?? [];
+        const resources = services.find((e) => e.name.toUpperCase() === "MCP")?.mcpResources ?? [];
         if (!filters.mcpResources.some((t) => resources.includes(t))) continue;
       }
       if (filters?.a2aSkills?.length) {
-        const skills = endpoints.find((e) => e.name.toUpperCase() === "A2A")?.a2aSkills ?? [];
+        const skills = services.find((e) => e.name.toUpperCase() === "A2A")?.a2aSkills ?? [];
         if (!filters.a2aSkills.some((t) => skills.includes(t))) continue;
       }
       if (filters?.oasfSkills?.length) {
-        const skills = endpoints.find((e) => e.name.toUpperCase() === "OASF")?.skills ?? [];
+        const skills = services.find((e) => e.name.toUpperCase() === "OASF")?.skills ?? [];
         if (!filters.oasfSkills.some((t) => skills.includes(t))) continue;
       }
       if (filters?.oasfDomains?.length) {
-        const domains = endpoints.find((e) => e.name.toUpperCase() === "OASF")?.domains ?? [];
+        const domains = services.find((e) => e.name.toUpperCase() === "OASF")?.domains ?? [];
         if (!filters.oasfDomains.some((t) => domains.includes(t))) continue;
       }
 
@@ -336,7 +336,7 @@ export class SatiAgent0 {
         cheapFiltered.map(async ({ identity }) => {
           try {
             const summary = await this._sati.getReputationSummary(identity.mint);
-            feedbackStatsMap?.set(identity.mint, { count: summary.count, averageValue: summary.averageScore });
+            feedbackStatsMap?.set(identity.mint, { count: summary.count, averageValue: summary.averageValue });
           } catch (error) {
             this._warn({
               code: "RPC_ERROR",
@@ -487,7 +487,7 @@ export class SatiAgent0 {
     const identity = await this._resolveIdentity(agentId);
     const access = this._requireWriteAccess("giveFeedback");
 
-    // Validate and parse score
+    // Validate and parse value
     const numericValue = typeof value === "string" ? Number.parseFloat(value) : value;
     if (!Number.isFinite(numericValue)) {
       throw new SatiError("INVALID_VALUE", `Feedback value must be a finite number, got: ${value}`);
@@ -497,14 +497,15 @@ export class SatiAgent0 {
       const signer = access.signer;
 
       // Delegate content building, SIWS signing, and on-chain creation to Sati
-      const tags = tag1 ? (tag2 ? ([tag1, tag2] as [string, string]) : ([tag1] as [string])) : undefined;
       const outcome = (feedbackFile?.outcome as Outcome | undefined) ?? Outcome.Neutral;
 
       const result = await this._sati.giveFeedback({
         payer: signer,
         agentMint: identity.mint,
-        score: numericValue,
-        tags,
+        value: numericValue,
+        valueDecimals: 0,
+        tag1,
+        tag2,
         endpoint,
         message: feedbackFile?.text,
         outcome,
@@ -574,13 +575,13 @@ export class SatiAgent0 {
     }
 
     // Delegate content building and SIWS message construction to Sati
-    const tags = tag1 ? (tag2 ? ([tag1, tag2] as [string, string]) : ([tag1] as [string])) : undefined;
-
     const prepared = await this._sati.prepareFeedback({
       agentMint: identity.mint,
       counterparty: solAddress(counterpartyAddr),
-      score: value,
-      tags,
+      value,
+      valueDecimals: 0,
+      tag1,
+      tag2,
       endpoint: opts?.endpoint,
       message: opts?.text,
       outcome: opts?.outcome,
@@ -731,8 +732,9 @@ export class SatiAgent0 {
       // Parse content JSON (safe - malformed content returns null)
       const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
 
-      const score = rawContent?.score as number | undefined;
-      const tags = (rawContent?.tags as string[]) ?? [];
+      const value = rawContent?.value as number | undefined;
+      const tag1 = rawContent?.tag1 as string | undefined;
+      const tag2 = rawContent?.tag2 as string | undefined;
       const text = rawContent?.m as string | undefined;
       const endpointVal = rawContent?.endpoint as string | undefined;
       const capability = rawContent?.cap as string | undefined;
@@ -744,13 +746,14 @@ export class SatiAgent0 {
 
       // Client-side tag filtering
       if (filters.tags?.length) {
+        const tags = [tag1, tag2].filter(Boolean);
         const hasAll = filters.tags.every((t) => tags.includes(t));
         if (!hasAll) continue;
       }
 
       // Client-side value filtering
-      if (options?.minValue !== undefined && (score === undefined || score < options.minValue)) continue;
-      if (options?.maxValue !== undefined && (score === undefined || score > options.maxValue)) continue;
+      if (options?.minValue !== undefined && (value === undefined || value < options.minValue)) continue;
+      if (options?.maxValue !== undefined && (value === undefined || value > options.maxValue)) continue;
 
       // Client-side capability/skill/task/name filtering
       if (filters.capabilities?.length && (!capability || !filters.capabilities.includes(capability))) continue;
@@ -771,9 +774,9 @@ export class SatiAgent0 {
         reviewer: item.data.counterparty,
         feedbackIndex: i,
         content: {
-          value: score,
-          tag1: tags[0],
-          tag2: tags[1],
+          value,
+          tag1,
+          tag2,
           endpoint: endpointVal,
           text,
           context: {
@@ -839,8 +842,8 @@ export class SatiAgent0 {
   /**
    * Get reputation summary for an agent.
    *
-   * Computes average score from all FeedbackPublic attestations,
-   * optionally filtered by tags.
+   * Computes average value from all FeedbackPublic attestations,
+   * optionally filtered by tag1.
    */
   async getReputationSummary(
     agentId: AgentId,
@@ -848,9 +851,8 @@ export class SatiAgent0 {
     tag2?: string,
   ): Promise<{ count: number; averageValue: number }> {
     const identity = await this._resolveIdentity(agentId);
-    const tags = [tag1, tag2].filter((t): t is string => !!t);
-    const summary = await this._sati.getReputationSummary(identity.mint, tags.length > 0 ? tags : undefined);
-    return { count: summary.count, averageValue: summary.averageScore };
+    const summary = await this._sati.getReputationSummary(identity.mint, tag1, tag2);
+    return { count: summary.count, averageValue: summary.averageValue };
   }
 
   /**
@@ -962,14 +964,16 @@ export class SatiAgent0 {
     });
 
     const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
-    const score = rawContent?.score as number | undefined;
-    const tags = (rawContent?.tags as string[]) ?? [];
     const feedback = toFeedback({
       agentMint: item.data.agentMint,
       chain: this._chain,
       reviewer: item.data.counterparty,
       feedbackIndex: idx,
-      content: { value: score, tag1: tags[0], tag2: tags[1] },
+      content: {
+        value: rawContent?.value as number | undefined,
+        tag1: rawContent?.tag1 as string | undefined,
+        tag2: rawContent?.tag2 as string | undefined,
+      },
       txSignature: closeResult.signature,
       outcome: item.data.outcome,
     });

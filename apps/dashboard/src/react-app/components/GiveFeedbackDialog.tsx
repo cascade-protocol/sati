@@ -137,8 +137,9 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
           counterparty: session.account.address as Address,
           agentMint,
           outcome: selectedOutcome,
-          score,
-          tags: tags.length > 0 ? (tags.slice(0, 2) as [string] | [string, string]) : undefined,
+          value: score,
+          tag1: tags[0] || undefined,
+          tag2: tags[1] || undefined,
           message: message.trim() || undefined,
         });
 

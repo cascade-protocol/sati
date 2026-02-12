@@ -14,7 +14,7 @@ export default defineConfig({
 
   title: 'SATI',
   description: 'Solana Agent Trust Infrastructure - On-chain identity and reputation for AI agents',
-  base: '/sati/',
+  base: '/',
 
   head: [
     ['meta', { name: 'theme-color', content: '#14F195' }],

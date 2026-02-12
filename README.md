@@ -126,12 +126,12 @@ See [benchmarks](./docs/advanced/benchmarks.md) for detailed CU measurements.
 
 ## Documentation
 
-**[cascade-protocol.github.io/sati](https://cascade-protocol.github.io/sati/)** - Full documentation
+**[docs.sati.cascade.fyi](https://docs.sati.cascade.fyi/)** - Full documentation
 
-- [Getting Started](https://cascade-protocol.github.io/sati/getting-started) - zero to working in 5 minutes
-- [How It Works](https://cascade-protocol.github.io/sati/how-it-works) - blind feedback, compression, schemas
-- [Guides](https://cascade-protocol.github.io/sati/guides/agent-marketplace) - agent marketplace, MCP registration, browser wallets
-- [Specification](https://cascade-protocol.github.io/sati/specification) - byte-level protocol details
+- [Getting Started](https://docs.sati.cascade.fyi/getting-started) - zero to working in 5 minutes
+- [How It Works](https://docs.sati.cascade.fyi/how-it-works) - blind feedback, compression, schemas
+- [Guides](https://docs.sati.cascade.fyi/guides/agent-marketplace) - agent marketplace, MCP registration, browser wallets
+- [Specification](https://docs.sati.cascade.fyi/specification) - byte-level protocol details
 
 ---
 
