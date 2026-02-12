@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-12
+
+### Breaking Changes
+
+- **`SatiSDK` renamed to `SatiAgent0`** - the old class name is removed entirely. Migration: `import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk"`
+- **`SatiSDKConfig` renamed to `SatiAgent0Config`** - same migration pattern
+- **`FeedbackCache` removed** - moved to `@cascade-fyi/sati-sdk` (import from there if needed directly)
+
+### Changed
+
+- Internal delegation to `@cascade-fyi/sati-sdk` convenience methods - `SatiAgent0` is now a thin CAIP-2 type-conversion wrapper over `Sati` class
+- `SatiAgent` internally wraps `SatiAgentBuilder` from sati-sdk for registration and updates
+- Reduced bundle size: duplicated logic (content parsing, schema resolution, cache, slot-to-timestamp) removed in favor of sati-sdk
+
+### Added
+
+- `sdk.sati` accessor - exposes the underlying `Sati` instance for direct access to native Solana types
+
+### Dependencies
+
+- Requires `@cascade-fyi/sati-sdk` >= 0.7.0
+
 ## [0.3.1] - 2026-02-12
 
 ### Fixed
@@ -105,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transaction sender support for browser wallet integration
 - Re-exports of agent0-sdk types and SATI constants for consumer convenience
 
+[0.4.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.3.1...@cascade-fyi/sati-agent0-sdk@0.4.0
 [0.3.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.3.0...@cascade-fyi/sati-agent0-sdk@0.3.1
 [0.3.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.2.0...@cascade-fyi/sati-agent0-sdk@0.3.0
 [0.2.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.1.1...@cascade-fyi/sati-agent0-sdk@0.2.0

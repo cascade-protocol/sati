@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-12
+
+### Added
+
+- **Convenience methods on `Sati` class** - high-level API for feedback, search, and reputation without needing sati-agent0-sdk:
+  - `giveFeedback(params)` - submit feedback with a single call (schema auto-resolution, content building, signing)
+  - `prepareFeedback(params)` / `submitPreparedFeedback(params)` - browser wallet flow (user signs SIWS message, server submits)
+  - `revokeFeedback(params)` - close a compressed feedback attestation
+  - `searchFeedback(options?)` - query and filter feedbacks with parsed content, timestamps, and optional tx signatures
+  - `getReputationSummary(agentMint, tags?)` - aggregate feedback scores with optional tag filtering
+  - `searchAgents(options?)` - list agents with name/owner/active/endpoint filters and optional feedback stats
+  - `searchValidations(agentMint)` - query validation attestations with parsed timestamps
+  - `createAgentBuilder(name, description, image)` - factory for `SatiAgentBuilder`
+- **`SatiAgentBuilder` class** - fluent builder for agent registration using native Solana types:
+  - `setMCP(url, version?, meta?)` / `setA2A(url, version?, meta?)` - configure protocol endpoints with explicit capability metadata
+  - `setWallet(address)` / `setActive(active)` / `setX402Support(x402)` / `setSupportedTrust(trusts)`
+  - `register(opts)` / `registerWithUri(opts)` - on-chain registration with pluggable `MetadataUploader`
+  - `update(opts)` / `updateUri(opts)` - update existing agent metadata
+- **`FeedbackCache`** - TTL cache for feedback queries, reducing redundant RPC calls (moved from sati-agent0-sdk)
+- **Config accessors** on `Sati` class: `deployedConfig`, `feedbackPublicSchema`, `feedbackSchema`, `validationSchema`, `lookupTable`
+- **New types**: `GiveFeedbackParams`, `GiveFeedbackResult`, `PreparedFeedbackData`, `FeedbackSearchOptions`, `ParsedFeedback`, `ReputationSummary`, `AgentSearchOptions`, `AgentSearchResult`, `ParsedValidation`, `SatiWarning`
+- `signer` and `onWarning` options in `SATIClientOptions`
+- `buildRegistrationFile()` accepts optional `endpoints` parameter for pre-built endpoint arrays
+
+### Changed
+
+- sati-sdk is now the primary full-featured SDK (was low-level only); sati-agent0-sdk becomes a thin type-conversion wrapper
+
 ## [0.6.0] - 2026-02-12
 
 ### Added
@@ -116,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.7.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.6.0...@cascade-fyi/sati-sdk@0.7.0
 [0.6.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.5.0...@cascade-fyi/sati-sdk@0.6.0
 [0.5.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.4.2...@cascade-fyi/sati-sdk@0.5.0
 [0.4.2]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.4.1...@cascade-fyi/sati-sdk@0.4.2
