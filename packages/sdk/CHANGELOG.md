@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-02-12
+
+### Breaking Changes
+
+- **`MAX_SINGLE_SIGNATURE_CONTENT_SIZE` replaced** with two mode-specific constants:
+  - `MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE` (100 bytes) - CounterpartySigned mode has SIWS content duplication
+  - `MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE` (240 bytes) - AgentOwnerSigned mode has no SIWS duplication
+- `getMaxContentSize()` and `validateContentSize()` now return correct per-mode limits
+
+### Fixed
+
+- **`getAgentOwner` returns stale/empty data after registration or transfer** - added retry with exponential backoff to handle SPL token index lag on RPC node pools
+
 ## [0.8.0] - 2026-02-12
 
 ### Breaking Changes
@@ -157,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.9.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.8.0...@cascade-fyi/sati-sdk@0.9.0
 [0.8.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.7.0...@cascade-fyi/sati-sdk@0.8.0
 [0.7.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.6.0...@cascade-fyi/sati-sdk@0.7.0
 [0.6.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.5.0...@cascade-fyi/sati-sdk@0.6.0

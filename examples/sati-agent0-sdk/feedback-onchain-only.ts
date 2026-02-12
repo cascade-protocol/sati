@@ -5,7 +5,6 @@
  * (as a compressed SAS attestation on Solana):
  * - value (score)
  * - tag1, tag2
- * - endpoint (optional)
  *
  * No off-chain feedback file is created/uploaded.
  *
@@ -37,7 +36,6 @@ async function main() {
     92, // value (score)
     "quality", // tag1
     "latency", // tag2
-    "https://api.example.com/feedback", // optional endpoint
   );
   const { result: feedback } = await handle.waitMined();
   console.log(`Transaction signature: ${handle.hash}`);

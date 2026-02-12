@@ -17,7 +17,7 @@ import type { Address } from "@solana/kit";
 import {
   type Outcome,
   loadDeployedConfig,
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE,
   buildCounterpartyMessage,
   serializeFeedback,
   type FeedbackData,
@@ -193,7 +193,7 @@ export function VerifiedFeedbackDialog({
   // Content size validation
   const contentJson = message.trim() ? JSON.stringify({ m: message.trim() }) : undefined;
   const contentSize = contentJson ? new TextEncoder().encode(contentJson).length : 0;
-  const contentExceedsLimit = contentSize > MAX_SINGLE_SIGNATURE_CONTENT_SIZE;
+  const contentExceedsLimit = contentSize > MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE;
 
   // ==========================================================================
   // Step 1: Interact - Pay and get agent's blind signature

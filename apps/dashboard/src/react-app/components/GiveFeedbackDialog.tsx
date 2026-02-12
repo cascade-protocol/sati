@@ -13,7 +13,7 @@ import { useWalletSession } from "@solana/react-hooks";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Address } from "@solana/kit";
-import { type Outcome, MAX_SINGLE_SIGNATURE_CONTENT_SIZE } from "@cascade-fyi/sati-sdk";
+import { type Outcome, MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE } from "@cascade-fyi/sati-sdk";
 import { getSolscanUrl } from "@/lib/network";
 import { getSatiClient } from "@/lib/sati";
 
@@ -121,8 +121,8 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
 
   // Calculate current content size for validation feedback
   const { size: contentSize } = buildContent();
-  const contentExceedsLimit = contentSize > MAX_SINGLE_SIGNATURE_CONTENT_SIZE;
-  const contentNearLimit = contentSize > MAX_SINGLE_SIGNATURE_CONTENT_SIZE * 0.8;
+  const contentExceedsLimit = contentSize > MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE;
+  const contentNearLimit = contentSize > MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE * 0.8;
 
   const feedbackMutation = useMutation({
     mutationFn: async (selectedOutcome: Outcome) => {
@@ -386,11 +386,11 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
               contentExceedsLimit ? "text-destructive" : contentNearLimit ? "text-yellow-500" : "text-muted-foreground"
             }`}
           >
-            Content size: {contentSize}/{MAX_SINGLE_SIGNATURE_CONTENT_SIZE} bytes
+            Content size: {contentSize}/{MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE} bytes
             {contentExceedsLimit && " — Too large, reduce tags or message"}
             {!contentExceedsLimit && contentSize === 0 && (
               <span className="block mt-1">
-                Tags + message must fit within {MAX_SINGLE_SIGNATURE_CONTENT_SIZE} bytes total
+                Tags + message must fit within {MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE} bytes total
               </span>
             )}
           </div>

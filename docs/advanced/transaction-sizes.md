@@ -252,16 +252,18 @@ The SDK provides constants and validation functions to enforce content size limi
 
 ```typescript
 import {
-  MAX_DUAL_SIGNATURE_CONTENT_SIZE,   // 70 bytes
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE, // 240 bytes
+  MAX_DUAL_SIGNATURE_CONTENT_SIZE,        // 70 bytes
+  MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE,   // 100 bytes
+  MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE,    // 240 bytes
   getMaxContentSize,
   validateContentSize,
   SignatureMode,
 } from "@cascade-fyi/sati-sdk";
 
 // Get max content size for a mode
-const maxDual = getMaxContentSize(SignatureMode.DualSignature);   // 70
-const maxSingle = getMaxContentSize(SignatureMode.SingleSigner);  // 240
+const maxDual = getMaxContentSize(SignatureMode.DualSignature);        // 70
+const maxCounterparty = getMaxContentSize(SignatureMode.CounterpartySigned); // 100
+const maxOwner = getMaxContentSize(SignatureMode.AgentOwnerSigned);    // 240
 
 // Validate content before building transaction
 const content = new TextEncoder().encode('{"value":85}');
@@ -286,7 +288,8 @@ if (!result.valid) {
 | Content Size | Recommendation |
 |--------------|----------------|
 | < 70 bytes | Store directly (JSON, UTF-8) for DualSignature |
-| < 240 bytes | Store directly for SingleSignature |
+| < 100 bytes | Store directly for CounterpartySigned |
+| < 240 bytes | Store directly for AgentOwnerSigned |
 | > 240 bytes | Must use IPFS/Arweave reference |
 
 ### Content Examples That Fit
@@ -296,7 +299,12 @@ if (!result.valid) {
 {"value":85,"tag1":"helpful"}
 ```
 
-**SingleSignature (< 240 bytes):**
+**CounterpartySigned (< 100 bytes):**
+```json
+{"value":85,"valueDecimals":0,"tag1":"quality","tag2":"latency"}
+```
+
+**AgentOwnerSigned (< 240 bytes):**
 ```json
 {"score":92,"methodology":"weighted_average","feedbackCount":42,"validationCount":5}
 ```

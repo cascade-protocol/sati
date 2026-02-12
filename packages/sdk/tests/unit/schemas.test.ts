@@ -40,7 +40,8 @@ import {
   MIN_BASE_LAYOUT_SIZE,
   MAX_CONTENT_SIZE,
   MAX_DUAL_SIGNATURE_CONTENT_SIZE,
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE,
+  MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE,
   CURRENT_LAYOUT_VERSION,
   SCHEMA_CONFIGS,
   type FeedbackData,
@@ -505,12 +506,20 @@ describe("Content Size Constants", () => {
     expect(MAX_DUAL_SIGNATURE_CONTENT_SIZE).toBe(70);
   });
 
-  test("MAX_SINGLE_SIGNATURE_CONTENT_SIZE is 240", () => {
-    expect(MAX_SINGLE_SIGNATURE_CONTENT_SIZE).toBe(240);
+  test("MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE is 100", () => {
+    expect(MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE).toBe(100);
   });
 
-  test("DualSignature limit is smaller than SingleSignature limit", () => {
-    expect(MAX_DUAL_SIGNATURE_CONTENT_SIZE).toBeLessThan(MAX_SINGLE_SIGNATURE_CONTENT_SIZE);
+  test("MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE is 240", () => {
+    expect(MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE).toBe(240);
+  });
+
+  test("DualSignature limit is smaller than CounterpartySigned limit", () => {
+    expect(MAX_DUAL_SIGNATURE_CONTENT_SIZE).toBeLessThan(MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE);
+  });
+
+  test("CounterpartySigned limit is smaller than AgentOwnerSigned limit", () => {
+    expect(MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE).toBeLessThan(MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE);
   });
 });
 
@@ -519,8 +528,12 @@ describe("getMaxContentSize", () => {
     expect(getMaxContentSize(SignatureMode.DualSignature)).toBe(70);
   });
 
-  test("returns 240 for SingleSigner mode", () => {
-    expect(getMaxContentSize(SignatureMode.CounterpartySigned)).toBe(240);
+  test("returns 100 for CounterpartySigned mode", () => {
+    expect(getMaxContentSize(SignatureMode.CounterpartySigned)).toBe(100);
+  });
+
+  test("returns 240 for AgentOwnerSigned mode", () => {
+    expect(getMaxContentSize(SignatureMode.AgentOwnerSigned)).toBe(240);
   });
 });
 
@@ -553,22 +566,22 @@ describe("validateContentSize", () => {
     expect(result.error).toContain("100 bytes exceeds maximum 70 bytes");
   });
 
-  test("returns valid:true for content under SingleSignature limit", () => {
-    const content = new Uint8Array(200); // Under 240
+  test("returns valid:true for content under CounterpartySigned limit", () => {
+    const content = new Uint8Array(80); // Under 100
     const result = validateContentSize(content, SignatureMode.CounterpartySigned, { throwOnError: false });
 
     expect(result.valid).toBe(true);
-    expect(result.maxSize).toBe(240);
-    expect(result.actualSize).toBe(200);
+    expect(result.maxSize).toBe(100);
+    expect(result.actualSize).toBe(80);
   });
 
-  test("returns valid:false for content over SingleSignature limit", () => {
-    const content = new Uint8Array(300); // Over 240
+  test("returns valid:false for content over CounterpartySigned limit", () => {
+    const content = new Uint8Array(150); // Over 100
     const result = validateContentSize(content, SignatureMode.CounterpartySigned, { throwOnError: false });
 
     expect(result.valid).toBe(false);
-    expect(result.error).toContain("Content too large for SingleSignature mode");
-    expect(result.error).toContain("300 bytes exceeds maximum 240 bytes");
+    expect(result.error).toContain("Content too large for CounterpartySigned mode");
+    expect(result.error).toContain("150 bytes exceeds maximum 100 bytes");
   });
 
   test("throws by default when content exceeds limit", () => {

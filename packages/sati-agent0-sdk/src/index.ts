@@ -77,7 +77,7 @@ export { EndpointType, TrustModel, EndpointCrawler } from "agent0-sdk";
 export type { Sati } from "@cascade-fyi/sati-sdk";
 
 // Re-export SATI constants and helpers so dashboard frontend doesn't need direct sati-sdk dependency
-export { MAX_SINGLE_SIGNATURE_CONTENT_SIZE, SATI_PROGRAM_ADDRESS } from "@cascade-fyi/sati-sdk";
+export { MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE, SATI_PROGRAM_ADDRESS } from "@cascade-fyi/sati-sdk";
 export { parseFeedbackContent, ContentType, Outcome } from "@cascade-fyi/sati-sdk";
 export { getImageUrl, buildRegistrationFile, stringifyRegistrationFile } from "@cascade-fyi/sati-sdk";
 export { handleTransactionError } from "@cascade-fyi/sati-sdk";

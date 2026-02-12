@@ -937,24 +937,31 @@ export class Sati {
   }
 
   /**
-   * Get current owner of an agent
+   * Get current owner of an agent.
+   *
+   * Uses `getTokenLargestAccounts` which relies on an SPL token index.
+   * This index can lag behind transaction confirmation on RPC node pools,
+   * so we retry with backoff for recently created or transferred tokens.
    */
   async getAgentOwner(mint: Address): Promise<Address> {
-    const response = await this.rpc.getTokenLargestAccounts(mint, { commitment: "confirmed" }).send();
+    const maxRetries = 3;
+    const baseDelay = 500;
 
-    if (!response.value || response.value.length === 0) {
-      throw new Error(`No token accounts found for mint ${mint}`);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const response = await this.rpc.getTokenLargestAccounts(mint, { commitment: "confirmed" }).send();
+      const holderAccount = response.value?.find((acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n);
+
+      if (holderAccount) {
+        const tokenAccount = await fetchToken2022Token(this.rpc, address(holderAccount.address));
+        return tokenAccount.data.owner;
+      }
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, baseDelay * 2 ** attempt));
+      }
     }
 
-    const holderAccount = response.value.find((acc: { address: string; amount: string }) => BigInt(acc.amount) > 0n);
-
-    if (!holderAccount) {
-      throw new Error(`No holder found for agent ${mint}`);
-    }
-
-    const tokenAccount = await fetchToken2022Token(this.rpc, address(holderAccount.address));
-
-    return tokenAccount.data.owner;
+    throw new Error(`No token accounts found for mint ${mint}`);
   }
 
   /**

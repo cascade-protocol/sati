@@ -5,7 +5,6 @@
  * 1. Give feedback to an agent (on-chain compressed attestation)
  * 2. Search feedback by agent, tag, value range
  * 3. Get reputation summary (aggregate value)
- * 4. Revoke feedback
  *
  * Requirements:
  * - KEYPAIR_PATH: funded Solana wallet
@@ -41,7 +40,6 @@ async function main() {
     valueDecimals: 0,
     tag1: "quality",
     tag2: "latency",
-    endpoint: "https://api.example.com/mcp",
     message: "Fast and accurate responses.",
   });
   console.log(`Feedback submitted!`);
@@ -72,14 +70,6 @@ async function main() {
   console.log("\nGetting reputation summary...");
   const summary = await sati.getReputationSummary(agentMint);
   console.log(`Reputation: ${summary.averageValue.toFixed(1)} from ${summary.count} reviews`);
-
-  // 5. Revoke the feedback we just submitted
-  console.log("\nRevoking feedback...");
-  const revoke = await sati.revokeFeedback({
-    payer: signer,
-    attestationAddress: result.attestationAddress,
-  });
-  console.log(`Revoked! Tx: ${revoke.signature}`);
 }
 
 main().catch(console.error);

@@ -691,8 +691,9 @@ import {
 import {
   SATI_PROGRAM_ADDRESS,                // Program ID (all networks)
   MAX_CONTENT_SIZE,                     // 512 bytes
-  MAX_DUAL_SIGNATURE_CONTENT_SIZE,      // ~70 bytes (DualSignature mode)
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,    // ~240 bytes (SingleSigner mode)
+  MAX_DUAL_SIGNATURE_CONTENT_SIZE,      // 70 bytes (DualSignature mode)
+  MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE, // 100 bytes (CounterpartySigned mode)
+  MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE,  // 240 bytes (AgentOwnerSigned mode)
 } from "@cascade-fyi/sati-sdk";
 ```
 

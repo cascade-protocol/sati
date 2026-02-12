@@ -12,8 +12,8 @@
  * Run: pnpm tsx examples/sati-sdk/transfer-agent.ts
  */
 
-import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "../shared/_env.js";
-import { Sati, createPinataUploader, createSatiUploader } from "@cascade-fyi/sati-sdk";
+import { loadSigner, RPC_URL, NETWORK } from "../shared/_env.js";
+import { Sati, createSatiUploader } from "@cascade-fyi/sati-sdk";
 import { generateKeyPairSigner } from "@solana/kit";
 
 async function main() {
@@ -24,7 +24,7 @@ async function main() {
     rpcUrl: RPC_URL,
   });
 
-  const uploader = PINATA_JWT ? createPinataUploader(PINATA_JWT) : createSatiUploader();
+  const uploader = createSatiUploader();
 
   // 1. Register a fresh agent
   const builder = sati
@@ -49,7 +49,12 @@ async function main() {
   // 3. Verify new owner
   const currentOwner = await sati.getAgentOwner(reg.mint);
   console.log(`\nNew owner: ${currentOwner}`);
-  console.log(`Matches: ${currentOwner === newOwner.address}`);
+
+  const ok = currentOwner === newOwner.address;
+  console.log(`Transfer successful: ${ok}`);
+  if (!ok) {
+    throw new Error(`Transfer verified but owner mismatch: expected ${newOwner.address}, got ${currentOwner}`);
+  }
 }
 
 main().catch(console.error);

@@ -10,8 +10,8 @@
  * Run: pnpm tsx examples/sati-sdk/quick-start.ts
  */
 
-import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "../shared/_env.js";
-import { Sati, createPinataUploader, createSatiUploader } from "@cascade-fyi/sati-sdk";
+import { loadSigner, RPC_URL, NETWORK } from "../shared/_env.js";
+import { Sati, createSatiUploader } from "@cascade-fyi/sati-sdk";
 
 async function main() {
   const signer = await loadSigner();
@@ -41,8 +41,8 @@ async function main() {
     .setX402Support(true)
     .setSupportedTrust(["reputation"]);
 
-  // Register on-chain (hosted uploader = zero config, or use Pinata)
-  const uploader = PINATA_JWT ? createPinataUploader(PINATA_JWT) : createSatiUploader();
+  // Register on-chain (hosted uploader = zero config)
+  const uploader = createSatiUploader();
 
   console.log("Registering agent...");
   const result = await builder.register({

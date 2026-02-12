@@ -38,7 +38,8 @@ export {
   SAS_DATA_LEN_OFFSET,
   // Content size limits by signature mode (transaction size constraints)
   MAX_DUAL_SIGNATURE_CONTENT_SIZE,
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE,
+  MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE,
   // Data interfaces (all extend BaseLayout)
   type BaseLayout,
   type FeedbackData,

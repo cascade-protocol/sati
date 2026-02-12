@@ -4,7 +4,6 @@
  * This example submits multiple feedback transactions with:
  * - Different values (scores)
  * - Different tag pairs (tag1/tag2)
- * - Distinct endpoints per feedback (used as a stable "run id" marker)
  *
  * Then it:
  * - Uses searchFeedback() to retrieve a subset by tag
@@ -41,10 +40,6 @@ async function main() {
     signer,
   });
 
-  // Unique marker for this run, embedded in the on-chain `endpoint` field
-  const runId = `e2e-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const endpointBase = `https://example.com/agent0/feedback?run=${encodeURIComponent(runId)}`;
-
   // Plan: submit many feedbacks, then retrieve subset where tag2 === 'latency'
   const planned: FeedbackPlanItem[] = [
     { value: "91.5", tag1: "quality", tag2: "latency" },
@@ -60,19 +55,16 @@ async function main() {
   ];
 
   console.log(`Submitting ${planned.length} feedback txs to agent ${AGENT_ID}...`);
-  console.log(`Run marker: ${runId}`);
 
   for (let i = 0; i < planned.length; i++) {
     const item = planned[i];
-    const endpoint = `${endpointBase}&i=${i}&t=${encodeURIComponent(item.tag2)}`;
 
-    const handle = await sdk.giveFeedback(AGENT_ID, item.value, item.tag1, item.tag2, endpoint);
+    const handle = await sdk.giveFeedback(AGENT_ID, item.value, item.tag1, item.tag2);
     const { result: feedback } = await handle.waitMined();
 
     console.log(
       `- submitted ${i + 1}/${planned.length}:` +
         ` value=${feedback.value} tags=${feedback.tags.join(",")}` +
-        ` endpoint=${feedback.endpoint ?? ""}` +
         ` sig=${handle.hash.slice(0, 16)}...`,
     );
   }
@@ -85,7 +77,7 @@ async function main() {
   );
   console.log(`Found ${latencyResults.length} feedback entries with tag "latency"`);
   for (const fb of latencyResults) {
-    console.log(`- value=${fb.value} tags=${fb.tags.join(",")} endpoint=${fb.endpoint ?? ""}`);
+    console.log(`- value=${fb.value} tags=${fb.tags.join(",")}`);
   }
 
   // Get reputation summary for the tag pair

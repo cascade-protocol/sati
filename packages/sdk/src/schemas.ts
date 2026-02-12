@@ -44,13 +44,25 @@ export const MAX_CONTENT_SIZE = 512;
 export const MAX_DUAL_SIGNATURE_CONTENT_SIZE = 70;
 
 /**
- * Maximum content size for SingleSignature mode attestations.
+ * Maximum content size for CounterpartySigned mode attestations.
  *
- * SingleSignature mode has more headroom because:
- * 1. Content appears only once (no SIWS message duplication)
+ * CounterpartySigned has a SIWS message containing the content, so content
+ * appears TWICE in the transaction (data blob + SIWS Details field).
+ * This is similar to DualSignature but with one fewer signature (no agent sig),
+ * giving slightly more headroom.
+ *
+ * Use ContentType.IPFS or ContentType.Arweave for larger content.
+ */
+export const MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE = 100;
+
+/**
+ * Maximum content size for AgentOwnerSigned mode attestations.
+ *
+ * AgentOwnerSigned has more headroom because:
+ * 1. Content appears only once (no SIWS message - agent signs interaction_hash)
  * 2. No counterparty signature verification overhead
  */
-export const MAX_SINGLE_SIGNATURE_CONTENT_SIZE = 240;
+export const MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE = 240;
 
 /**
  * Minimum universal base layout size.
@@ -868,9 +880,14 @@ export interface ContentSizeValidationResult {
  * ```
  */
 export function getMaxContentSize(signatureMode: SignatureMode): number {
-  return signatureMode === SignatureMode.DualSignature
-    ? MAX_DUAL_SIGNATURE_CONTENT_SIZE
-    : MAX_SINGLE_SIGNATURE_CONTENT_SIZE; // CounterpartySigned and AgentOwnerSigned both use single signature
+  switch (signatureMode) {
+    case SignatureMode.DualSignature:
+      return MAX_DUAL_SIGNATURE_CONTENT_SIZE;
+    case SignatureMode.CounterpartySigned:
+      return MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE;
+    case SignatureMode.AgentOwnerSigned:
+      return MAX_AGENT_OWNER_SIGNED_CONTENT_SIZE;
+  }
 }
 
 /**
@@ -911,7 +928,12 @@ export function validateContentSize(
   };
 
   if (!valid) {
-    const modeName = signatureMode === SignatureMode.DualSignature ? "DualSignature" : "SingleSignature";
+    const modeNames: Record<number, string> = {
+      [SignatureMode.DualSignature]: "DualSignature",
+      [SignatureMode.CounterpartySigned]: "CounterpartySigned",
+      [SignatureMode.AgentOwnerSigned]: "AgentOwnerSigned",
+    };
+    const modeName = modeNames[signatureMode] ?? "Unknown";
     result.error = `Content too large for ${modeName} mode: ${actualSize} bytes exceeds maximum ${maxSize} bytes. Use ContentType.IPFS or ContentType.Arweave for larger content.`;
 
     if (throwOnError) {

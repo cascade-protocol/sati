@@ -15,7 +15,7 @@ import {
   Sati,
   type Outcome,
   Outcome as OutcomeEnum,
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
+  MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE,
   serializeValidation,
   buildCounterpartyMessage,
   ContentType,
@@ -782,13 +782,13 @@ function createApp(bindings: WorkerBindings) {
       return c.json({ error: "outcome must be 0, 1, or 2" }, 400);
     }
 
-    // Validate content size (SingleSigner schema has 240 byte limit)
+    // Validate content size (CounterpartySigned schema has 100 byte limit)
     if (body.content) {
       const contentBytes = new TextEncoder().encode(body.content);
-      if (contentBytes.length > MAX_SINGLE_SIGNATURE_CONTENT_SIZE) {
+      if (contentBytes.length > MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE) {
         return c.json(
           {
-            error: `Content too large: ${contentBytes.length} bytes exceeds maximum ${MAX_SINGLE_SIGNATURE_CONTENT_SIZE} bytes`,
+            error: `Content too large: ${contentBytes.length} bytes exceeds maximum ${MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE} bytes`,
           },
           400,
         );
