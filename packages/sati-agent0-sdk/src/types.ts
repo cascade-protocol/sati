@@ -89,6 +89,10 @@ export interface SatiSearchOptions extends SearchOptions {
    * Automatically enabled when `filters.feedback` is set.
    */
   includeFeedbackStats?: boolean;
+  /** Max results to return. Default: 100. */
+  limit?: number;
+  /** Offset (1-based member number) for agent pagination. */
+  offset?: bigint;
 }
 
 /**
@@ -140,35 +144,6 @@ export interface PreparedFeedback {
 }
 
 /**
- * SATI-specific options for feedback creation.
- *
- * These extend agent0-sdk's `giveFeedback` / `prepareFeedback` with fields
- * that have no agent0 equivalent (outcome, deterministic task reference).
- *
- * When omitted, defaults match the original behavior:
- * - `outcome` defaults to `Neutral`
- * - `taskRef` defaults to random 32 bytes
- *
- * @example Governance attestation
- * ```typescript
- * import { Outcome } from "@cascade-fyi/sati-agent0-sdk";
- *
- * await sdk.giveFeedback(agentId, 85, "governance", "defi", undefined, {
- *   text: "Proposal increases emissions by 20%, net positive for growth",
- * }, {
- *   outcome: Outcome.Positive,   // For
- *   taskRef: proposalHashBytes,   // deterministic per proposal
- * });
- * ```
- */
-export interface SatiFeedbackOptions {
-  /** Attestation outcome. Default: Neutral. For governance: Negative=Against, Neutral=Abstain, Positive=For */
-  outcome?: Outcome;
-  /** Deterministic 32-byte task reference. Default: cryptographically random */
-  taskRef?: Uint8Array;
-}
-
-/**
  * Non-fatal warning from SDK operations.
  *
  * Reported via `SatiSDKConfig.onWarning` callback. Parse errors on untrusted
@@ -192,7 +167,12 @@ export interface ValidationResult {
   agentMint: string;
   /** Validator/counterparty address */
   counterparty: string;
-  /** Unix timestamp (computed from slot) */
+  /**
+   * Unix timestamp (approximate). Derived from Solana slot number
+   * using ~400ms/slot estimate. May drift by minutes for recent or
+   * hours for older attestations. For exact timestamps, use
+   * `getCreationSignature()` + Solana's `getBlockTime()`.
+   */
   createdAt: number;
   /** Compressed account address (for tx lookup) */
   compressedAddress: string;

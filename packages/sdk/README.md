@@ -41,6 +41,7 @@ const result = await sati.registerAgent({
   payer,                          // KeyPairSigner (pays fees + becomes owner)
   name: "MyAgent",                // Max 32 chars
   uri: "ipfs://Qm...",            // Agent metadata JSON
+  owner: ownerAddress,            // Optional: mint NFT to a different address
   additionalMetadata: [           // Optional key-value pairs
     { key: "version", value: "1.0" },
   ],
@@ -49,6 +50,48 @@ const result = await sati.registerAgent({
 
 console.log(result.mint);         // Agent's token address (identity)
 console.log(result.memberNumber); // Registry member number
+```
+
+### IPFS Upload + Registration
+
+Upload a registration file to IPFS and register in one flow:
+
+```typescript
+import { createPinataUploader } from "@cascade-fyi/sati-sdk";
+
+const uploader = createPinataUploader(process.env.PINATA_JWT!);
+
+// Build + upload registration file, then register
+const uri = await sati.uploadRegistrationFile(
+  {
+    name: "MyAgent",
+    description: "AI assistant",
+    image: "https://example.com/avatar.png",
+    endpoints: [
+      { name: "MCP", endpoint: "https://myagent.com/mcp", version: "2025-06-18", mcpTools: ["search"] },
+      { name: "A2A", endpoint: "https://myagent.com/.well-known/agent.json", version: "0.3.0" },
+    ],
+    supportedTrust: ["reputation"],
+  },
+  uploader,
+);
+
+const result = await sati.registerAgent({ payer, name: "MyAgent", uri });
+```
+
+### Custom Storage Providers
+
+Implement the `MetadataUploader` interface for any storage backend:
+
+```typescript
+import type { MetadataUploader } from "@cascade-fyi/sati-sdk";
+
+const arweaveUploader: MetadataUploader = {
+  async upload(data: unknown): Promise<string> {
+    // Upload to Arweave and return ar:// URI
+    return `ar://${txId}`;
+  },
+};
 ```
 
 ---

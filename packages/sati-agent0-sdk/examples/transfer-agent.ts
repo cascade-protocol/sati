@@ -39,9 +39,9 @@ async function main() {
   agent.setActive(true);
 
   console.log("Registering a new agent (setup for transfer)...");
-  const registration = await agent.registerIPFS();
-  const agentId = registration.agentId;
-  console.log(`Registered agentId: ${agentId}`);
+  const regHandle = await agent.registerIPFS();
+  const agentId = agent.agentId!;
+  console.log(`Registered agentId: ${agentId} (tx: ${regHandle.hash})`);
 
   // Generate a new random keypair as the transfer destination
   const newOwnerKeypair = await generateKeyPairSigner();
@@ -49,9 +49,9 @@ async function main() {
 
   // Transfer agent
   console.log(`\nTransferring agent ${agentId} to ${newOwner}...`);
-  const result = await sdk.transferAgent(agentId, newOwner);
+  const transferHandle = await sdk.transferAgent(agentId, newOwner);
   console.log("Transfer completed!");
-  console.log(`Transaction signature: ${result.signature}`);
+  console.log(`Transaction signature: ${transferHandle.hash}`);
 
   // Verify new owner (Solana confirms before returning, no polling needed)
   console.log("\nVerifying new owner...");

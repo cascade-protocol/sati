@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-12
+
+### Added
+
+- `createPinataUploader(jwt)` and `MetadataUploader` interface exported from main entry - pluggable IPFS upload for agent registration
+- `uploadRegistrationFile(params, uploader)` convenience method on `Sati` class
+- Registration `Endpoint` type extended with optional fields: `mcpTools`, `mcpPrompts`, `mcpResources`, `a2aSkills`, `skills`, `domains`
+- Gateway verification after Pinata uploads - catches silent upload failures with 5s timeout (non-fatal for timeouts/rate limits)
+
+### Changed
+
+- **BREAKING**: Pinata uploader migrated from v1 (`pinJSONToIPFS`) to v3 Files API (`uploads.pinata.cloud/v3/files`) - returns CIDv1 (`bafkrei...`) instead of CIDv0 (`Qm...`). Both formats are valid IPFS URIs.
+- Compressed attestation queries now use server-side memcmp filtering via Photon RPC for `sasSchema` and `agentMint` (significant performance improvement for large datasets)
+- Client-side filtering retained for `counterparty` and `outcome` fields only
+
+### Dependencies
+
+- Requires `@cascade-fyi/compression-kit` >= 0.2.1 (memcmp filter support)
+
 ## [0.4.2] - 2026-02-10
 
 ### Fixed
@@ -85,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.5.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.4.2...@cascade-fyi/sati-sdk@0.5.0
 [0.4.2]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.4.1...@cascade-fyi/sati-sdk@0.4.2
 [0.4.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.4.0...@cascade-fyi/sati-sdk@0.4.1
 [0.4.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.3.0...@cascade-fyi/sati-sdk@0.4.0

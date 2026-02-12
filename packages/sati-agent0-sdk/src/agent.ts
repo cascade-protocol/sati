@@ -27,6 +27,8 @@ import type { SatiSDK } from "./sdk.js";
 import type { WriteAccess } from "./types.js";
 import { formatSatiAgentId, fromAgent0RegistrationFile } from "./adapters.js";
 import { TOKEN_2022_PROGRAM_ADDRESS } from "@cascade-fyi/sati-sdk";
+import { SolanaTransactionHandle } from "./transaction-handle.js";
+import { SatiError, AgentNotFoundError, ReadOnlyError } from "./errors.js";
 
 /**
  * Agent0-compatible agent class backed by SATI's Solana infrastructure.
@@ -424,18 +426,23 @@ export class SatiAgent {
    * Converts the in-memory agent0 registration file to SATI format,
    * uploads to IPFS via Pinata, then mints the agent NFT on Solana.
    *
-   * @throws Error if image URL is not set
-   * @throws Error if pinataJwt is not configured
-   * @throws Error if SDK is in read-only mode
+   * @throws SatiError if image URL is not set or pinataJwt is not configured
+   * @throws ReadOnlyError if SDK is in read-only mode
    */
-  async registerIPFS(): Promise<{ signature: string; agentId: AgentId }> {
+  async registerIPFS(): Promise<SolanaTransactionHandle<RegistrationFile>> {
+    if (this._identity) {
+      throw new SatiError("ALREADY_REGISTERED", "Agent is already registered on-chain. Use updateIPFS() instead.");
+    }
     if (!this._registrationFile.image) {
-      throw new Error("Image URL is required for registration. Set it via updateInfo() or createAgent().");
+      throw new SatiError(
+        "IMAGE_REQUIRED",
+        "Image URL is required for registration. Set it via updateInfo() or createAgent().",
+      );
     }
 
     const pinataJwt = this._sdk.config.pinataJwt;
     if (!pinataJwt) {
-      throw new Error("pinataJwt is required for IPFS uploads. Set it in SatiSDKConfig.");
+      throw new SatiError("PINATA_JWT_REQUIRED", "pinataJwt is required for IPFS uploads. Set it in SatiSDKConfig.");
     }
 
     // Convert agent0 registration file to SATI format and upload to IPFS
@@ -452,24 +459,66 @@ export class SatiAgent {
    * Same as registerIPFS but takes a URI directly instead of uploading to IPFS.
    * Use this when you already have a hosted registration file.
    *
-   * @throws Error if SDK is in read-only mode
+   * @throws ReadOnlyError if SDK is in read-only mode
    */
-  async registerHTTP(agentUri: URI): Promise<{ signature: string; agentId: AgentId }> {
+  async registerHTTP(agentUri: URI): Promise<SolanaTransactionHandle<RegistrationFile>> {
+    if (this._identity) {
+      throw new SatiError("ALREADY_REGISTERED", "Agent is already registered on-chain. Use updateHTTP() instead.");
+    }
     return this._registerOnChain(agentUri);
+  }
+
+  /**
+   * Re-upload the current in-memory registration file to IPFS and update the on-chain URI.
+   *
+   * Use after modifying the agent via fluent builders (setMCP, addSkill, setMetadata, etc.)
+   * to persist changes on-chain.
+   *
+   * @throws AgentNotFoundError if agent is not registered on-chain
+   * @throws SatiError if pinataJwt is not configured
+   * @throws ReadOnlyError if SDK is in read-only mode
+   */
+  async updateIPFS(): Promise<SolanaTransactionHandle<RegistrationFile>> {
+    if (!this._identity) {
+      throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() first.");
+    }
+
+    const pinataJwt = this._sdk.config.pinataJwt;
+    if (!pinataJwt) {
+      throw new SatiError("PINATA_JWT_REQUIRED", "pinataJwt is required for IPFS uploads. Set it in SatiSDKConfig.");
+    }
+
+    const satiParams = fromAgent0RegistrationFile(this._registrationFile);
+    const uploader = createPinataUploader(pinataJwt);
+    const newUri = await this._sdk.sati.uploadRegistrationFile(satiParams, uploader);
+    return this.setAgentURI(newUri);
+  }
+
+  /**
+   * Update the on-chain URI to point to a new HTTP-hosted registration file.
+   *
+   * @throws AgentNotFoundError if agent is not registered on-chain
+   * @throws ReadOnlyError if SDK is in read-only mode
+   */
+  async updateHTTP(agentUri: URI): Promise<SolanaTransactionHandle<RegistrationFile>> {
+    if (!this._identity) {
+      throw new AgentNotFoundError("Agent not registered on-chain. Call registerHTTP() first.");
+    }
+    return this.setAgentURI(agentUri);
   }
 
   /**
    * Update the agent's on-chain URI (metadata pointer).
    *
-   * @throws Error if agent is not registered on-chain
-   * @throws Error if SDK is in read-only mode
+   * @throws AgentNotFoundError if agent is not registered on-chain
+   * @throws ReadOnlyError if SDK is in read-only mode
    */
-  async setAgentURI(agentURI: URI): Promise<{ signature: string }> {
+  async setAgentURI(agentURI: URI): Promise<SolanaTransactionHandle<RegistrationFile>> {
     if (!this._identity) {
-      throw new Error("Agent is not registered on-chain. Call registerIPFS() or registerHTTP() first.");
+      throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() or registerHTTP() first.");
     }
 
-    const access = this._requireWriteAccess();
+    const access = this._requireWriteAccess("setAgentURI");
 
     if (access.type === "keypair") {
       const result = await this._sdk.sati.updateAgentMetadata({
@@ -480,7 +529,7 @@ export class SatiAgent {
       });
       this._identity.uri = agentURI;
       this._registrationFile.agentURI = agentURI;
-      return result;
+      return new SolanaTransactionHandle(result.signature, this._registrationFile);
     }
 
     // Sender path: build instruction and send via wallet
@@ -494,28 +543,36 @@ export class SatiAgent {
     const signature = await access.sender.signAndSend([updateIx]);
     this._identity.uri = agentURI;
     this._registrationFile.agentURI = agentURI;
-    return { signature };
+    return new SolanaTransactionHandle(signature, this._registrationFile);
   }
 
   /**
    * Transfer agent ownership to a new Solana address.
    *
-   * @throws Error if agent is not registered on-chain
-   * @throws Error if SDK is in read-only mode
+   * @throws AgentNotFoundError if agent is not registered on-chain
+   * @throws ReadOnlyError if SDK is in read-only mode
    */
-  async transfer(newOwner: Address): Promise<{ signature: string }> {
+  async transfer(
+    newOwner: Address,
+  ): Promise<SolanaTransactionHandle<{ txHash: string; from: string; to: string; agentId: AgentId | undefined }>> {
     if (!this._identity) {
-      throw new Error("Agent is not registered on-chain. Call registerIPFS() or registerHTTP() first.");
+      throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() or registerHTTP() first.");
     }
 
-    const access = this._requireWriteAccess();
+    const access = this._requireWriteAccess("transfer");
 
     if (access.type === "keypair") {
-      return this._sdk.sati.transferAgent({
+      const result = await this._sdk.sati.transferAgent({
         payer: access.signer,
         owner: access.signer,
         mint: this._identity.mint,
         newOwner: solAddress(newOwner),
+      });
+      return new SolanaTransactionHandle(result.signature, {
+        txHash: result.signature,
+        from: access.signer.address,
+        to: newOwner,
+        agentId: this.agentId,
       });
     }
 
@@ -540,27 +597,30 @@ export class SatiAgent {
     });
 
     const signature = await access.sender.signAndSend([createAtaIx, transferIx]);
-    return { signature };
+    return new SolanaTransactionHandle(signature, {
+      txHash: signature,
+      from: access.sender.address,
+      to: newOwner,
+      agentId: this.agentId,
+    });
   }
 
   // =========================================================================
   // Private helpers
   // =========================================================================
 
-  private _requireWriteAccess(): WriteAccess {
+  private _requireWriteAccess(operation?: string): WriteAccess {
     if (this._sdk.config.signer) return { type: "keypair", signer: this._sdk.config.signer };
     if (this._sdk.config.transactionSender) return { type: "sender", sender: this._sdk.config.transactionSender };
-    throw new Error(
-      "This operation requires a signer or transactionSender. Initialize SatiSDK with one for write operations.",
-    );
+    throw new ReadOnlyError(operation);
   }
 
   /**
    * Shared registration logic for registerIPFS/registerHTTP.
    * Supports both keypair and sender paths.
    */
-  private async _registerOnChain(uri: string): Promise<{ signature: string; agentId: AgentId }> {
-    const access = this._requireWriteAccess();
+  private async _registerOnChain(uri: string): Promise<SolanaTransactionHandle<RegistrationFile>> {
+    const access = this._requireWriteAccess("registerAgent");
 
     if (access.type === "keypair") {
       const result = await this._sdk.sati.registerAgent({
@@ -568,8 +628,8 @@ export class SatiAgent {
         name: this._registrationFile.name,
         uri,
       });
-      const agentId = this._storeIdentity(result.mint, access.signer.address, uri, result.memberNumber);
-      return { signature: result.signature, agentId };
+      this._storeIdentity(result.mint, access.signer.address, uri, result.memberNumber);
+      return new SolanaTransactionHandle(result.signature, this._registrationFile);
     }
 
     // Sender path: build register instruction manually.
@@ -606,8 +666,8 @@ export class SatiAgent {
         });
 
         const signature = await access.sender.signAndSend([registerIx], [agentMint]);
-        const agentId = this._storeIdentity(agentMint.address, ownerAddress, uri, memberNumber);
-        return { signature, agentId };
+        this._storeIdentity(agentMint.address, ownerAddress, uri, memberNumber);
+        return new SolanaTransactionHandle(signature, this._registrationFile);
       } catch (error) {
         lastError = error;
         if (!isRegistrationCollisionError(error)) throw error;
@@ -617,7 +677,9 @@ export class SatiAgent {
       }
     }
 
-    throw new Error(`Registration failed after ${MAX_RETRIES} attempts`, { cause: lastError });
+    throw new SatiError("REGISTRATION_FAILED", `Registration failed after ${MAX_RETRIES} attempts`, {
+      cause: lastError,
+    });
   }
 
   private _storeIdentity(
@@ -625,7 +687,7 @@ export class SatiAgent {
     owner: import("@solana/kit").Address,
     uri: string,
     memberNumber: bigint,
-  ): AgentId {
+  ): void {
     this._identity = {
       mint,
       owner,
@@ -635,10 +697,8 @@ export class SatiAgent {
       additionalMetadata: {},
       nonTransferable: false,
     };
-    const agentId = formatSatiAgentId(mint, this._sdk.chain);
-    this._registrationFile.agentId = agentId;
+    this._registrationFile.agentId = formatSatiAgentId(mint, this._sdk.chain);
     this._registrationFile.agentURI = uri;
-    return agentId;
   }
 
   private _getOrCreateOasfEndpoint(): Endpoint {

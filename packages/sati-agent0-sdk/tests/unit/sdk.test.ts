@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { SatiSDK } from "../../src/sdk.js";
 import { SOLANA_CAIP2_CHAINS } from "../../src/adapters.js";
+import { UnsupportedOperationError } from "../../src/errors.js";
 import type { SatiSDKConfig } from "../../src/types.js";
 
 // Mock signer for tests (SatiSDKConfig requires KeyPairSigner but we only test
@@ -53,11 +54,11 @@ describe("SatiSDK", () => {
     expect(result.customField).toBe("extra");
   });
 
-  it("appendResponse should throw not supported", async () => {
+  it("appendResponse should throw UnsupportedOperationError", async () => {
     const sdk = new SatiSDK(mockConfig);
     const testAgentId = `${SOLANA_CAIP2_CHAINS.devnet}:SomeMintAddress`;
     await expect(sdk.appendResponse(testAgentId, "0x123", 0, { uri: "ipfs://abc", hash: "0x" })).rejects.toThrow(
-      "not supported on SATI",
+      UnsupportedOperationError,
     );
   });
 });

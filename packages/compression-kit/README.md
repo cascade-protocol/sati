@@ -57,6 +57,15 @@ const rpc = createPhotonRpc('https://mainnet.helius-rpc.com/?api-key=YOUR_KEY');
 // Get all compressed accounts for an owner
 const accounts = await rpc.getCompressedAccountsByOwner(ownerAddress);
 
+// With server-side memcmp filtering (up to 5 filters, AND logic)
+const filtered = await rpc.getCompressedAccountsByOwner(ownerAddress, {
+  filters: [
+    { offset: 8, bytes: schemaAddress },     // base58 string
+    { offset: 40, bytes: agentMintBytes },    // or Uint8Array
+  ],
+  limit: 50,
+});
+
 // Get compressed token accounts
 const tokenAccounts = await rpc.getCompressedTokenAccountsByOwner(ownerAddress, {
   mint: mintAddress,

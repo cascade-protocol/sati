@@ -29,6 +29,7 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { parse } from "../env";
 import { fetchPopularMarket, generatePrediction, passesConfidenceThreshold } from "./predict";
 import { computeCreditScore, computeLendingDecision } from "../react-app/lib/credit-engine";
+import { createIdentityApi } from "./identity-api";
 
 // =============================================================================
 // Types
@@ -386,6 +387,34 @@ function createApp(bindings: WorkerBindings) {
               },
             ],
             description: "SATI Predict - AI prediction with validation attestation",
+            mimeType: "application/json",
+          },
+        },
+        resourceServer,
+      ),
+    );
+
+    // Apply payment middleware to /api/register ($0.30 USDC for agent registration)
+    app.use(
+      "/api/register",
+      paymentMiddleware(
+        {
+          "POST /api/register": {
+            accepts: [
+              {
+                scheme: "exact",
+                network: SOLANA_DEVNET_NETWORK,
+                price: "$0.30",
+                payTo: agentOwner,
+              },
+              {
+                scheme: "exact",
+                network: SOLANA_MAINNET_NETWORK,
+                price: "$0.30",
+                payTo: agentOwner,
+              },
+            ],
+            description: "SATI Agent Registration - On-chain identity via Token-2022 NFT",
             mimeType: "application/json",
           },
         },
@@ -1005,6 +1034,13 @@ function createApp(bindings: WorkerBindings) {
       return c.json({ error: error instanceof Error ? error.message : "Failed to compute credit score" }, 500);
     }
   });
+
+  // =============================================================================
+  // Identity Service API (register, discover, feedback, reputation)
+  // =============================================================================
+
+  const identityApi = createIdentityApi(env);
+  app.route("/", identityApi);
 
   return app;
 }

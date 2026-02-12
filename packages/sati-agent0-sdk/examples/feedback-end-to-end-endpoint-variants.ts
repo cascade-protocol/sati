@@ -40,29 +40,31 @@ async function main() {
   console.log(`Submitting 2 feedback txs to agent ${AGENT_ID}...`);
 
   // 1) No endpoint (omit the parameter)
-  const { signature: sig1, feedback: fb1 } = await sdk.giveFeedback(
+  const handle1 = await sdk.giveFeedback(
     AGENT_ID,
     valueNoEndpoint,
     tag1,
     tag2,
   );
+  const { result: fb1 } = await handle1.waitMined();
   console.log(
     `- no-endpoint: value=${fb1.value} tags=${fb1.tags.join(",")}` +
-    ` endpoint=${fb1.endpoint ?? ""} sig=${sig1.slice(0, 16)}...`,
+    ` endpoint=${fb1.endpoint ?? ""} sig=${handle1.hash.slice(0, 16)}...`,
   );
 
   // 2) Very short endpoint domain
   const shortEndpoint = "nytimes.com";
-  const { signature: sig2, feedback: fb2 } = await sdk.giveFeedback(
+  const handle2 = await sdk.giveFeedback(
     AGENT_ID,
     valueWithEndpoint,
     tag1,
     tag2,
     shortEndpoint,
   );
+  const { result: fb2 } = await handle2.waitMined();
   console.log(
     `- short-endpoint: value=${fb2.value} tags=${fb2.tags.join(",")}` +
-    ` endpoint=${fb2.endpoint ?? ""} sig=${sig2.slice(0, 16)}...`,
+    ` endpoint=${fb2.endpoint ?? ""} sig=${handle2.hash.slice(0, 16)}...`,
   );
 
   // Verify via searchFeedback (no polling needed on Solana)

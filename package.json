@@ -47,7 +47,20 @@
       "ignoreMissing": [
         "@solana/sysvars"
       ]
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "bigint-buffer",
+      "bufferutil",
+      "esbuild",
+      "keccak",
+      "msw",
+      "protobufjs",
+      "secp256k1",
+      "sharp",
+      "utf-8-validate",
+      "workerd"
+    ]
   },
   "packageManager": "pnpm@10.27.0"
 }

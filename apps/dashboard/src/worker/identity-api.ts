@@ -1,0 +1,583 @@
+/**
+ * SATI Identity Service API
+ *
+ * Provides HTTP endpoints for agent registration, discovery, feedback,
+ * and reputation queries. ERC-8004 compatible.
+ *
+ * - Registration: x402 paywalled ($0.30 USDC), mints Token-2022 NFT
+ * - Feedback: free, server acts as counterparty
+ * - Discovery & reputation: free read endpoints
+ */
+
+import { Hono } from "hono";
+import { type Address, isAddress, createKeyPairSignerFromBytes, signBytes, createKeyPairFromBytes } from "@solana/kit";
+import {
+  Sati,
+  loadDeployedConfig,
+  buildRegistrationFile,
+  fetchRegistrationFile,
+  createPinataUploader,
+  serializeFeedback,
+  buildCounterpartyMessage,
+  ContentType,
+  parseFeedbackContent,
+  Outcome as OutcomeEnum,
+  type FeedbackData,
+  SATI_PROGRAM_ADDRESS,
+  type AgentIdentity,
+} from "@cascade-fyi/sati-sdk";
+import type { Endpoint, TrustMechanism } from "@cascade-fyi/sati-sdk";
+import bs58 from "bs58";
+import type { Env } from "../env";
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface RegisterRequest {
+  network?: "devnet" | "mainnet";
+  ownerAddress: string;
+  name: string;
+  description: string;
+  image: string;
+  services?: Array<{
+    name: string;
+    endpoint: string;
+    version?: string;
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    mcpResources?: string[];
+    a2aSkills?: string[];
+    skills?: string[];
+    domains?: string[];
+  }>;
+  x402Support?: boolean;
+  active?: boolean;
+  supportedTrust?: string[];
+  externalUrl?: string;
+}
+
+interface FeedbackRequest {
+  network?: "devnet" | "mainnet";
+  agentMint: string;
+  value: number;
+  valueDecimals?: number;
+  tag1?: string;
+  tag2?: string;
+  endpoint?: string;
+  reviewerAddress?: string;
+  feedbackURI?: string;
+  feedbackHash?: string;
+}
+
+// CAIP-2 chain identifiers
+const CAIP2_CHAINS = {
+  mainnet: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+  devnet: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+} as const;
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function getNetwork(param: string | undefined): "devnet" | "mainnet" {
+  return param === "devnet" ? "devnet" : "mainnet";
+}
+
+function createSatiClient(network: "devnet" | "mainnet", env: Env) {
+  const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[network];
+  return new Sati({ network, rpcUrl, wsUrl, photonRpcUrl: rpcUrl });
+}
+
+function getNetworkConfig(network: "devnet" | "mainnet") {
+  const config = loadDeployedConfig(network);
+  return {
+    feedbackSchema: config?.schemas?.feedback,
+    feedbackPublicSchema: config?.schemas?.feedbackPublic,
+    validationSchema: config?.schemas?.validation,
+    reputationScoreSchema: config?.schemas?.reputationScore,
+    credential: config?.credential,
+    lookupTable: config?.lookupTable,
+  };
+}
+
+// =============================================================================
+// App Factory
+// =============================================================================
+
+export function createIdentityApi(env: Env) {
+  const app = new Hono();
+
+  // Decode server signer (reused across endpoints)
+  let signerBytes: Uint8Array | undefined;
+  let signerKeyPairPromise: Promise<CryptoKeyPair> | undefined;
+
+  if (env.SATI_AGENT_SIGNER_KEY) {
+    try {
+      signerBytes = bs58.decode(env.SATI_AGENT_SIGNER_KEY);
+    } catch (e) {
+      console.error("[identity-api] Failed to decode signer key:", e);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // POST /api/register - Register agent identity (x402 paywalled)
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/register", async (c) => {
+    if (!signerBytes) {
+      return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
+    }
+
+    if (!env.PINATA_JWT) {
+      return c.json({ error: "Server misconfigured: missing PINATA_JWT" }, 500);
+    }
+
+    let body: RegisterRequest;
+    try {
+      body = await c.req.json<RegisterRequest>();
+    } catch {
+      return c.json({ error: "Invalid request body" }, 400);
+    }
+
+    // Validate required fields
+    if (!body.name?.trim()) {
+      return c.json({ error: "Missing required field: name" }, 400);
+    }
+    if (!body.description?.trim()) {
+      return c.json({ error: "Missing required field: description" }, 400);
+    }
+    if (!body.image?.trim()) {
+      return c.json({ error: "Missing required field: image" }, 400);
+    }
+    if (!body.ownerAddress?.trim()) {
+      return c.json({ error: "Missing required field: ownerAddress" }, 400);
+    }
+    if (!isAddress(body.ownerAddress)) {
+      return c.json({ error: "Invalid ownerAddress - must be a valid Solana address" }, 400);
+    }
+
+    const network = getNetwork(body.network);
+
+    try {
+      // Build registration file (ERC-8004 format)
+      const regFile = buildRegistrationFile({
+        name: body.name.trim(),
+        description: body.description.trim(),
+        image: body.image.trim(),
+        externalUrl: body.externalUrl,
+        endpoints: body.services as Endpoint[],
+        supportedTrust: body.supportedTrust as TrustMechanism[],
+        active: body.active ?? true,
+        x402support: body.x402Support,
+      });
+
+      // Upload to IPFS
+      const uploader = createPinataUploader(env.PINATA_JWT);
+      const uri = await uploader.upload(regFile);
+
+      // Register on-chain
+      const sati = createSatiClient(network, env);
+      const serverPayer = await createKeyPairSignerFromBytes(signerBytes);
+
+      const result = await sati.registerAgent({
+        payer: serverPayer,
+        name: body.name.trim(),
+        uri,
+        owner: body.ownerAddress as Address,
+      });
+
+      // Build CAIP-10 agent ID
+      const chainId = CAIP2_CHAINS[network];
+      const agentId = `${chainId}:${result.mint}`;
+
+      return c.json({
+        success: true,
+        mint: result.mint,
+        agentId,
+        memberNumber: Number(result.memberNumber),
+        signature: result.signature,
+        uri,
+        registrations: [
+          {
+            agentId: result.mint,
+            agentRegistry: `${chainId}:${SATI_PROGRAM_ADDRESS}`,
+          },
+        ],
+      });
+    } catch (error) {
+      console.error("[register] ERROR:", error);
+      if (error instanceof Error && error.stack) {
+        console.error("[register] Stack:", error.stack);
+      }
+      return c.json({ error: error instanceof Error ? error.message : "Registration failed" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/agents - List/search agents
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/agents", async (c) => {
+    const network = getNetwork(c.req.query("network"));
+    const nameFilter = c.req.query("name")?.toLowerCase();
+    const ownerFilter = c.req.query("owner");
+    const limitParam = Number.parseInt(c.req.query("limit") ?? "20", 10);
+    const limit = Math.min(Math.max(limitParam, 1), 50);
+
+    try {
+      const sati = createSatiClient(network, env);
+
+      let agents: AgentIdentity[];
+      if (ownerFilter) {
+        if (!isAddress(ownerFilter)) {
+          return c.json({ error: "Invalid owner address" }, 400);
+        }
+        agents = await sati.listAgentsByOwner(ownerFilter as Address);
+      } else {
+        agents = await sati.listAllAgents({ limit });
+      }
+
+      // Fetch registration files and apply name filter
+      const results = [];
+      for (const agent of agents) {
+        if (results.length >= limit) break;
+
+        const regFile = await fetchRegistrationFile(agent.uri);
+
+        if (nameFilter) {
+          const agentName = (regFile?.name ?? agent.name).toLowerCase();
+          if (!agentName.includes(nameFilter)) continue;
+        }
+
+        results.push({
+          mint: agent.mint,
+          agentId: `${CAIP2_CHAINS[network]}:${agent.mint}`,
+          owner: agent.owner,
+          name: regFile?.name ?? agent.name,
+          description: regFile?.description ?? "",
+          image: regFile?.image ?? "",
+          uri: agent.uri,
+          memberNumber: Number(agent.memberNumber),
+          active: regFile?.active ?? true,
+          services: regFile?.endpoints ?? [],
+          supportedTrust: regFile?.supportedTrust ?? [],
+          x402Support: regFile?.x402support ?? false,
+        });
+      }
+
+      return c.json({ agents: results, count: results.length });
+    } catch (error) {
+      console.error("[agents] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to list agents" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/agents/:mint - Get single agent
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/agents/:mint", async (c) => {
+    const mint = c.req.param("mint");
+    const network = getNetwork(c.req.query("network"));
+
+    if (!isAddress(mint)) {
+      return c.json({ error: "Invalid mint address" }, 400);
+    }
+
+    try {
+      const sati = createSatiClient(network, env);
+      const agent = await sati.loadAgent(mint as Address);
+
+      if (!agent) {
+        return c.json({ error: "Agent not found" }, 404);
+      }
+
+      const regFile = await fetchRegistrationFile(agent.uri);
+
+      // Fetch reputation summary
+      const networkConfig = getNetworkConfig(network);
+      const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
+
+      let feedbackCount = 0;
+      let totalValue = 0;
+
+      for (const schema of feedbackSchemas) {
+        const feedbacks = await sati.listFeedbacks({
+          sasSchema: schema as Address,
+          agentMint: mint as Address,
+        });
+
+        for (const fb of feedbacks.items) {
+          const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
+          feedbackCount++;
+          if (parsed?.score !== undefined) {
+            totalValue += parsed.score;
+          }
+        }
+      }
+
+      return c.json({
+        mint: agent.mint,
+        agentId: `${CAIP2_CHAINS[network]}:${agent.mint}`,
+        owner: agent.owner,
+        name: regFile?.name ?? agent.name,
+        description: regFile?.description ?? "",
+        image: regFile?.image ?? "",
+        uri: agent.uri,
+        memberNumber: Number(agent.memberNumber),
+        active: regFile?.active ?? true,
+        services: regFile?.endpoints ?? [],
+        supportedTrust: regFile?.supportedTrust ?? [],
+        x402Support: regFile?.x402support ?? false,
+        registrations: regFile?.registrations ?? [],
+        reputation: {
+          count: feedbackCount,
+          summaryValue: feedbackCount > 0 ? Math.round(totalValue / feedbackCount) : 0,
+          summaryValueDecimals: 0,
+        },
+      });
+    } catch (error) {
+      console.error("[agent] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to load agent" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/reputation/:mint - Get reputation summary
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/reputation/:mint", async (c) => {
+    const mint = c.req.param("mint");
+    const network = getNetwork(c.req.query("network"));
+    const tag1Filter = c.req.query("tag1");
+    const tag2Filter = c.req.query("tag2");
+    const clientAddressesParam = c.req.query("clientAddresses");
+
+    if (!isAddress(mint)) {
+      return c.json({ error: "Invalid mint address" }, 400);
+    }
+
+    const clientAddresses = clientAddressesParam?.split(",").filter(Boolean) ?? [];
+
+    try {
+      const sati = createSatiClient(network, env);
+      const networkConfig = getNetworkConfig(network);
+      const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
+
+      let count = 0;
+      let totalValue = 0;
+      let hasValues = false;
+
+      for (const schema of feedbackSchemas) {
+        const feedbacks = await sati.listFeedbacks({
+          sasSchema: schema as Address,
+          agentMint: mint as Address,
+        });
+
+        for (const fb of feedbacks.items) {
+          const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
+          const contentJson = parsed as Record<string, unknown> | null;
+
+          // Apply filters
+          if (tag1Filter && contentJson?.tag1 !== tag1Filter) continue;
+          if (tag2Filter && contentJson?.tag2 !== tag2Filter) continue;
+          if (clientAddresses.length > 0 && !clientAddresses.includes(fb.data.counterparty)) continue;
+
+          count++;
+          // Support both old (score) and new (value) format
+          const value = (contentJson?.value as number) ?? (contentJson?.score as number);
+          if (value !== undefined) {
+            totalValue += value;
+            hasValues = true;
+          }
+        }
+      }
+
+      return c.json({
+        count,
+        summaryValue: hasValues ? Math.round(totalValue / count) : 0,
+        summaryValueDecimals: 0,
+      });
+    } catch (error) {
+      console.error("[reputation] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to get reputation" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/feedback/:mint - List feedback for agent
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/feedback/:mint", async (c) => {
+    const mint = c.req.param("mint");
+    const network = getNetwork(c.req.query("network"));
+    const clientAddressFilter = c.req.query("clientAddress");
+    const tag1Filter = c.req.query("tag1");
+    const tag2Filter = c.req.query("tag2");
+
+    if (!isAddress(mint)) {
+      return c.json({ error: "Invalid mint address" }, 400);
+    }
+
+    try {
+      const sati = createSatiClient(network, env);
+      const networkConfig = getNetworkConfig(network);
+      const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
+
+      const feedbackItems: Array<Record<string, unknown>> = [];
+      let feedbackIndex = 0;
+
+      for (const schema of feedbackSchemas) {
+        const feedbacks = await sati.listFeedbacks({
+          sasSchema: schema as Address,
+          agentMint: mint as Address,
+        });
+
+        for (const fb of feedbacks.items) {
+          const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
+          const contentJson = parsed as Record<string, unknown> | null;
+
+          // Apply filters
+          if (clientAddressFilter && fb.data.counterparty !== clientAddressFilter) continue;
+          if (tag1Filter && contentJson?.tag1 !== tag1Filter) continue;
+          if (tag2Filter && contentJson?.tag2 !== tag2Filter) continue;
+
+          feedbackItems.push({
+            clientAddress: fb.data.counterparty,
+            feedbackIndex: feedbackIndex++,
+            value: (contentJson?.value as number) ?? (contentJson?.score as number) ?? 0,
+            valueDecimals: (contentJson?.valueDecimals as number) ?? 0,
+            tag1: (contentJson?.tag1 as string) ?? "",
+            tag2: (contentJson?.tag2 as string) ?? "",
+            endpoint: (contentJson?.endpoint as string) ?? "",
+            reviewer: (contentJson?.reviewer as string) ?? "",
+            outcome: fb.data.outcome,
+            isRevoked: false,
+          });
+        }
+      }
+
+      return c.json({ feedbacks: feedbackItems, count: feedbackItems.length });
+    } catch (error) {
+      console.error("[feedback list] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to list feedback" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/feedback - Give feedback (free, server signs as counterparty)
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/feedback", async (c) => {
+    if (!signerBytes) {
+      return c.json({ error: "Server misconfigured: missing SATI_AGENT_SIGNER_KEY" }, 500);
+    }
+
+    let body: FeedbackRequest;
+    try {
+      body = await c.req.json<FeedbackRequest>();
+    } catch {
+      return c.json({ error: "Invalid request body" }, 400);
+    }
+
+    if (!body.agentMint?.trim()) {
+      return c.json({ error: "Missing required field: agentMint" }, 400);
+    }
+    if (body.value === undefined || body.value === null) {
+      return c.json({ error: "Missing required field: value" }, 400);
+    }
+    if (!isAddress(body.agentMint)) {
+      return c.json({ error: "Invalid agentMint address" }, 400);
+    }
+
+    const network = getNetwork(body.network);
+    const networkConfig = getNetworkConfig(network);
+
+    if (!networkConfig.feedbackPublicSchema) {
+      return c.json({ error: "FeedbackPublic schema not configured for network" }, 500);
+    }
+
+    try {
+      const sati = createSatiClient(network, env);
+      const serverPayer = await createKeyPairSignerFromBytes(signerBytes);
+      const counterpartyAddress = serverPayer.address;
+
+      // Build content JSON (ERC-8004 format)
+      const contentObj: Record<string, unknown> = {
+        value: body.value,
+        valueDecimals: body.valueDecimals ?? 0,
+      };
+      if (body.tag1) contentObj.tag1 = body.tag1;
+      if (body.tag2) contentObj.tag2 = body.tag2;
+      if (body.endpoint) contentObj.endpoint = body.endpoint;
+      if (body.reviewerAddress) contentObj.reviewer = body.reviewerAddress;
+      if (body.feedbackURI) contentObj.feedbackURI = body.feedbackURI;
+      if (body.feedbackHash) contentObj.feedbackHash = body.feedbackHash;
+
+      const contentBytes = new TextEncoder().encode(JSON.stringify(contentObj));
+
+      // Generate random taskRef
+      const taskRef = crypto.getRandomValues(new Uint8Array(32));
+      const dataHash = new Uint8Array(32); // zero hash
+
+      // Serialize feedback data for SIWS message
+      const feedbackData: FeedbackData = {
+        taskRef,
+        agentMint: body.agentMint as Address,
+        counterparty: counterpartyAddress,
+        dataHash,
+        outcome: OutcomeEnum.Neutral,
+        contentType: ContentType.JSON,
+        content: contentBytes,
+      };
+      const serializedData = serializeFeedback(feedbackData);
+
+      // Build SIWS message and sign with server key
+      const { messageBytes } = buildCounterpartyMessage({
+        schemaName: "FeedbackPublicV1",
+        data: serializedData,
+      });
+
+      // Sign SIWS message with server keypair
+      if (!signerKeyPairPromise) {
+        signerKeyPairPromise = createKeyPairFromBytes(signerBytes);
+      }
+      const keyPair = await signerKeyPairPromise;
+      const counterpartySignature = await signBytes(keyPair.privateKey, messageBytes);
+
+      // Submit feedback on-chain
+      const result = await sati.createFeedback({
+        payer: serverPayer,
+        sasSchema: networkConfig.feedbackPublicSchema as Address,
+        taskRef,
+        agentMint: body.agentMint as Address,
+        counterparty: counterpartyAddress,
+        dataHash,
+        outcome: OutcomeEnum.Neutral,
+        agentSignature: {
+          pubkey: counterpartyAddress,
+          signature: counterpartySignature,
+        },
+        counterpartyMessage: messageBytes,
+        contentType: ContentType.JSON,
+        content: contentBytes,
+        lookupTableAddress: networkConfig.lookupTable as Address,
+      });
+
+      return c.json({
+        success: true,
+        txSignature: result.signature,
+        attestationAddress: result.address,
+      });
+    } catch (error) {
+      console.error("[feedback] ERROR:", error);
+      if (error instanceof Error && error.stack) {
+        console.error("[feedback] Stack:", error.stack);
+      }
+      return c.json({ error: error instanceof Error ? error.message : "Failed to submit feedback" }, 500);
+    }
+  });
+
+  return app;
+}

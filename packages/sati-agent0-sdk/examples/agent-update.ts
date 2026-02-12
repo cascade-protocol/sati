@@ -41,9 +41,9 @@ async function main() {
   agent.setActive(true);
 
   console.log("Registering a new agent (setup for this example)...");
-  const registration = await agent.registerIPFS();
-  const agentId = registration.agentId;
-  console.log(`Registered agentId: ${agentId}`);
+  const regHandle = await agent.registerIPFS();
+  const agentId = agent.agentId!;
+  console.log(`Registered agentId: ${agentId} (tx: ${regHandle.hash})`);
 
   // 2) Load it back from chain/IPFS
   const loaded = await sdk.loadAgent(agentId);
@@ -67,12 +67,10 @@ async function main() {
   // Update endpoint
   await loaded.setMCP("https://api.example.com/mcp-updated", "2025-06-18");
 
-  // 4) Re-register with updated information
-  // Note: This creates a NEW agent NFT on SATI (unlike EVM where it updates in-place).
-  console.log("Registering updated agent...");
-  const updatedRegistration = await loaded.registerIPFS();
-  console.log(`Updated agent registered with new ID: ${updatedRegistration.agentId}`);
-  console.log(`Transaction signature: ${updatedRegistration.signature}`);
+  // 4) Re-upload updated registration file and update on-chain URI
+  console.log("Updating agent on-chain...");
+  const updateHandle = await loaded.updateIPFS();
+  console.log(`Agent updated! Transaction: ${updateHandle.hash}`);
 }
 
 main().catch(console.error);

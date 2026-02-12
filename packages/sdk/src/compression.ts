@@ -23,6 +23,7 @@ import {
   type CompressedAccount,
   type ValidityProofWithContext,
   type TreeInfo,
+  type MemcmpFilter,
   deriveAddress,
   deriveAddressSeed,
   PackedAccounts,
@@ -604,13 +605,17 @@ export class SATILightClientImpl implements SATILightClient {
     filter: AttestationFilter & { sasSchema: Address },
     deserializer: (data: Uint8Array) => T,
   ): Promise<PaginatedAttestations<ParsedAttestation>> {
-    // Pass cursor and limit to Photon RPC for pagination
-    // Note: Client-side filtering still applied after fetch
-    // TODO: Use MemcmpFilter for server-side filtering when we need sasSchema filtering at RPC level
+    // Build memcmp filters for server-side filtering (Photon RPC)
+    const memcmpFilters: MemcmpFilter[] = [];
+    memcmpFilters.push({ offset: BORSH_OFFSETS.SAS_SCHEMA, bytes: filter.sasSchema });
+    if (filter.agentMint) {
+      memcmpFilters.push({ offset: BORSH_OFFSETS.AGENT_MINT, bytes: filter.agentMint });
+    }
 
     const result = await this.rpc.getCompressedAccountsByOwner(this.programId, {
       cursor: filter.cursor,
       limit: filter.limit,
+      filters: memcmpFilters,
     });
     const attestations: ParsedAttestation[] = [];
 
@@ -621,9 +626,10 @@ export class SATILightClientImpl implements SATILightClient {
         const parsed = this.parseAttestation(account, deserializer);
         if (!parsed) continue;
 
-        // Apply filters
-        if (parsed.attestation.sasSchema !== filter.sasSchema) continue;
-        if (filter.agentMint && parsed.attestation.agentMint !== filter.agentMint) continue;
+        // Server-side memcmp handles sasSchema and agentMint;
+        // client-side filtering for fields at variable offsets
+        if (filter.counterparty && parsed.data.counterparty !== filter.counterparty) continue;
+        if (filter.outcome !== undefined && parsed.data.outcome !== filter.outcome) continue;
 
         attestations.push(parsed);
       } catch {

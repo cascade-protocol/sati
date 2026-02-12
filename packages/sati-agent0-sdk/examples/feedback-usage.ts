@@ -38,7 +38,7 @@ async function main() {
 
   // 2. Give feedback on-chain
   console.log("Submitting feedback...");
-  const { signature, feedback } = await sdk.giveFeedback(
+  const handle = await sdk.giveFeedback(
     AGENT_ID,
     85,                                    // value (score)
     "data_analyst",                        // tag1
@@ -46,7 +46,8 @@ async function main() {
     "https://api.example.com/feedback",    // endpoint
     feedbackFile,                          // off-chain feedback payload
   );
-  console.log(`Transaction signature: ${signature}`);
+  const { result: feedback } = await handle.waitMined();
+  console.log(`Transaction signature: ${handle.hash}`);
   console.log(`Value: ${feedback.value}, Tags: ${feedback.tags}`);
 
   // 3. Search for feedback

@@ -66,19 +66,20 @@ async function main() {
     const item = planned[i];
     const endpoint = `${endpointBase}&i=${i}&t=${encodeURIComponent(item.tag2)}`;
 
-    const { signature, feedback } = await sdk.giveFeedback(
+    const handle = await sdk.giveFeedback(
       AGENT_ID,
       item.value,
       item.tag1,
       item.tag2,
       endpoint,
     );
+    const { result: feedback } = await handle.waitMined();
 
     console.log(
       `- submitted ${i + 1}/${planned.length}:` +
       ` value=${feedback.value} tags=${feedback.tags.join(",")}` +
       ` endpoint=${feedback.endpoint ?? ""}` +
-      ` sig=${signature.slice(0, 16)}...`,
+      ` sig=${handle.hash.slice(0, 16)}...`,
     );
   }
 

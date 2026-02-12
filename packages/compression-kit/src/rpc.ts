@@ -84,17 +84,14 @@ export interface PaginatedOptions {
 /**
  * Memcmp filter for compressed account queries.
  *
- * NOTE: Photon RPC (Light Protocol indexer) does not yet support memcmp filters.
- * This interface is prepared for when support is added.
- * Track: https://github.com/Lightprotocol/light-protocol/issues
+ * Photon RPC supports up to 5 memcmp filters per request (AND logic).
+ * Bytes are compared against raw account data at the given offset.
  */
 export interface MemcmpFilter {
   /** Byte offset into account data to start comparison */
   offset: number;
-  /** Bytes to compare (base58 or base64 encoded, or raw Uint8Array) */
+  /** Bytes to compare - base58 string or raw Uint8Array */
   bytes: string | Uint8Array;
-  /** Encoding of bytes string ("base58" or "base64"), ignored if bytes is Uint8Array */
-  encoding?: "base58" | "base64";
 }
 
 /**
@@ -103,12 +100,7 @@ export interface MemcmpFilter {
 export interface GetCompressedAccountsByOwnerConfig {
   cursor?: string;
   limit?: number;
-  /**
-   * Memcmp filters for server-side filtering.
-   *
-   * NOTE: Not yet supported by Photon RPC. Filters are passed through but
-   * will be ignored until Light Protocol adds support.
-   */
+  /** Memcmp filters for server-side filtering (up to 5, AND logic). */
   filters?: MemcmpFilter[];
 }
 
@@ -278,20 +270,28 @@ export class PhotonRpc {
   /**
    * Get compressed accounts by owner.
    *
-   * NOTE: `filters` parameter is prepared for when Photon RPC supports memcmp filters.
-   * Currently filters are passed through but may be ignored by the server.
+   * Supports up to 5 memcmp filters for server-side filtering (AND logic).
    */
   async getCompressedAccountsByOwner(
     owner: Address,
     config?: GetCompressedAccountsByOwnerConfig,
   ): Promise<WithCursor<CompressedAccount[]>> {
     const method = versionedEndpoint("getCompressedAccountsByOwner");
+
+    // Transform MemcmpFilter[] to Photon's FilterSelector wire format:
+    // { memcmp: { offset, bytes } } where bytes is a base58 string
+    const photonFilters = config?.filters?.map((f) => ({
+      memcmp: {
+        offset: f.offset,
+        bytes: f.bytes instanceof Uint8Array ? bs58.encode(f.bytes) : f.bytes,
+      },
+    }));
+
     const params = {
       owner,
       cursor: config?.cursor,
       limit: config?.limit,
-      // Pass through filters when Photon RPC adds support
-      filters: config?.filters,
+      filters: photonFilters,
     };
 
     const result = await this.requestWithContext<{

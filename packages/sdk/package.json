@@ -1,6 +1,6 @@
 {
   "name": "@cascade-fyi/sati-sdk",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "TypeScript SDK for SATI - Solana Agent Trust Infrastructure",
   "repository": {
     "type": "git",

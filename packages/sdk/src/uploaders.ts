@@ -25,17 +25,26 @@ export interface MetadataUploader {
   upload(data: unknown): Promise<string>;
 }
 
-interface PinataResponse {
-  IpfsHash: string;
-  PinSize: number;
-  Timestamp: string;
+interface PinataV3Response {
+  data: {
+    id: string;
+    name: string;
+    cid: string;
+    created_at: string;
+    size: number;
+    number_of_files: number;
+    mime_type: string;
+    user_id: string;
+    group_id: string | null;
+    is_duplicate: boolean;
+  };
 }
 
 /**
- * Create a Pinata IPFS uploader using the pinJSONToIPFS API.
+ * Create a Pinata IPFS uploader using the v3 Files API.
  *
- * @param jwt - Pinata API JWT token
- * @returns MetadataUploader that pins JSON to IPFS via Pinata
+ * @param jwt - Pinata API JWT token (requires `files:write` permission)
+ * @returns MetadataUploader that pins JSON to public IPFS via Pinata
  *
  * @example
  * ```typescript
@@ -47,13 +56,19 @@ interface PinataResponse {
 export function createPinataUploader(jwt: string): MetadataUploader {
   return {
     async upload(data: unknown): Promise<string> {
-      const response = await fetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", {
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+
+      const formData = new FormData();
+      formData.append("file", blob, "registration.json");
+      formData.append("network", "public");
+
+      const response = await fetch("https://uploads.pinata.cloud/v3/files", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${jwt}`,
         },
-        body: JSON.stringify({ pinataContent: data }),
+        body: formData,
       });
 
       if (!response.ok) {
@@ -61,8 +76,33 @@ export function createPinataUploader(jwt: string): MetadataUploader {
         throw new Error(`IPFS upload failed (${response.status}): ${text}`);
       }
 
-      const result = (await response.json()) as PinataResponse;
-      return `ipfs://${result.IpfsHash}`;
+      const result = (await response.json()) as PinataV3Response;
+      const cid = result.data?.cid;
+
+      if (!cid) {
+        throw new Error(`No CID returned from Pinata. Response: ${JSON.stringify(result)}`);
+      }
+
+      // Verify content is accessible on gateway (catches silent upload failures)
+      try {
+        const verifyResponse = await fetch(`https://gateway.pinata.cloud/ipfs/${cid}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!verifyResponse.ok && verifyResponse.status !== 429) {
+          throw new Error(
+            `Pinata returned CID ${cid} but content not accessible on gateway (HTTP ${verifyResponse.status})`,
+          );
+        }
+      } catch (verifyError) {
+        // Timeouts and rate limits are non-fatal - content may propagate with delay
+        if (verifyError instanceof Error && !verifyError.message.includes("not accessible")) {
+          console.warn(`[SATI] Pinata gateway verification skipped for ${cid}: ${verifyError.message}`);
+        } else {
+          throw verifyError;
+        }
+      }
+
+      return `ipfs://${cid}`;
     },
   };
 }

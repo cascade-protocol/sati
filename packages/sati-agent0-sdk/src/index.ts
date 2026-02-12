@@ -13,12 +13,26 @@
 export { SatiSDK } from "./sdk.js";
 export { SatiAgent } from "./agent.js";
 
+// Transaction handle (agent0-sdk TransactionHandle pattern for Solana)
+export { SolanaTransactionHandle } from "./transaction-handle.js";
+export type { SolanaReceipt, SolanaTransactionResult } from "./transaction-handle.js";
+
+// Typed error classes
+export {
+  SatiError,
+  AgentNotFoundError,
+  ReadOnlyError,
+  SignerRequiredError,
+  SchemaNotDeployedError,
+  InvalidAgentIdError,
+  UnsupportedOperationError,
+} from "./errors.js";
+
 // SATI-specific config and types
 export type {
   SatiSDKConfig,
   SatiSearchOptions,
   SatiFeedbackSearchOptions,
-  SatiFeedbackOptions,
   SatiTransactionSender,
   SatiWarning,
   PreparedFeedback,

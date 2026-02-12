@@ -58,9 +58,10 @@ async function main() {
 
   // Register agent on-chain with IPFS
   console.log("Registering agent...");
-  const result = await agent.registerIPFS();
+  const handle = await agent.registerIPFS();
+  const { result } = await handle.waitMined();
   console.log(`Agent registered with ID: ${result.agentId}`);
-  console.log(`Transaction signature: ${result.signature}`);
+  console.log(`Transaction signature: ${handle.hash}`);
 }
 
 main().catch(console.error);

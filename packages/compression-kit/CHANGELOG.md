@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.1] - 2026-02-12
+
+### Fixed
+
+- `MemcmpFilter` now works with Photon RPC - filters are transformed to the correct wire format (`{ memcmp: { offset, bytes } }` with base58-encoded bytes)
+- `getCompressedAccountsByOwner` properly passes memcmp filters to Photon for server-side filtering (previously filters were passed through raw and ignored)
+
+### Changed
+
+- Removed unused `encoding` field from `MemcmpFilter` interface (was documented as "not yet supported")
+- Updated `MemcmpFilter.bytes` type docs to reflect actual usage (base58 string or Uint8Array)
 
 ## [0.2.0] - 2025-01-04
 
@@ -81,3 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uses native `bigint` instead of BN.js for better performance
 - Uses `Address` type from `@solana/kit` instead of `PublicKey`
 - Compatible with edge runtimes (Cloudflare Workers, Deno, browsers)
+
+[0.2.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/compression-kit@0.2.0...@cascade-fyi/compression-kit@0.2.1
+[0.2.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/compression-kit@0.1.0...@cascade-fyi/compression-kit@0.2.0
+[0.1.0]: https://github.com/cascade-protocol/sati/releases/tag/@cascade-fyi/compression-kit@0.1.0

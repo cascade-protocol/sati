@@ -32,14 +32,15 @@ async function main() {
   });
 
   console.log("Submitting on-chain only feedback...");
-  const { signature, feedback } = await sdk.giveFeedback(
+  const handle = await sdk.giveFeedback(
     AGENT_ID,
     92,           // value (score)
     "quality",    // tag1
     "latency",    // tag2
     "https://api.example.com/feedback", // optional endpoint
   );
-  console.log(`Transaction signature: ${signature}`);
+  const { result: feedback } = await handle.waitMined();
+  console.log(`Transaction signature: ${handle.hash}`);
 
   console.log("Submitted feedback:", {
     value: feedback.value,

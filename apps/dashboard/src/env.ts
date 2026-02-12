@@ -20,6 +20,8 @@ export const parse = (env: Record<string, unknown>) => {
     KALSHI_API_KEY_RSA_SECRET: env.KALSHI_API_KEY_RSA_SECRET as string | undefined,
     // Anthropic API key for AI predictions
     ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY as string | undefined,
+    // Pinata JWT for IPFS uploads (agent registration)
+    PINATA_JWT: env.PINATA_JWT as string | undefined,
     DEMO_AGENT_MINT_DEVNET,
     DEMO_AGENT_MINT_MAINNET,
     PREDICTION_AGENT_MINT_DEVNET,

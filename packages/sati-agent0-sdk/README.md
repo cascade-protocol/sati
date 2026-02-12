@@ -2,7 +2,7 @@
 
 Agent0-compatible adapter for [SATI](https://github.com/cascade-protocol/sati) - Solana Agent Trust Infrastructure.
 
-Drop-in replacement for [agent0-sdk](https://github.com/agent0-ai/agent0-sdk) that routes all operations through SATI's Solana infrastructure instead of EVM chains. Same method signatures, same types - different backend.
+API-compatible adapter for [agent0-sdk](https://github.com/agent0-ai/agent0-sdk) that routes all operations through SATI's Solana infrastructure instead of EVM chains. Same method names and types - write operations return `SolanaTransactionHandle<T>` (compatible with agent0-sdk's `TransactionHandle` via `.hash`, `.waitMined()`, `.waitConfirmed()`).
 
 ## Installation
 
@@ -31,13 +31,21 @@ const sdk = new SatiSDK({
 const agents = await sdk.searchAgents({ hasMCP: true });
 
 // Give feedback
-const { signature, feedback } = await sdk.giveFeedback(
-  agents[0].agentId,
-  85,
-  "quality",
-  "speed",
-);
+const handle = await sdk.giveFeedback(agents[0].agentId, 85, "quality", "speed");
+const { result: feedback } = await handle.waitMined();
+console.log(handle.hash); // transaction signature
 ```
+
+### Return type differences from agent0-sdk
+
+| Method | agent0-sdk | sati-agent0-sdk |
+|---|---|---|
+| `giveFeedback` | `TransactionHandle<Feedback>` | `SolanaTransactionHandle<Feedback>` |
+| `transferAgent` | `TransactionHandle<TransferResult>` | `SolanaTransactionHandle<TransferResult>` |
+| `revokeFeedback` | `TransactionHandle<Feedback>` | `SolanaTransactionHandle<Feedback>` |
+| `agent.registerIPFS()` | `TransactionHandle<RegistrationFile>` | `SolanaTransactionHandle<RegistrationFile>` |
+
+`SolanaTransactionHandle<T>` provides the same `.hash`, `.waitMined()`, `.waitConfirmed()` API. Key difference: `.hash` is a base58 Solana signature (not EVM hex), and both `waitMined`/`waitConfirmed` resolve immediately since Solana's `sendAndConfirmTransaction` already waits for confirmation.
 
 ---
 
@@ -78,7 +86,23 @@ agent.setX402Support(true);
 agent.setTrust(true, false, false); // reputation only
 
 // Register on-chain via IPFS (requires pinataJwt in config)
-const { signature, agentId } = await agent.registerIPFS();
+const handle = await agent.registerIPFS();
+console.log(agent.agentId, handle.hash);
+```
+
+### Update an existing agent
+
+```typescript
+const agent = await sdk.loadAgent(agentId);
+agent.updateInfo("Updated Name", "Updated description");
+await agent.setMCP("https://new-mcp.example.com");
+
+// Re-upload to IPFS and update on-chain URI
+const handle = await agent.updateIPFS();
+console.log(handle.hash);
+
+// Or update with a custom HTTP URI
+await agent.updateHTTP("https://example.com/agent-metadata.json");
 ```
 
 ### Load an existing agent
@@ -102,12 +126,15 @@ const ranked = await sdk.searchAgents(
   { active: true },
   { includeFeedbackStats: true, sort: ["averageValue:desc"] },
 );
+
+// With pagination
+const page = await sdk.searchAgents({}, { limit: 25, offset: 50n });
 ```
 
 ### Transfer ownership
 
 ```typescript
-await sdk.transferAgent(agentId, "NewOwnerAddress");
+const handle = await sdk.transferAgent(agentId, "NewOwnerAddress");
 // or via agent instance
 await agent.transfer("NewOwnerAddress");
 ```
@@ -119,7 +146,7 @@ await agent.transfer("NewOwnerAddress");
 ### Give feedback (server-side)
 
 ```typescript
-const { signature, feedback } = await sdk.giveFeedback(
+const handle = await sdk.giveFeedback(
   agentId,
   85,           // value (0-100)
   "quality",    // tag1
@@ -127,26 +154,27 @@ const { signature, feedback } = await sdk.giveFeedback(
   "https://api.example.com", // endpoint
   { text: "Excellent work" }, // feedbackFile
 );
+const { result: feedback } = await handle.waitMined();
 ```
 
-### Governance attestations with SatiFeedbackOptions
+### Governance attestations with outcome/taskRef
 
-For governance and other use cases that need custom outcomes or deterministic task references:
+For governance and other use cases that need custom outcomes or deterministic task references, pass them via the `feedbackFile` parameter:
 
 ```typescript
 import { Outcome } from "@cascade-fyi/sati-agent0-sdk";
 
 // Vote on a DAO proposal
-await sdk.giveFeedback(
+const handle = await sdk.giveFeedback(
   agentId,
   85,
   "governance",
   "defi",
   undefined,
-  { text: "Proposal increases emissions by 20%, net positive for growth" },
   {
-    outcome: Outcome.Positive,               // For (Negative=Against, Neutral=Abstain)
-    taskRef: proposalHashBytes,               // deterministic per proposal
+    text: "Proposal increases emissions by 20%, net positive for growth",
+    outcome: Outcome.Positive,     // For (Negative=Against, Neutral=Abstain)
+    taskRef: proposalHashBytes,    // deterministic per proposal
   },
 );
 ```
@@ -161,7 +189,7 @@ const prepared = await sdk.prepareFeedback(agentId, 85, "quality", "speed");
 const walletSig = await wallet.signMessage(prepared.messageBytes);
 
 // 3. Submit via server-side signer
-const { signature } = await sdk.submitPreparedFeedback(prepared, walletSig);
+const handle = await sdk.submitPreparedFeedback(prepared, walletSig);
 ```
 
 ### Search feedback
@@ -176,8 +204,35 @@ const feedbacks = await sdk.searchFeedback(
 ### Revoke feedback
 
 ```typescript
-await sdk.revokeFeedback(agentId, feedbackIndex);
+// Preferred: pass the Feedback object directly (stable addressing)
+const [feedback] = await sdk.searchFeedback({ agentId, reviewers: [myAddress] });
+const handle = await sdk.revokeFeedback(feedback);
+
+// Legacy: by index (fragile - index can shift as feedbacks are added/removed)
+const handle2 = await sdk.revokeFeedback(agentId, 0);
 ```
+
+---
+
+## Error Handling
+
+All SDK errors extend `SatiError` with a `code` string for programmatic matching:
+
+```typescript
+import { SatiError, AgentNotFoundError, ReadOnlyError } from "@cascade-fyi/sati-agent0-sdk";
+
+try {
+  await sdk.giveFeedback(agentId, 85);
+} catch (err) {
+  if (err instanceof AgentNotFoundError) {
+    console.log("Agent not found:", err.code); // "AGENT_NOT_FOUND"
+  } else if (err instanceof ReadOnlyError) {
+    console.log("Need a signer:", err.code); // "READ_ONLY"
+  }
+}
+```
+
+Error classes: `AgentNotFoundError`, `ReadOnlyError`, `SignerRequiredError`, `SchemaNotDeployedError`, `InvalidAgentIdError`, `UnsupportedOperationError`.
 
 ---
 
@@ -189,6 +244,8 @@ for (const v of validations) {
   console.log(v.outcome, v.counterparty, v.createdAt);
 }
 ```
+
+Note: `createdAt` is approximate (derived from Solana slot numbers). For exact timestamps, use `sdk.getCreationSignature()` + Solana's `getBlockTime()`.
 
 ---
 
@@ -226,23 +283,6 @@ sdk.sati;                 // underlying Sati client for advanced ops
 
 ---
 
-## Adapters
-
-Convert between SATI and agent0 data formats:
-
-```typescript
-import {
-  toAgentSummary,
-  toAgent0RegistrationFile,
-  fromAgent0RegistrationFile,
-  toAgent0Endpoints,
-  fromAgent0Endpoints,
-  toFeedback,
-} from "@cascade-fyi/sati-agent0-sdk";
-```
-
----
-
 ## Re-exports
 
 For convenience, the package re-exports commonly used types and enums from both `agent0-sdk` and `@cascade-fyi/sati-sdk`, so consumers don't need to install them for basic usage:
@@ -252,7 +292,8 @@ For convenience, the package re-exports commonly used types and enums from both 
 import type { AgentSummary, Feedback, RegistrationFile, AgentId } from "@cascade-fyi/sati-agent0-sdk";
 import { EndpointType, TrustModel, EndpointCrawler } from "@cascade-fyi/sati-agent0-sdk";
 
-// SATI types and constants
+// SATI types, errors, and constants
+import { SolanaTransactionHandle, SatiError, AgentNotFoundError } from "@cascade-fyi/sati-agent0-sdk";
 import { Outcome, ContentType, SATI_PROGRAM_ADDRESS } from "@cascade-fyi/sati-agent0-sdk";
 import { parseFeedbackContent, getImageUrl, handleTransactionError } from "@cascade-fyi/sati-agent0-sdk";
 ```
