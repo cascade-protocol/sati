@@ -395,6 +395,11 @@ export function Credit() {
 
   return (
     <main className="flex-1 container mx-auto px-4 py-6 space-y-6">
+      {/* WIP Banner */}
+      <div className="rounded-lg border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+        This page is a work in progress. Scoring model and UI are under active development.
+      </div>
+
       {/* Header */}
       <div className="space-y-2">
         <h1 className="text-2xl font-bold flex items-center gap-3">
