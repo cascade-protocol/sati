@@ -10,8 +10,8 @@
  * need to poll or wait for the transfer to settle (unlike EVM).
  */
 
-import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 import { generateKeyPairSigner } from "@solana/kit";
 
 async function main() {
@@ -22,7 +22,7 @@ async function main() {
   }
 
   // Initialize SDK
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,
@@ -40,7 +40,11 @@ async function main() {
 
   console.log("Registering a new agent (setup for transfer)...");
   const regHandle = await agent.registerIPFS();
-  const agentId = agent.agentId!;
+  const agentId =
+    agent.agentId ??
+    (() => {
+      throw new Error("agentId missing after registration");
+    })();
   console.log(`Registered agentId: ${agentId} (tx: ${regHandle.hash})`);
 
   // Generate a new random keypair as the transfer destination

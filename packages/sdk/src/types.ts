@@ -58,6 +58,20 @@ export interface RegisterAgentResult {
 }
 
 /**
+ * Non-fatal warning emitted by the SDK (parse errors, RPC failures, etc.)
+ */
+export interface SatiWarning {
+  /** Machine-readable warning code (e.g., "PARSE_CONTENT_FAILED") */
+  code: string;
+  /** Human-readable description */
+  message: string;
+  /** Optional context (e.g., attestation address) */
+  context?: string;
+  /** Original error, if any */
+  cause?: unknown;
+}
+
+/**
  * SATI client configuration options
  */
 export interface SATIClientOptions {
@@ -69,6 +83,8 @@ export interface SATIClientOptions {
   wsUrl?: string;
   /** Photon RPC URL for Light Protocol queries (defaults to rpcUrl, works with Helius) */
   photonRpcUrl?: string;
+  /** Optional callback for non-fatal warnings (parse errors, RPC failures) */
+  onWarning?: (warning: SatiWarning) => void;
 }
 
 // ============ SAS DEPLOYMENT TYPES ============

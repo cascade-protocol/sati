@@ -132,9 +132,8 @@ export function createPinataUploader(jwt: string): MetadataUploader {
         }
       } catch (verifyError) {
         // Timeouts and rate limits are non-fatal - content may propagate with delay
-        if (verifyError instanceof Error && !verifyError.message.includes("not accessible")) {
-          console.warn(`[SATI] Pinata gateway verification skipped for ${cid}: ${verifyError.message}`);
-        } else {
+        // Re-throw only genuine accessibility failures
+        if (verifyError instanceof Error && verifyError.message.includes("not accessible")) {
           throw verifyError;
         }
       }

@@ -25,7 +25,6 @@ import {
   fetchRegistryConfig,
   findAssociatedTokenAddress, // Still needed for registerAgent
   findAgentIndexPda,
-  loadDeployedConfig,
   type ParsedAttestation,
   type FeedbackData,
 } from "@cascade-fyi/sati-sdk";
@@ -42,10 +41,6 @@ import {
   type ParsedFeedback,
 } from "@/lib/sati";
 import { getNetwork } from "@/lib/network";
-
-// Get deployed feedback schema address for current network
-const deployedConfig = loadDeployedConfig(getNetwork());
-const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as Address | undefined;
 
 const QUERY_KEY = ["sati"];
 const AGENTS_KEY = [...QUERY_KEY, "agents"];
@@ -475,7 +470,7 @@ export function useAgentFeedbacks(mint: Address | string | undefined) {
  * Get the deployed feedback schema address
  */
 export function useFeedbackSchemaAddress(): Address | undefined {
-  return FEEDBACK_SCHEMA_ADDRESS;
+  return getSatiClient().feedbackSchema;
 }
 
 // ============================================================

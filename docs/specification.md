@@ -1156,7 +1156,6 @@ SATI implements the [ERC-8004: Trustless Agents](https://eips.ethereum.org/EIPS/
 | `tokenURI` / registration file | ✅ | TokenMetadata.uri |
 | On-chain metadata | ✅ | TokenMetadata.additionalMetadata |
 | **Reputation** | | |
-| `feedbackAuth` | ⚡ | Removed in Jan 2026 ERC-8004 spec; SATI uses dual-signature model (more secure) |
 | `giveFeedback()` | ✅ | Compressed attestation via Light Protocol |
 | `revokeFeedback()` | ✅ | close_compressed_attestation() |
 | `appendResponse()` | ✅ | FeedbackResponse schema (deferred) |

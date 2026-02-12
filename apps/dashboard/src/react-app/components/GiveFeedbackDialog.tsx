@@ -13,15 +13,9 @@ import { useWalletSession } from "@solana/react-hooks";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Address } from "@solana/kit";
-import {
-  type Outcome,
-  loadDeployedConfig,
-  MAX_SINGLE_SIGNATURE_CONTENT_SIZE,
-  buildCounterpartyMessage,
-  serializeFeedback,
-  type FeedbackData,
-} from "@cascade-fyi/sati-sdk";
-import { getNetwork, getSolscanUrl } from "@/lib/network";
+import { type Outcome, MAX_SINGLE_SIGNATURE_CONTENT_SIZE } from "@cascade-fyi/sati-sdk";
+import { getSolscanUrl } from "@/lib/network";
+import { getSatiClient } from "@/lib/sati";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -134,42 +128,21 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
     mutationFn: async (selectedOutcome: Outcome) => {
       if (!session) throw new Error("Wallet not connected");
 
-      // Load schema for current network (not cached at module level)
-      const network = getNetwork();
-      const deployedConfig = loadDeployedConfig(network);
-      const feedbackSchemaAddress = deployedConfig?.schemas?.feedbackPublic as Address | undefined;
-      if (!feedbackSchemaAddress) throw new Error("Feedback schema not configured");
-
+      const sati = getSatiClient();
       const toastId = toast.loading("Preparing feedback...");
 
       try {
-        // 1. Generate random taskRef; dataHash is zeros for CounterpartySigned
-        const taskRef = crypto.getRandomValues(new Uint8Array(32));
-        const dataHash = new Uint8Array(32); // zeros - CounterpartySigned doesn't need blind commitment
-
-        // Build JSON content from form state
-        const { json: contentJson } = buildContent();
-        const contentBytes = contentJson ? new TextEncoder().encode(contentJson) : new Uint8Array(0);
-
-        // 2. Build feedback data for SIWS message
-        const feedbackData: FeedbackData = {
-          taskRef,
-          agentMint: agentMint,
+        // 1. Prepare feedback data and SIWS message via SDK
+        const prepared = await sati.prepareFeedback({
           counterparty: session.account.address as Address,
-          dataHash,
+          agentMint,
           outcome: selectedOutcome,
-          contentType: contentJson ? 1 : 0, // 1 = JSON
-          content: contentBytes,
-        };
-
-        // 3. Build SIWS message for user to sign
-        const serializedData = serializeFeedback(feedbackData);
-        const siwsMessage = buildCounterpartyMessage({
-          schemaName: "FeedbackPublicV1",
-          data: serializedData,
+          score,
+          tags: tags.length > 0 ? (tags.slice(0, 2) as [string] | [string, string]) : undefined,
+          message: message.trim() || undefined,
         });
 
-        // 4. User signs SIWS message with wallet (FREE - just a signature)
+        // 2. User signs SIWS message with wallet (FREE - just a signature)
         toast.loading("Sign feedback consent...", { id: toastId });
 
         // Access Phantom wallet for signMessage
@@ -184,24 +157,27 @@ export function GiveFeedbackDialog({ agentMint, agentName, children, onSuccess }
         }
 
         console.log("[Feedback] Requesting SIWS signature...");
-        const { signature } = await phantom.solana.signMessage(new Uint8Array(siwsMessage.messageBytes));
+        const { signature } = await phantom.solana.signMessage(new Uint8Array(prepared.messageBytes));
         console.log("[Feedback] SIWS message signed");
 
-        // 5. Send to server for submission (server pays gas)
+        // 3. Send to server for submission (server pays gas)
         toast.loading("Submitting feedback...", { id: toastId });
 
+        // Decode content from prepared data (matches SIWS-signed bytes exactly)
+        const contentJson = prepared.content.length > 0 ? new TextDecoder().decode(prepared.content) : undefined;
+
         const request: SubmitFeedbackRequest = {
-          network,
-          sasSchema: feedbackSchemaAddress,
-          taskRef: bytesToHex(taskRef),
+          network: sati.network as "devnet" | "mainnet",
+          sasSchema: prepared.sasSchema,
+          taskRef: bytesToHex(prepared.taskRef),
           agentMint: agentMint,
-          dataHash: bytesToHex(dataHash),
+          dataHash: bytesToHex(prepared.dataHash),
           outcome: selectedOutcome,
           counterparty: session.account.address,
           agentSignature: bytesToHex(signature), // User's SIWS signature
           agentOwner: session.account.address, // User's wallet address
-          counterpartyMessage: bytesToHex(new Uint8Array(siwsMessage.messageBytes)), // Triggers server-paid mode
-          ...(contentJson && { content: contentJson, contentType: 1 }),
+          counterpartyMessage: bytesToHex(new Uint8Array(prepared.messageBytes)), // Triggers server-paid mode
+          ...(contentJson && { content: contentJson, contentType: prepared.contentType }),
         };
 
         const response = await fetch("/api/build-feedback-tx", {

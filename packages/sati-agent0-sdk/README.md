@@ -1,8 +1,8 @@
 # @cascade-fyi/sati-agent0-sdk
 
-Agent0-compatible adapter for [SATI](https://github.com/cascade-protocol/sati) - Solana Agent Trust Infrastructure.
+[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity and reputation on Solana. Register agents, collect feedback, query reputation, search by capabilities - all on-chain, zero config.
 
-API-compatible adapter for [agent0-sdk](https://github.com/agent0-ai/agent0-sdk) that routes all operations through SATI's Solana infrastructure instead of EVM chains. Same method names and types - write operations return `SolanaTransactionHandle<T>` (compatible with agent0-sdk's `TransactionHandle` via `.hash`, `.waitMined()`, `.waitConfirmed()`).
+API-compatible with [agent0-sdk](https://github.com/agent0-ai/agent0-sdk) - same method names and types, but routes through [SATI](https://github.com/cascade-protocol/sati)'s Solana infrastructure instead of EVM chains. Write operations return `SolanaTransactionHandle<T>` (compatible with agent0-sdk's `TransactionHandle` via `.hash`, `.waitMined()`, `.waitConfirmed()`).
 
 ## Installation
 
@@ -18,11 +18,11 @@ pnpm add @cascade-fyi/sati-sdk @solana/kit @solana-program/token-2022 agent0-sdk
 ## Quick Start
 
 ```typescript
-import { SatiSDK, Outcome } from "@cascade-fyi/sati-agent0-sdk";
+import { SatiAgent0, Outcome } from "@cascade-fyi/sati-agent0-sdk";
 import { generateKeyPairSigner } from "@solana/kit";
 
 const signer = await generateKeyPairSigner();
-const sdk = new SatiSDK({
+const sdk = new SatiAgent0({
   network: "devnet",
   signer,
 });
@@ -55,13 +55,13 @@ The SDK supports three modes depending on your use case:
 
 ```typescript
 // Read-only (no signer) - search agents, read feedback
-const readOnly = new SatiSDK({ network: "devnet" });
+const readOnly = new SatiAgent0({ network: "devnet" });
 
 // Server-side (KeyPairSigner) - full write access
-const server = new SatiSDK({ network: "devnet", signer });
+const server = new SatiAgent0({ network: "devnet", signer });
 
 // Browser wallet (TransactionSender) - wallet-signed writes
-const browser = new SatiSDK({ network: "devnet", transactionSender: walletAdapter });
+const browser = new SatiAgent0({ network: "devnet", transactionSender: walletAdapter });
 ```
 
 ---
@@ -85,7 +85,7 @@ agent.setActive(true);
 agent.setX402Support(true);
 agent.setTrust(true, false, false); // reputation only
 
-// Register on-chain via IPFS (requires pinataJwt in config)
+// Register on-chain via IPFS (zero config - no API keys needed)
 const handle = await agent.registerIPFS();
 console.log(agent.agentId, handle.hash);
 ```

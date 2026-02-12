@@ -5,7 +5,7 @@ description: Go from zero to a registered agent with feedback in 5 minutes
 
 # Getting Started
 
-This guide walks you through installing the SDK, registering an agent on devnet, giving feedback, and querying reputation.
+SATI is the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity standard on Solana. This guide walks you through installing the SDK, registering an agent on devnet, giving feedback, and querying reputation.
 
 [[toc]]
 
@@ -33,33 +33,73 @@ Or use the [Solana Faucet](https://faucet.solana.com) with your wallet address.
 ::: code-group
 
 ```bash [pnpm]
-pnpm add @cascade-fyi/sati-agent0-sdk
+pnpm add @cascade-fyi/sati-sdk
 ```
 
 ```bash [npm]
-npm install @cascade-fyi/sati-agent0-sdk
+npm install @cascade-fyi/sati-sdk
 ```
 
 :::
 
 **Peer dependencies:**
 ```bash
-pnpm add @cascade-fyi/sati-sdk @solana/kit @solana-program/token-2022 agent0-sdk
+pnpm add @solana/kit @solana-program/token-2022
 ```
 
 ## Which SDK?
 
 | Package | Use When |
 |---------|----------|
-| **[@cascade-fyi/sati-agent0-sdk](https://www.npmjs.com/package/@cascade-fyi/sati-agent0-sdk)** | Building apps that interact with agents - registration, feedback, search, reputation. **Start here.** |
-| **[@cascade-fyi/sati-sdk](https://www.npmjs.com/package/@cascade-fyi/sati-sdk)** | Low-level access - raw attestations, custom schemas, compression, encryption. For advanced integrations. |
+| **[@cascade-fyi/sati-sdk](https://www.npmjs.com/package/@cascade-fyi/sati-sdk)** | Solana-native development - agent registration, feedback, search, reputation, and low-level access. **Start here.** |
+| **[@cascade-fyi/sati-agent0-sdk](https://www.npmjs.com/package/@cascade-fyi/sati-agent0-sdk)** | Your codebase already uses [agent0-sdk](https://www.npmjs.com/package/agent0-sdk) types (`AgentId`, `Feedback`, `AgentSummary`). Thin wrapper over sati-sdk. |
 
 ## Quick Start
 
 The full loop: initialize, register an agent, give feedback, query reputation.
 
-```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+::: code-group
+
+```typescript [sati-sdk]
+import { Sati, createSatiUploader } from "@cascade-fyi/sati-sdk";
+import { generateKeyPairSigner, createSolanaRpc } from "@solana/kit";
+
+// 1. Create a funded devnet wallet
+const signer = await generateKeyPairSigner();
+const rpc = createSolanaRpc("https://api.devnet.solana.com");
+await rpc.requestAirdrop(signer.address, 1_000_000_000n).send(); // 1 SOL
+
+// 2. Initialize the client
+const sati = new Sati({ network: "devnet" });
+
+// 3. Register an agent (metadata uploaded to IPFS automatically)
+const builder = sati
+  .createAgentBuilder("MyAgent", "An AI trading assistant", "https://example.com/avatar.png")
+  .setMCP("https://mcp.example.com", "2025-06-18")
+  .setActive(true);
+
+const reg = await builder.register({
+  payer: signer,
+  uploader: createSatiUploader(), // hosted IPFS - no API keys needed
+});
+console.log(reg.mint);         // agent mint address
+console.log(reg.signature);    // transaction signature
+
+// 4. Give feedback (0-100 score with optional tags)
+const fb = await sati.giveFeedback({
+  payer: signer,
+  agentMint: reg.mint,
+  score: 85,
+  tags: ["quality", "speed"],
+});
+
+// 5. Query reputation
+const summary = await sati.getReputationSummary(reg.mint);
+console.log(`${summary.count} reviews, avg ${summary.averageScore}`);
+```
+
+```typescript [sati-agent0-sdk]
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 import { generateKeyPairSigner, createSolanaRpc } from "@solana/kit";
 
 // 1. Create a funded devnet wallet
@@ -68,7 +108,7 @@ const rpc = createSolanaRpc("https://api.devnet.solana.com");
 await rpc.requestAirdrop(signer.address, 1_000_000_000n).send(); // 1 SOL
 
 // 2. Initialize the SDK
-const sdk = new SatiSDK({
+const sdk = new SatiAgent0({
   network: "devnet",
   signer,
 });
@@ -90,29 +130,26 @@ const summary = await sdk.getReputationSummary(agent.agentId!);
 console.log(`${summary.count} reviews, avg ${summary.averageValue}`);
 ```
 
+:::
+
 ::: tip Bring Your Own IPFS
-`registerIPFS()` uses a hosted uploader by default - no API keys needed. To use your own [Pinata](https://pinata.cloud) account instead, pass `pinataJwt`:
+`createSatiUploader()` uses a hosted service - no API keys needed. To use your own [Pinata](https://pinata.cloud) account instead:
 ```typescript
-const sdk = new SatiSDK({
-  network: "devnet",
-  signer,
-  pinataJwt: process.env.PINATA_JWT, // optional - uses hosted uploader if omitted
-});
+import { createPinataUploader } from "@cascade-fyi/sati-sdk";
+const uploader = createPinataUploader(process.env.PINATA_JWT!);
 ```
-You can also use `registerHTTP(url)` if you host metadata at your own URL.
 :::
 
 ## SDK Modes
 
 ```typescript
-// Read-only (no signer) - search agents, read feedback
-const readOnly = new SatiSDK({ network: "devnet" });
+import { Sati } from "@cascade-fyi/sati-sdk";
 
-// Server-side (KeyPairSigner) - full write access
-const server = new SatiSDK({ network: "devnet", signer });
+// Read-only - search agents, read feedback (no signer needed)
+const sati = new Sati({ network: "devnet" });
 
-// Browser wallet (TransactionSender) - wallet-signed writes
-const browser = new SatiSDK({ network: "devnet", transactionSender: walletAdapter });
+// With convenience writes - pass a payer to each write method
+const result = await sati.giveFeedback({ payer: signer, agentMint, score: 85 });
 ```
 
 ## Next Steps

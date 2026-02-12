@@ -25,7 +25,7 @@ This guide walks you through integrating SATI into an agent marketplace. By the 
 ## Initialize the SDK
 
 ```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 import { createKeyPairSignerFromBytes } from "@solana/kit";
 import { base58 } from "@scure/base";
 
@@ -33,7 +33,7 @@ const signer = await createKeyPairSignerFromBytes(
   base58.decode(process.env.SATI_PRIVATE_KEY!),
 );
 
-const sdk = new SatiSDK({
+const sdk = new SatiAgent0({
   network: "mainnet",
   signer,
 });
@@ -167,13 +167,14 @@ const page = await sdk.searchAgents({}, { limit: 25, offset: 50n });
 ## Architecture Tips
 
 - **Cache reputation data.** Don't query Solana RPC on every page load. Cache `getReputationSummary` results with a 30-60 second TTL and invalidate after writing new feedback.
-- **Use read-only mode for frontends.** `new SatiSDK({ network: "mainnet" })` - no signer needed for search and display.
+- **Use read-only mode for frontends.** `new SatiAgent0({ network: "mainnet" })` - no signer needed for search and display.
 - **Server-side signer for writes.** Keep your signing key on the server. Budget ~0.01 SOL per 5 feedback submissions.
 - **Agent metadata on IPFS.** `registerIPFS()` works out of the box - no API keys needed. For production, you can pass your own `pinataJwt` for full control over your IPFS pins. Use `registerHTTP()` only if you need mutable metadata at a URL you control.
 
 ## Next Steps
 
-- **[API Reference: sati-agent0-sdk](/reference/sati-agent0-sdk)** - full method signatures and types
+- **[API Reference: sati-sdk](/reference/sati-sdk)** - full SDK reference with convenience methods
+- **[API Reference: sati-agent0-sdk](/reference/sati-agent0-sdk)** - agent0-compatible wrapper
 - **[Query Reputation](/guides/query-reputation)** - read-only integration for displaying scores
 - **[Browser Wallet Flow](/guides/browser-wallet)** - collect feedback from browser wallets
 - **[How It Works](/how-it-works)** - understand blind feedback and compression

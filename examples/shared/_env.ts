@@ -1,8 +1,8 @@
 /**
- * Environment setup for SATI Agent0 examples.
+ * Shared environment setup for SATI examples.
  *
  * Loads the FIRST .env file found in this order:
- * 1. examples/agent0/.env
+ * 1. examples/.env
  * 2. repo root .env
  *
  * Exports helpers for creating a Solana signer from a keypair JSON file.
@@ -12,9 +12,10 @@
  *
  * Optional env vars:
  *   RPC_URL    - Solana RPC endpoint (defaults to network default)
- *   PINATA_JWT - for IPFS uploads
+ *   PINATA_JWT - for IPFS uploads (not needed if using hosted uploader)
  *   NETWORK    - mainnet | devnet | localnet (default: devnet)
- *   AGENT_ID   - existing agent ID for feedback examples
+ *   AGENT_MINT - existing agent mint address for feedback examples
+ *   AGENT_ID   - existing agent ID in CAIP-2 format (for agent0-sdk examples)
  */
 
 import fs from "node:fs";
@@ -26,10 +27,7 @@ import { createKeyPairSignerFromBytes, type KeyPairSigner } from "@solana/kit";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const candidates = [
-  path.join(__dirname, ".env"),
-  path.resolve(__dirname, "../..", ".env"),
-];
+const candidates = [path.join(__dirname, "..", ".env"), path.resolve(__dirname, "../..", ".env")];
 
 for (const p of candidates) {
   try {
@@ -50,6 +48,11 @@ function expandHome(p: string): string {
 export const RPC_URL = process.env.RPC_URL;
 export const PINATA_JWT = process.env.PINATA_JWT;
 export const NETWORK = (process.env.NETWORK ?? "devnet") as "mainnet" | "devnet" | "localnet";
+
+/** Agent mint address (base58) for sati-sdk examples. */
+export const AGENT_MINT = process.env.AGENT_MINT;
+
+/** Agent ID in CAIP-2 format (solana:<chainRef>:<mint>) for agent0-sdk examples. */
 export const AGENT_ID = process.env.AGENT_ID;
 
 /**

@@ -37,6 +37,7 @@ export default defineConfig({
         items: [
           { text: 'Home', link: '/' },
           { text: 'Getting Started', link: '/getting-started' },
+          { text: 'ERC-8004 and SATI', link: '/erc-8004' },
           { text: 'How It Works', link: '/how-it-works' },
         ]
       },

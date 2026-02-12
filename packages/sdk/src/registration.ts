@@ -223,8 +223,8 @@ export function buildRegistrationFile(params: RegistrationFileParams): Registrat
  * Fetch and parse a registration file from URI.
  *
  * - Returns null on network errors or invalid URIs
- * - Validates structure, logs warnings for non-conforming files
- * - Never throws
+ * - Validates structure, returns raw data for non-conforming files
+ * - Never throws, never logs to console
  */
 export async function fetchRegistrationFile(uri: string): Promise<RegistrationFile | null> {
   if (!uri) return null;
@@ -242,7 +242,6 @@ export async function fetchRegistrationFile(uri: string): Promise<RegistrationFi
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      console.warn(`[SATI] Failed to fetch metadata from ${url}: ${response.status}`);
       return null;
     }
 
@@ -250,14 +249,12 @@ export async function fetchRegistrationFile(uri: string): Promise<RegistrationFi
     const result = RegistrationFileSchema.safeParse(data);
 
     if (!result.success) {
-      // Log validation issues but return data anyway for backwards compatibility
-      console.warn(`[SATI] Registration file validation issues:`, result.error.issues);
+      // Return raw data for backwards compatibility with non-conforming files
       return data as RegistrationFile;
     }
 
     return result.data;
-  } catch (error) {
-    console.warn(`[SATI] Failed to fetch metadata from ${uri}:`, error);
+  } catch {
     return null;
   }
 }

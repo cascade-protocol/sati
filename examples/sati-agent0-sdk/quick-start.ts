@@ -8,8 +8,8 @@
  * 4. Register the agent on-chain with IPFS
  */
 
-import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 async function main() {
   const signer = await loadSigner();
@@ -19,7 +19,7 @@ async function main() {
   }
 
   // Initialize SDK
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,

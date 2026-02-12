@@ -1,0 +1,80 @@
+/**
+ * Feedback - sati-sdk
+ *
+ * Demonstrates how to:
+ * 1. Give feedback to an agent (on-chain compressed attestation)
+ * 2. Search feedback by agent, tags, score range
+ * 3. Get reputation summary (aggregate score)
+ * 4. Revoke feedback
+ *
+ * Requirements:
+ * - KEYPAIR_PATH: funded Solana wallet
+ * - AGENT_MINT: existing agent mint address (base58)
+ *
+ * Run: pnpm tsx examples/sati-sdk/feedback.ts
+ */
+
+import { loadSigner, RPC_URL, AGENT_MINT, NETWORK } from "../shared/_env.js";
+import { Sati } from "@cascade-fyi/sati-sdk";
+import { address } from "@solana/kit";
+
+async function main() {
+  const signer = await loadSigner();
+
+  if (!AGENT_MINT) {
+    throw new Error("AGENT_MINT is required. Run quick-start.ts first to register an agent.");
+  }
+
+  const sati = new Sati({
+    network: NETWORK,
+    rpcUrl: RPC_URL,
+  });
+
+  const agentMint = address(AGENT_MINT);
+
+  // 1. Give feedback
+  console.log("Submitting feedback...");
+  const result = await sati.giveFeedback({
+    payer: signer,
+    agentMint,
+    score: 85,
+    tags: ["quality", "latency"],
+    endpoint: "https://api.example.com/mcp",
+    message: "Fast and accurate responses.",
+  });
+  console.log(`Feedback submitted!`);
+  console.log(`  Tx: ${result.signature}`);
+  console.log(`  Attestation: ${result.attestationAddress}`);
+
+  // 2. Search feedback
+  console.log("\nSearching feedback for this agent...");
+  const feedbacks = await sati.searchFeedback({ agentMint });
+  console.log(`Found ${feedbacks.length} feedback entries`);
+
+  for (const fb of feedbacks.slice(0, 5)) {
+    console.log(`  - score=${fb.score ?? "N/A"} tags=${fb.tags.join(",")} ` + `from=${fb.counterparty.slice(0, 8)}...`);
+  }
+
+  // 3. Search with tag filter
+  console.log('\nSearching feedback with tag "latency"...');
+  const latency = await sati.searchFeedback({
+    agentMint,
+    tags: ["latency"],
+  });
+  console.log(`Found ${latency.length} entries with tag "latency"`);
+
+  // 4. Get reputation summary
+  console.log("\nGetting reputation summary...");
+  const summary = await sati.getReputationSummary(agentMint);
+  console.log(`Reputation: ${summary.averageScore.toFixed(1)} from ${summary.count} reviews`);
+
+  // 5. Revoke the feedback we just submitted
+  console.log("\nRevoking feedback...");
+  const revoke = await sati.revokeFeedback({
+    payer: signer,
+    attestationAddress: result.attestationAddress,
+  });
+  console.log(`Revoked! Tx: ${revoke.signature}`);
+}
+
+main().catch(console.error);

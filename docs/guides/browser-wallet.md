@@ -26,10 +26,10 @@ This separation means your users never need SOL - your server covers transaction
 ## Frontend: Prepare and Sign
 
 ```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 // Initialize with TransactionSender (browser wallet adapter)
-const sdk = new SatiSDK({
+const sdk = new SatiAgent0({
   network: "mainnet",
   transactionSender: walletAdapter,
 });
@@ -58,10 +58,10 @@ await fetch("/api/submit-feedback", {
 ## Server: Submit On-Chain
 
 ```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 // Server SDK with a KeyPairSigner (pays for transactions)
-const sdk = new SatiSDK({
+const sdk = new SatiAgent0({
   network: "mainnet",
   signer: serverSigner,
 });
@@ -121,5 +121,5 @@ try {
 ## Next Steps
 
 - **[Agent Marketplace](/guides/agent-marketplace)** - full server-side integration
-- **[API Reference: prepareFeedback](/reference/sati-agent0-sdk#preparefeedback)** - method signature and options
-- **[API Reference: submitPreparedFeedback](/reference/sati-agent0-sdk#submitpreparedfeedback)** - server-side submission
+- **[API Reference: sati-sdk prepareFeedback](/reference/sati-sdk#preparefeedback)** - sati-sdk method signature
+- **[API Reference: sati-agent0-sdk prepareFeedback](/reference/sati-agent0-sdk#preparefeedback)** - agent0-compatible wrapper

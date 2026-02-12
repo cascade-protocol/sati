@@ -12,6 +12,7 @@
       "src/**/*.tsx",
       "tests/**/*.ts",
       "scripts/**/*.ts",
+      "examples/**/*.ts",
       "**/*.config.ts",
       "**/*.json",
       "!idl.json",

@@ -15,8 +15,8 @@
  *   Run quick-start.ts first to get an agent ID.
  */
 
-import { loadSigner, RPC_URL, AGENT_ID, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, AGENT_ID, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 async function main() {
   const signer = await loadSigner();
@@ -25,7 +25,7 @@ async function main() {
     throw new Error("AGENT_ID is required for this example. Run quick-start.ts first to get one.");
   }
 
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,
@@ -34,9 +34,9 @@ async function main() {
   console.log("Submitting on-chain only feedback...");
   const handle = await sdk.giveFeedback(
     AGENT_ID,
-    92,           // value (score)
-    "quality",    // tag1
-    "latency",    // tag2
+    92, // value (score)
+    "quality", // tag1
+    "latency", // tag2
     "https://api.example.com/feedback", // optional endpoint
   );
   const { result: feedback } = await handle.waitMined();

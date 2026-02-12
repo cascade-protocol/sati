@@ -13,8 +13,8 @@
  * demonstrates the create-load-modify-register workflow.
  */
 
-import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, PINATA_JWT, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 async function main() {
   const signer = await loadSigner();
@@ -24,7 +24,7 @@ async function main() {
   }
 
   // Initialize SDK
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,
@@ -42,7 +42,11 @@ async function main() {
 
   console.log("Registering a new agent (setup for this example)...");
   const regHandle = await agent.registerIPFS();
-  const agentId = agent.agentId!;
+  const agentId =
+    agent.agentId ??
+    (() => {
+      throw new Error("agentId missing after registration");
+    })();
   console.log(`Registered agentId: ${agentId} (tx: ${regHandle.hash})`);
 
   // 2) Load it back from chain/IPFS
@@ -52,10 +56,7 @@ async function main() {
   console.log(`Current description: ${loaded.description}`);
 
   // 3) Update agent information in memory
-  loaded.updateInfo(
-    "Updated AI Assistant",
-    "Updated description with new skills and pricing",
-  );
+  loaded.updateInfo("Updated AI Assistant", "Updated description with new skills and pricing");
 
   // Update metadata
   loaded.setMetadata({

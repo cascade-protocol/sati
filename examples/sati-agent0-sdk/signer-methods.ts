@@ -10,8 +10,8 @@
  * available on Solana. Use Solana wallet adapters for browser contexts.
  */
 
-import { loadSigner, RPC_URL, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 import { generateKeyPairSigner } from "@solana/kit";
 
 async function main() {
@@ -25,7 +25,7 @@ async function main() {
 
   try {
     const signer = await loadSigner();
-    const sdkWithKeypair = new SatiSDK({
+    const sdkWithKeypair = new SatiAgent0({
       network: NETWORK,
       rpcUrl: RPC_URL,
       signer,
@@ -47,7 +47,7 @@ async function main() {
   console.log("-------------------------------");
 
   const randomSigner = await generateKeyPairSigner();
-  const sdkWithRandom = new SatiSDK({
+  const sdkWithRandom = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer: randomSigner,
@@ -65,7 +65,7 @@ async function main() {
   console.log("Method 3: Read-Only Mode (No Signer)");
   console.log("----------------------------------------------");
 
-  const readOnlySdk = new SatiSDK({
+  const readOnlySdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
   });

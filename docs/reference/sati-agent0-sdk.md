@@ -5,21 +5,21 @@ description: API reference for the agent0-compatible SATI adapter
 
 # @cascade-fyi/sati-agent0-sdk
 
-Agent0-compatible adapter. Friendly API for agent registration, feedback, search, and reputation.
+Thin adapter that wraps [@cascade-fyi/sati-sdk](/reference/sati-sdk) with [agent0-sdk](https://www.npmjs.com/package/agent0-sdk) types (`AgentId`, `Feedback`, `AgentSummary`, etc.). Use this if your codebase already depends on agent0-sdk or you need ERC-8004 type compatibility. For Solana-native development, start with [sati-sdk](/reference/sati-sdk) directly.
 
 [[toc]]
 
-## SatiSDK
+## SatiAgent0
 
 ### Constructor
 
 ```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
-const sdk = new SatiSDK(config: SatiSDKConfig);
+const sdk = new SatiAgent0(config: SatiAgent0Config);
 ```
 
-#### SatiSDKConfig
+#### SatiAgent0Config
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

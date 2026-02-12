@@ -27,6 +27,7 @@ import {
   compileTransaction,
   getSignatureFromTransaction,
   getAddressEncoder,
+  getAddressDecoder,
   createSolanaRpc,
   createSolanaRpcSubscriptions,
   sendAndConfirmTransactionFactory,
@@ -86,7 +87,7 @@ import {
   computeReputationNonce,
   computeEvmLinkHash,
   zeroDataHash,
-  type Outcome,
+  Outcome,
 } from "./hashes";
 
 import { buildCounterpartyMessage } from "./offchain-signing";
@@ -126,12 +127,14 @@ import { deriveReputationAttestationPda, deriveSasEventAuthorityPda, SAS_PROGRAM
 
 import { createBatchEd25519Instruction } from "./ed25519";
 
-import { buildRegistrationFile, type RegistrationFileParams } from "./registration";
+import { buildRegistrationFile, fetchRegistrationFile, type RegistrationFileParams } from "./registration";
 
 import type { MetadataUploader } from "./uploaders";
 
 import type {
   SATIClientOptions,
+  SatiWarning,
+  SATISASConfig,
   AgentIdentity,
   RegisterAgentResult,
   UpdateAgentMetadataParams,
@@ -142,6 +145,22 @@ import type {
   SignatureVerificationResult,
   LinkEvmAddressResult,
 } from "./types";
+
+import { loadDeployedConfig } from "./deployed";
+import { FeedbackCache } from "./cache";
+import { SatiAgentBuilder } from "./agent-builder";
+
+import type {
+  GiveFeedbackParams,
+  GiveFeedbackResult,
+  PreparedFeedbackData,
+  FeedbackSearchOptions,
+  ParsedFeedback,
+  ReputationSummary,
+  AgentSearchOptions,
+  AgentSearchResult,
+  ParsedValidation,
+} from "./convenience";
 
 // Re-export enums and types
 export { Outcome } from "./hashes";
@@ -515,6 +534,11 @@ export class Sati {
   private sendAndConfirm: ReturnType<typeof sendAndConfirmTransactionFactory>;
   private lightClient: LightClient;
 
+  // Convenience layer state
+  private readonly _deployedConfig: SATISASConfig | null;
+  private readonly _feedbackCache = new FeedbackCache();
+  private readonly _onWarning?: (warning: SatiWarning) => void;
+
   /** Network configuration */
   readonly network: "mainnet" | "devnet" | "localnet";
 
@@ -533,6 +557,10 @@ export class Sati {
     // Use hosted Photon proxy by default (zero-config), override with photonRpcUrl
     const photonUrl = options.photonRpcUrl ?? PHOTON_URLS[options.network];
     this.lightClient = createSATILightClient(photonUrl);
+
+    // Convenience layer
+    this._deployedConfig = loadDeployedConfig(options.network);
+    this._onWarning = options.onWarning;
   }
 
   // ============================================================
@@ -2555,5 +2583,574 @@ export class Sati {
     });
 
     return signature;
+  }
+
+  // ============================================================
+  // CONVENIENCE: Config Accessors
+  // ============================================================
+
+  /** Deployed SAS configuration for this network (null for localnet unless deployed). */
+  get deployedConfig(): SATISASConfig | null {
+    return this._deployedConfig;
+  }
+
+  /** FeedbackPublic schema address (CounterpartySigned mode). */
+  get feedbackPublicSchema(): Address | undefined {
+    return this._deployedConfig?.schemas.feedbackPublic;
+  }
+
+  /** Feedback schema address (DualSignature mode). */
+  get feedbackSchema(): Address | undefined {
+    return this._deployedConfig?.schemas.feedback;
+  }
+
+  /** Validation schema address. */
+  get validationSchema(): Address | undefined {
+    return this._deployedConfig?.schemas.validation;
+  }
+
+  /** Address Lookup Table for transaction compression. */
+  get lookupTable(): Address | undefined {
+    return this._deployedConfig?.lookupTable;
+  }
+
+  // ============================================================
+  // CONVENIENCE: Simplified Feedback
+  // ============================================================
+
+  /**
+   * Give feedback to an agent (simplified).
+   *
+   * Uses FeedbackPublicV1 schema (CounterpartySigned mode).
+   * Automatically handles SIWS message construction and signing.
+   *
+   * @example
+   * ```typescript
+   * const result = await sati.giveFeedback({
+   *   payer: myKeypair,
+   *   agentMint: address("Agent..."),
+   *   score: 85,
+   *   tags: ["quality", "speed"],
+   *   message: "Great response time",
+   * });
+   * ```
+   */
+  async giveFeedback(params: GiveFeedbackParams): Promise<GiveFeedbackResult> {
+    const schema = this._requireFeedbackPublicSchema();
+    const payer = params.payer;
+
+    // Validate score
+    if (params.score !== undefined && (!Number.isFinite(params.score) || params.score < 0 || params.score > 100)) {
+      throw new Error(`Feedback score must be a finite number between 0 and 100, got: ${params.score}`);
+    }
+
+    // Build content JSON
+    const contentObj: Record<string, unknown> = {};
+    if (params.score !== undefined) contentObj.score = params.score;
+    if (params.tags?.length) contentObj.tags = params.tags;
+    if (params.endpoint) contentObj.endpoint = params.endpoint;
+    if (params.message) contentObj.m = params.message;
+
+    const content =
+      Object.keys(contentObj).length > 0 ? new TextEncoder().encode(JSON.stringify(contentObj)) : new Uint8Array(0);
+    const contentType = content.length > 0 ? ContentType.JSON : ContentType.None;
+
+    const taskRef = params.taskRef ?? globalThis.crypto.getRandomValues(new Uint8Array(32));
+    const outcome = params.outcome ?? Outcome.Neutral;
+
+    // Serialize and build SIWS message
+    const feedbackData: FeedbackData = {
+      taskRef,
+      agentMint: params.agentMint,
+      counterparty: payer.address,
+      dataHash: zeroDataHash(),
+      outcome,
+      contentType,
+      content,
+    };
+    const serializedData = serializeFeedback(feedbackData);
+    const { messageBytes } = buildCounterpartyMessage({
+      schemaName: "FeedbackPublicV1",
+      data: serializedData,
+    });
+    const sig = await signBytes(payer.keyPair.privateKey, messageBytes);
+
+    const result = await this.createFeedback({
+      payer,
+      sasSchema: schema,
+      taskRef,
+      agentMint: params.agentMint,
+      counterparty: payer.address,
+      dataHash: zeroDataHash(),
+      outcome,
+      contentType,
+      content,
+      agentSignature: {
+        pubkey: payer.address,
+        signature: new Uint8Array(sig),
+      },
+      counterpartyMessage: messageBytes,
+      lookupTableAddress: this._deployedConfig?.lookupTable,
+    });
+
+    this._feedbackCache.invalidate();
+
+    return {
+      signature: result.signature,
+      attestationAddress: result.address,
+    };
+  }
+
+  /**
+   * Prepare feedback for browser wallet signing.
+   *
+   * Returns SIWS message bytes that the counterparty must sign externally.
+   * Pass the result + signature to `submitPreparedFeedback()`.
+   */
+  async prepareFeedback(
+    params: Omit<GiveFeedbackParams, "payer"> & { counterparty: Address },
+  ): Promise<PreparedFeedbackData> {
+    const schema = this._requireFeedbackPublicSchema();
+
+    if (params.score !== undefined && (!Number.isFinite(params.score) || params.score < 0 || params.score > 100)) {
+      throw new Error(`Feedback score must be a finite number between 0 and 100, got: ${params.score}`);
+    }
+
+    // Build content JSON
+    const contentObj: Record<string, unknown> = {};
+    if (params.score !== undefined) contentObj.score = params.score;
+    if (params.tags?.length) contentObj.tags = params.tags;
+    if (params.endpoint) contentObj.endpoint = params.endpoint;
+    if (params.message) contentObj.m = params.message;
+
+    const content =
+      Object.keys(contentObj).length > 0 ? new TextEncoder().encode(JSON.stringify(contentObj)) : new Uint8Array(0);
+    const contentType = content.length > 0 ? ContentType.JSON : ContentType.None;
+
+    const taskRef = params.taskRef ?? globalThis.crypto.getRandomValues(new Uint8Array(32));
+    const outcome = params.outcome ?? Outcome.Neutral;
+
+    const feedbackData: FeedbackData = {
+      taskRef,
+      agentMint: params.agentMint,
+      counterparty: params.counterparty,
+      dataHash: zeroDataHash(),
+      outcome,
+      contentType,
+      content,
+    };
+    const serializedData = serializeFeedback(feedbackData);
+    const { messageBytes } = buildCounterpartyMessage({
+      schemaName: "FeedbackPublicV1",
+      data: serializedData,
+    });
+
+    return {
+      messageBytes,
+      agentMint: params.agentMint,
+      counterparty: params.counterparty,
+      taskRef,
+      dataHash: zeroDataHash(),
+      outcome,
+      contentType,
+      content,
+      sasSchema: schema,
+      lookupTable: this._deployedConfig?.lookupTable,
+      meta: {
+        score: params.score,
+        tags: params.tags ? [...params.tags] : undefined,
+        message: params.message,
+        endpoint: params.endpoint,
+      },
+    };
+  }
+
+  /**
+   * Submit prepared feedback with an externally-obtained wallet signature.
+   *
+   * The payer signs the transaction and pays gas. The counterparty's SIWS
+   * signature (from wallet) proves consent.
+   */
+  async submitPreparedFeedback(params: {
+    payer: KeyPairSigner;
+    prepared: PreparedFeedbackData;
+    counterpartySignature: Uint8Array;
+  }): Promise<GiveFeedbackResult> {
+    const { payer, prepared, counterpartySignature } = params;
+
+    const result = await this.createFeedback({
+      payer,
+      sasSchema: prepared.sasSchema,
+      taskRef: prepared.taskRef,
+      agentMint: prepared.agentMint,
+      counterparty: prepared.counterparty,
+      dataHash: prepared.dataHash,
+      outcome: prepared.outcome,
+      contentType: prepared.contentType,
+      content: prepared.content,
+      agentSignature: {
+        pubkey: prepared.counterparty,
+        signature: new Uint8Array(counterpartySignature),
+      },
+      counterpartyMessage: prepared.messageBytes,
+      lookupTableAddress: prepared.lookupTable,
+    });
+
+    this._feedbackCache.invalidate();
+
+    return {
+      signature: result.signature,
+      attestationAddress: result.address,
+    };
+  }
+
+  /**
+   * Revoke (close) a feedback attestation by its compressed account address.
+   *
+   * The payer must be the counterparty who originally submitted the feedback.
+   * Closed attestations are permanently deleted.
+   */
+  async revokeFeedback(params: { payer: KeyPairSigner; attestationAddress: Address }): Promise<{ signature: string }> {
+    const schema = this._deployedConfig?.schemas.feedbackPublic ?? this._deployedConfig?.schemas.feedback;
+    if (!schema) {
+      throw new Error(`No feedback schema deployed for network "${this.network}"`);
+    }
+
+    const result = await this.closeCompressedAttestation({
+      payer: params.payer,
+      counterparty: params.payer,
+      sasSchema: schema,
+      attestationAddress: params.attestationAddress,
+      lookupTableAddress: this._deployedConfig?.lookupTable,
+    });
+
+    this._feedbackCache.invalidate();
+    return { signature: result.signature };
+  }
+
+  // ============================================================
+  // CONVENIENCE: Search & Query
+  // ============================================================
+
+  /**
+   * Search feedback attestations with client-side filtering.
+   *
+   * Note: `createdAt` timestamps are approximate - derived from Solana slot
+   * numbers using ~400ms/slot estimate.
+   *
+   * @example
+   * ```typescript
+   * const feedbacks = await sati.searchFeedback({
+   *   agentMint: address("Agent..."),
+   *   tags: ["quality"],
+   *   minScore: 70,
+   * });
+   * ```
+   */
+  async searchFeedback(options?: FeedbackSearchOptions): Promise<ParsedFeedback[]> {
+    const schema = this._deployedConfig?.schemas.feedbackPublic ?? this._deployedConfig?.schemas.feedback;
+    if (!schema) {
+      throw new Error(`No feedback schema deployed for network "${this.network}"`);
+    }
+
+    // Build RPC filter
+    const filter: Partial<AttestationFilter> = { sasSchema: schema };
+    if (options?.agentMint) filter.agentMint = options.agentMint;
+    if (options?.counterparty) filter.counterparty = options.counterparty;
+
+    // Check cache
+    const cacheKey = FeedbackCache.cacheKey(schema, options?.agentMint);
+    const cached = this._feedbackCache.get<PaginatedAttestations<ParsedFeedbackAttestation>>(cacheKey);
+    const result = cached ?? (await this.listFeedbacks(filter));
+    if (!cached) this._feedbackCache.set(cacheKey, result);
+
+    // Fetch current slot for timestamp conversion
+    const currentSlot = await this.rpc.getSlot({ commitment: "confirmed" }).send();
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    const feedbacks: ParsedFeedback[] = [];
+    for (const item of result.items) {
+      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
+
+      const score = rawContent?.score as number | undefined;
+      const tags = (rawContent?.tags as string[]) ?? [];
+      const message = rawContent?.m as string | undefined;
+      const endpoint = rawContent?.endpoint as string | undefined;
+
+      // Client-side tag filtering
+      if (options?.tags?.length) {
+        const hasAll = options.tags.every((t) => tags.includes(t));
+        if (!hasAll) continue;
+      }
+
+      // Client-side score filtering
+      if (options?.minScore !== undefined && (score === undefined || score < options.minScore)) continue;
+      if (options?.maxScore !== undefined && (score === undefined || score > options.maxScore)) continue;
+
+      // Compute createdAt from slotCreated (~400ms per slot)
+      const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
+      const createdAt = nowSec - Math.floor(slotDiff * 0.4);
+
+      const [compressedAddress] = getAddressDecoder().read(item.address, 0);
+
+      feedbacks.push({
+        compressedAddress,
+        agentMint: item.data.agentMint as Address,
+        counterparty: item.data.counterparty as Address,
+        outcome: item.data.outcome,
+        score,
+        tags,
+        message,
+        endpoint,
+        createdAt,
+      });
+    }
+
+    // Optionally populate txHash
+    if (options?.includeTxHash) {
+      const photon = this.getLightClient().getRpc();
+      await Promise.all(
+        feedbacks.map(async (fb) => {
+          try {
+            const sigs = await photon.getCompressionSignaturesForAddress(fb.compressedAddress, { limit: 1 });
+            fb.txSignature = sigs.items[0]?.signature;
+          } catch (error) {
+            this._warn({
+              code: "SIGNATURE_LOOKUP_FAILED",
+              message: "Failed to fetch tx signature",
+              context: fb.compressedAddress,
+              cause: error,
+            });
+          }
+        }),
+      );
+    }
+
+    return feedbacks;
+  }
+
+  /**
+   * Get reputation summary for an agent.
+   *
+   * Aggregates feedback scores, optionally filtered by tags.
+   *
+   * @example
+   * ```typescript
+   * const summary = await sati.getReputationSummary(address("Agent..."));
+   * console.log(`${summary.count} reviews, avg ${summary.averageScore}`);
+   * ```
+   */
+  async getReputationSummary(agentMint: Address, tags?: string[]): Promise<ReputationSummary> {
+    const schema = this._deployedConfig?.schemas.feedbackPublic ?? this._deployedConfig?.schemas.feedback;
+    if (!schema) {
+      throw new Error(`No feedback schema deployed for network "${this.network}"`);
+    }
+
+    const cacheKey = FeedbackCache.cacheKey(schema, agentMint);
+    const cached = this._feedbackCache.get<PaginatedAttestations<ParsedFeedbackAttestation>>(cacheKey);
+    const result = cached ?? (await this.listFeedbacks({ sasSchema: schema, agentMint }));
+    if (!cached) this._feedbackCache.set(cacheKey, result);
+
+    if (result.items.length === 0) {
+      return { count: 0, averageScore: 0 };
+    }
+
+    let sum = 0;
+    let count = 0;
+
+    for (const item of result.items) {
+      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
+      const score = rawContent?.score as number | undefined;
+      const itemTags = (rawContent?.tags as string[]) ?? [];
+
+      // Apply tag filters
+      if (tags?.length && !tags.every((t) => itemTags.includes(t))) continue;
+
+      if (score !== undefined) {
+        sum += score;
+        count++;
+      }
+    }
+
+    return {
+      count,
+      averageScore: count > 0 ? sum / count : 0,
+    };
+  }
+
+  /**
+   * Search validation attestations for an agent.
+   *
+   * Note: `createdAt` timestamps are approximate.
+   */
+  async searchValidations(agentMint: Address): Promise<ParsedValidation[]> {
+    const validationSchema = this._deployedConfig?.schemas.validation;
+    if (!validationSchema) {
+      throw new Error(`No validation schema deployed for network "${this.network}"`);
+    }
+
+    const result = await this.listValidations({
+      sasSchema: validationSchema,
+      agentMint,
+    });
+
+    const currentSlot = await this.rpc.getSlot({ commitment: "confirmed" }).send();
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    return result.items.map((item) => {
+      const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
+      const createdAt = nowSec - Math.floor(slotDiff * 0.4);
+      const [compressedAddress] = getAddressDecoder().read(item.address, 0);
+
+      return {
+        compressedAddress,
+        agentMint: item.data.agentMint as Address,
+        counterparty: item.data.counterparty as Address,
+        outcome: item.data.outcome,
+        createdAt,
+      };
+    });
+  }
+
+  /**
+   * Search registered agents with filtering and optional feedback stats.
+   *
+   * @example
+   * ```typescript
+   * const agents = await sati.searchAgents({
+   *   endpointTypes: ["MCP"],
+   *   active: true,
+   *   includeFeedbackStats: true,
+   * });
+   * ```
+   */
+  async searchAgents(options?: AgentSearchOptions): Promise<AgentSearchResult[]> {
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset;
+
+    // Fetch agents
+    let agents: AgentIdentity[];
+    if (options?.owner) {
+      agents = await this.listAgentsByOwner(options.owner);
+    } else {
+      agents = await this.listAllAgents({ limit, offset });
+    }
+
+    // Apply name filter
+    if (options?.name) {
+      const lower = options.name.toLowerCase();
+      agents = agents.filter((a) => a.name.toLowerCase().includes(lower));
+    }
+
+    // Determine if we need registration files
+    const needsRegFile = !!(options?.active !== undefined || options?.endpointTypes?.length);
+
+    // Fetch registration files in parallel
+    const regFiles: (import("./registration").RegistrationFile | null)[] =
+      needsRegFile || options?.includeFeedbackStats
+        ? await Promise.all(
+            agents.map(async (a) => {
+              try {
+                return await fetchRegistrationFile(a.uri);
+              } catch {
+                return null;
+              }
+            }),
+          )
+        : agents.map(() => null);
+
+    // Apply filters
+    const filtered: { identity: AgentIdentity; regFile: import("./registration").RegistrationFile | null }[] = [];
+    for (let i = 0; i < agents.length; i++) {
+      const identity = agents[i];
+      const regFile = regFiles[i];
+      const endpoints = regFile?.endpoints ?? [];
+
+      if (options?.active !== undefined && (regFile?.active ?? true) !== options.active) continue;
+      if (options?.endpointTypes?.length) {
+        const hasAllTypes = options.endpointTypes.every((type) =>
+          endpoints.some((e) => e.name.toUpperCase() === type.toUpperCase()),
+        );
+        if (!hasAllTypes) continue;
+      }
+
+      filtered.push({ identity, regFile });
+    }
+
+    // Optionally fetch feedback stats
+    let statsMap: Map<string, ReputationSummary> | null = null;
+    if (options?.includeFeedbackStats && this._deployedConfig && filtered.length > 0) {
+      statsMap = new Map();
+      await Promise.all(
+        filtered.map(async ({ identity }) => {
+          try {
+            const summary = await this.getReputationSummary(identity.mint);
+            statsMap?.set(identity.mint, summary);
+          } catch (error) {
+            this._warn({
+              code: "RPC_ERROR",
+              message: "Failed to fetch feedback stats",
+              context: identity.mint,
+              cause: error,
+            });
+          }
+        }),
+      );
+    }
+
+    return filtered.map(({ identity, regFile }) => ({
+      identity,
+      registrationFile: regFile,
+      ...(statsMap && { feedbackStats: statsMap.get(identity.mint) }),
+    }));
+  }
+
+  // ============================================================
+  // CONVENIENCE: Agent Builder
+  // ============================================================
+
+  /**
+   * Create a fluent builder for agent registration.
+   *
+   * @example
+   * ```typescript
+   * const builder = sati.createAgentBuilder("MyAgent", "AI assistant", "https://example.com/avatar.png");
+   * builder.setMCP("https://mcp.example.com").setActive(true);
+   * const result = await builder.register({ payer, uploader: createSatiUploader() });
+   * ```
+   */
+  createAgentBuilder(name: string, description: string, image: string): SatiAgentBuilder {
+    return new SatiAgentBuilder(this, name, description, image);
+  }
+
+  // ============================================================
+  // CONVENIENCE: Private Helpers
+  // ============================================================
+
+  /** Safely parse JSON content from an attestation. */
+  private _parseContentJson(content: Uint8Array, contentType: number): Record<string, unknown> | null {
+    if (contentType !== ContentType.JSON || content.length === 0) return null;
+    try {
+      return JSON.parse(new TextDecoder().decode(content)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fire a non-fatal warning. */
+  private _warn(warning: SatiWarning): void {
+    this._onWarning?.(warning);
+  }
+
+  /** Get the FeedbackPublic schema address or throw. */
+  private _requireFeedbackPublicSchema(): Address {
+    const schema = this._deployedConfig?.schemas.feedbackPublic;
+    if (!schema) {
+      throw new Error(
+        `No FeedbackPublic schema deployed for network "${this.network}". ` +
+          "Pass sasSchema explicitly via the low-level createFeedback() method.",
+      );
+    }
+    return schema;
   }
 }

@@ -13,7 +13,6 @@ import { Hono } from "hono";
 import { type Address, isAddress, createKeyPairSignerFromBytes, signBytes, createKeyPairFromBytes } from "@solana/kit";
 import {
   Sati,
-  loadDeployedConfig,
   buildRegistrationFile,
   fetchRegistrationFile,
   createPinataUploader,
@@ -124,15 +123,14 @@ function createSatiClient(network: "devnet" | "mainnet", env: Env) {
   return new Sati({ network, rpcUrl, wsUrl, photonRpcUrl: rpcUrl });
 }
 
-function getNetworkConfig(network: "devnet" | "mainnet") {
-  const config = loadDeployedConfig(network);
+function getNetworkConfig(sati: Sati) {
   return {
-    feedbackSchema: config?.schemas?.feedback,
-    feedbackPublicSchema: config?.schemas?.feedbackPublic,
-    validationSchema: config?.schemas?.validation,
-    reputationScoreSchema: config?.schemas?.reputationScore,
-    credential: config?.credential,
-    lookupTable: config?.lookupTable,
+    feedbackSchema: sati.feedbackSchema,
+    feedbackPublicSchema: sati.feedbackPublicSchema,
+    validationSchema: sati.validationSchema,
+    reputationScoreSchema: sati.deployedConfig?.schemas?.reputationScore,
+    credential: sati.deployedConfig?.credential,
+    lookupTable: sati.lookupTable,
   };
 }
 
@@ -331,7 +329,7 @@ export function createIdentityApi(env: Env) {
       const regFile = await fetchRegistrationFile(agent.uri);
 
       // Fetch reputation summary
-      const networkConfig = getNetworkConfig(network);
+      const networkConfig = getNetworkConfig(sati);
       const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
 
       let feedbackCount = 0;
@@ -397,7 +395,7 @@ export function createIdentityApi(env: Env) {
 
     try {
       const sati = createSatiClient(network, env);
-      const networkConfig = getNetworkConfig(network);
+      const networkConfig = getNetworkConfig(sati);
       const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
 
       let count = 0;
@@ -457,7 +455,7 @@ export function createIdentityApi(env: Env) {
 
     try {
       const sati = createSatiClient(network, env);
-      const networkConfig = getNetworkConfig(network);
+      const networkConfig = getNetworkConfig(sati);
       const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
 
       const feedbackItems: Array<Record<string, unknown>> = [];
@@ -527,14 +525,14 @@ export function createIdentityApi(env: Env) {
     }
 
     const network = getNetwork(body.network);
-    const networkConfig = getNetworkConfig(network);
+    const sati = createSatiClient(network, env);
+    const networkConfig = getNetworkConfig(sati);
 
     if (!networkConfig.feedbackPublicSchema) {
       return c.json({ error: "FeedbackPublic schema not configured for network" }, 500);
     }
 
     try {
-      const sati = createSatiClient(network, env);
       const serverPayer = await createKeyPairSignerFromBytes(signerBytes);
       const counterpartyAddress = serverPayer.address;
 

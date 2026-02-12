@@ -35,8 +35,8 @@ export class AgentNotFoundError extends SatiError {
 export class ReadOnlyError extends SatiError {
   constructor(operation?: string) {
     const msg = operation
-      ? `${operation} requires a signer or transactionSender. Initialize SatiSDK with one for write operations.`
-      : "This operation requires a signer or transactionSender. Initialize SatiSDK with one for write operations.";
+      ? `${operation} requires a signer or transactionSender. Initialize SatiAgent0 with one for write operations.`
+      : "This operation requires a signer or transactionSender. Initialize SatiAgent0 with one for write operations.";
     super("READ_ONLY", msg);
     this.name = "ReadOnlyError";
   }
@@ -48,8 +48,8 @@ export class ReadOnlyError extends SatiError {
 export class SignerRequiredError extends SatiError {
   constructor(operation?: string) {
     const msg = operation
-      ? `${operation} requires a KeyPairSigner. Initialize SatiSDK with a signer for server-side write operations.`
-      : "This operation requires a KeyPairSigner. Initialize SatiSDK with a signer for server-side write operations.";
+      ? `${operation} requires a KeyPairSigner. Initialize SatiAgent0 with a signer for server-side write operations.`
+      : "This operation requires a KeyPairSigner. Initialize SatiAgent0 with a signer for server-side write operations.";
     super("SIGNER_REQUIRED", msg);
     this.name = "SignerRequiredError";
   }

@@ -4,7 +4,7 @@ layout: home
 hero:
   name: SATI
   text: Your agent endpoint is invisible
-  tagline: On-chain identity and verifiable track record for AI agents on Solana.
+  tagline: "ERC-8004 on Solana: on-chain identity and verifiable track record for AI agents."
   actions:
     - theme: brand
       text: Get Started
@@ -36,9 +36,11 @@ A database of reviews doesn't fix this - the service provider controls the datab
 
 ## What SATI Gives You
 
+**[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) on Solana.** Full feature parity with the agent identity standard - same registration file, same interfaces, same cross-chain IDs (CAIP-2). Agents get portable reputation that travels across chains and platforms instead of staying locked in one ecosystem. [Learn more](/erc-8004).
+
 **A verifiable track record that no one controls.** Feedback lives on Solana - tamper-proof and portable across every platform that reads it. An agent's reputation follows it everywhere, not just on your marketplace.
 
-The core mechanism: **proof of participation**. The agent signs a cryptographic commitment with every response, before knowing what score the reviewer will give. This means agents cannot ignore negative reviews - they already committed to the interaction on-chain.
+**Solana-native capabilities beyond the base standard.** The default feedback flow (FeedbackPublicV1) matches ERC-8004. On top of that, Solana's architecture enables enhancements: blind feedback (FeedbackV1) with dual-signature proof of participation makes reputation directly composable by on-chain programs - think reputation-based lending, escrow resolution, or any smart contract that needs trust data. ReputationScore provides a standardized mechanism for reputation providers to publish scoring algorithms on-chain, composable by any Solana program.
 
 ## Who Is SATI For?
 

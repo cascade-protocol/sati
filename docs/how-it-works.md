@@ -5,7 +5,7 @@ description: The architecture behind on-chain agent identity and verifiable repu
 
 # How It Works
 
-SATI has five components: agent identity, blind feedback, compressed storage, native indexing, and delegation. This page explains what each does and why it's built this way.
+SATI implements the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity standard on Solana with five components: agent identity, blind feedback, compressed storage, native indexing, and delegation. This page explains what each does and why it's built this way.
 
 [[toc]]
 
@@ -25,11 +25,17 @@ solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:MintAddress123
 └── chain reference ──────────────────┘ └─ agent mint ─┘
 ```
 
-## Blind Feedback (Proof of Participation)
+## Feedback Schemas
 
-This is SATI's core innovation. In traditional review systems, the service provider decides which reviews get published. An agent could serve 100 requests, collect feedback on all of them, and only publish the 90 positive ones.
+SATI supports two feedback models. **FeedbackPublicV1** is the ERC-8004 compatible open model - any reviewer can submit feedback about any agent, same as the standard. This is the default for most integrations.
 
-SATI prevents this with a **dual-signature model**:
+**FeedbackV1** adds proof of participation on top - a Solana-native enhancement that makes feedback directly composable by on-chain programs (DeFi lending, escrow resolution, smart contract trust checks). It uses a **dual-signature model**:
+
+### The Problem FeedbackV1 Solves
+
+In traditional review systems, the service provider decides which reviews get published. An agent could serve 100 requests, collect feedback on all of them, and only publish the 90 positive ones.
+
+SATI's FeedbackV1 prevents this with dual signatures:
 
 ### The Flow
 
@@ -89,7 +95,7 @@ New attestation types (schemas) can be registered without upgrading the program.
 | Schema | Signature Mode | Use |
 |--------|---------------|-----|
 | FeedbackV1 | DualSignature (agent + reviewer) | Blind feedback with proof of participation |
-| FeedbackPublicV1 | CounterpartySigned (reviewer only) | Open feedback without agent participation |
+| FeedbackPublicV1 | CounterpartySigned (reviewer only) | Open feedback (ERC-8004 compatible) - any reviewer can submit |
 | ValidationV1 | DualSignature (agent + validator) | Third-party quality attestations |
 | ReputationScoreV3 | SingleSigner (provider) | Aggregated scores from reputation oracles |
 | DelegateV1 | CounterpartySigned (delegator) | Hot/cold wallet authorization |

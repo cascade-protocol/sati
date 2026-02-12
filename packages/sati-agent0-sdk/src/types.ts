@@ -64,7 +64,7 @@ export type WriteAccess =
  * Provide `signer` for headless/server mode, `transactionSender` for browser
  * wallet mode, or omit both for read-only mode.
  */
-export interface SatiSDKConfig {
+export interface SatiAgent0Config {
   /** SATI network to connect to */
   network: "mainnet" | "devnet" | "localnet";
   /** Solana keypair signer for headless/server write operations. */
@@ -148,7 +148,7 @@ export interface PreparedFeedback {
 /**
  * Non-fatal warning from SDK operations.
  *
- * Reported via `SatiSDKConfig.onWarning` callback. Parse errors on untrusted
+ * Reported via `SatiAgent0Config.onWarning` callback. Parse errors on untrusted
  * on-chain data are silently skipped (noise). RPC/infrastructure errors are
  * reported so consumers can wire into telemetry (Sentry, PostHog, etc.).
  */

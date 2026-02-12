@@ -17,9 +17,9 @@ This guide walks you through registering an MCP (Model Context Protocol) server 
 ## Register Your MCP Server
 
 ```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
-const sdk = new SatiSDK({
+const sdk = new SatiAgent0({
   network: "devnet",
   signer,
 });
@@ -119,4 +119,5 @@ To maximize discoverability:
 
 - **[Agent Marketplace](/guides/agent-marketplace)** - the full agent lifecycle with feedback
 - **[Query Reputation](/guides/query-reputation)** - check your agent's reputation programmatically
-- **[API Reference: SatiAgent](/reference/sati-agent0-sdk#satiagent)** - all configuration methods
+- **[API Reference: sati-sdk](/reference/sati-sdk)** - full SDK reference including SatiAgentBuilder
+- **[API Reference: SatiAgent](/reference/sati-agent0-sdk#satiagent)** - agent0-compatible agent class

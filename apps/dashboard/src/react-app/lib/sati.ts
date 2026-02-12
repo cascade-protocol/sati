@@ -16,7 +16,6 @@ import {
   fetchRegistrationFile,
   getImageUrl,
   type RegistrationFile,
-  loadDeployedConfig,
   // Content parsing
   parseFeedbackContent,
   parseReputationScoreContent,
@@ -103,10 +102,10 @@ export async function getCreationSignature(accountAddress: Uint8Array): Promise<
  * Get deployed feedback schema addresses (always fresh for current network)
  */
 export function getFeedbackSchemas(): { feedback?: Address; feedbackPublic?: Address } {
-  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
+  const sati = getSatiClient();
   return {
-    feedback: deployedConfig?.schemas?.feedback as Address | undefined,
-    feedbackPublic: deployedConfig?.schemas?.feedbackPublic as Address | undefined,
+    feedback: sati.feedbackSchema,
+    feedbackPublic: sati.feedbackPublicSchema,
   };
 }
 
@@ -114,8 +113,7 @@ export function getFeedbackSchemas(): { feedback?: Address; feedbackPublic?: Add
  * Get deployed validation schema address (always fresh for current network)
  */
 export function getValidationSchema(): Address | undefined {
-  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
-  return deployedConfig?.schemas?.validation as Address | undefined;
+  return getSatiClient().validationSchema;
 }
 
 /**
@@ -319,16 +317,14 @@ export async function getCurrentSlot(): Promise<bigint> {
  * Get deployed reputation score schema address (always fresh for current network)
  */
 export function getReputationScoreSchema(): Address | undefined {
-  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
-  return deployedConfig?.schemas?.reputationScore as Address | undefined;
+  return getSatiClient().deployedConfig?.schemas?.reputationScore as Address | undefined;
 }
 
 /**
  * Get deployed SATI credential address (always fresh for current network)
  */
 export function getSatiCredential(): Address | undefined {
-  const deployedConfig = loadDeployedConfig(getCurrentNetwork());
-  return deployedConfig?.credential as Address | undefined;
+  return getSatiClient().deployedConfig?.credential as Address | undefined;
 }
 
 /**

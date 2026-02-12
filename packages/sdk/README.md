@@ -1,6 +1,6 @@
 # @cascade-fyi/sati-sdk
 
-TypeScript SDK for SATI - Solana Agent Trust Infrastructure.
+Low-level TypeScript SDK for [SATI](https://github.com/cascade-protocol/sati) - the [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent identity standard on Solana. Raw attestations, custom schemas, compression, encryption.
 
 ## Installation
 
@@ -18,11 +18,8 @@ pnpm add @solana/kit @solana-program/token-2022 @coral-xyz/anchor
 ```typescript
 import { Sati, Outcome } from "@cascade-fyi/sati-sdk";
 
-// Initialize client
-const sati = new Sati({
-  network: "devnet",
-  photonRpcUrl: "https://devnet.helius-rpc.com?api-key=YOUR_KEY", // For compressed attestations
-});
+// Initialize client (uses hosted Photon proxy by default - no API keys needed)
+const sati = new Sati({ network: "devnet" });
 
 // Register an agent
 const { mint, memberNumber, signature } = await sati.registerAgent({
@@ -57,9 +54,13 @@ console.log(result.memberNumber); // Registry member number
 Upload a registration file to IPFS and register in one flow:
 
 ```typescript
-import { createPinataUploader } from "@cascade-fyi/sati-sdk";
+import { createSatiUploader, createPinataUploader } from "@cascade-fyi/sati-sdk";
 
-const uploader = createPinataUploader(process.env.PINATA_JWT!);
+// Zero config (uses hosted uploader - no API keys needed)
+const uploader = createSatiUploader();
+
+// Or bring your own Pinata account
+// const uploader = createPinataUploader(process.env.PINATA_JWT!);
 
 // Build + upload registration file, then register
 const uri = await sati.uploadRegistrationFile(
@@ -309,12 +310,13 @@ const result = await sati.closeReputationScore({
 
 ## Querying Attestations with Photon
 
-SATI uses Light Protocol's compressed accounts. Query via Helius Photon:
+SATI uses Light Protocol's compressed accounts. The `Sati` client handles Photon routing automatically (hosted proxy by default, or pass `photonRpcUrl` for your own endpoint). For direct Photon access:
 
 ```typescript
 import { createPhotonRpc } from "@cascade-fyi/compression-kit";
 import { SATI_PROGRAM_ADDRESS, FEEDBACK_OFFSETS } from "@cascade-fyi/sati-sdk";
 
+// Direct Photon access (for advanced use cases)
 const rpc = createPhotonRpc("https://devnet.helius-rpc.com?api-key=YOUR_KEY");
 
 // Query all feedbacks for an agent

@@ -16,11 +16,21 @@ This guide covers read-only SATI integration - querying agent reputation, search
 
 ## Initialize (Read-Only)
 
-```typescript
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+::: code-group
 
-const sdk = new SatiSDK({ network: "mainnet" });
+```typescript [sati-sdk]
+import { Sati } from "@cascade-fyi/sati-sdk";
+
+const sati = new Sati({ network: "mainnet" });
 ```
+
+```typescript [sati-agent0-sdk]
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
+
+const sdk = new SatiAgent0({ network: "mainnet" });
+```
+
+:::
 
 That's it. No signer, no keys. All read operations work immediately.
 
@@ -163,5 +173,6 @@ For production apps displaying reputation data:
 ## Next Steps
 
 - **[Agent Marketplace](/guides/agent-marketplace)** - full integration with write operations
-- **[API Reference: SatiSDK](/reference/sati-agent0-sdk#satisdk)** - all search and query methods
+- **[API Reference: sati-sdk](/reference/sati-sdk)** - full SDK reference with convenience methods
+- **[API Reference: sati-agent0-sdk](/reference/sati-agent0-sdk)** - agent0-compatible wrapper
 - **[How It Works](/how-it-works)** - understand what the data represents

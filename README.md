@@ -2,42 +2,99 @@
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**Trust infrastructure for million-agent economies on Solana** — identity, reputation, and validation designed for continuous feedback at scale.
+**[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) on Solana.** On-chain identity, verifiable reputation, and agent discovery - the same standard backed by MetaMask, Google, and Coinbase, implemented with sub-cent storage and sub-second finality.
+
+Agents register as Token-2022 NFTs, feedback is stored as compressed attestations at ~$0.002 each, and the SDK works out of the box - no API keys, no custom indexer, no infrastructure.
 
 ---
 
-## Overview
+## Quick Start
 
-SATI enables agents to establish trust across organizational boundaries without pre-existing relationships. Built on Solana Attestation Service (SAS), SATI is architected for **compression-ready reputation** — storing complete feedback histories on-chain rather than just averages.
+```bash
+pnpm add @cascade-fyi/sati-agent0-sdk
+```
 
-| Component | Purpose |
-|-----------|---------|
-| **SATI Program** | Agent registration, signature verification, attestation storage routing |
-| **Token-2022** | Agent identity NFTs with metadata and collection membership |
-| **Light Protocol** | ZK-compressed attestation storage (~200x cheaper) |
-| **SAS** | Regular attestation storage (ReputationScoreV3) |
+**Peer dependencies:**
+```bash
+pnpm add @cascade-fyi/sati-sdk @solana/kit @solana-program/token-2022 agent0-sdk
+```
+
+```typescript
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
+import { generateKeyPairSigner, createSolanaRpc } from "@solana/kit";
+
+// 1. Create a funded devnet wallet
+const signer = await generateKeyPairSigner();
+const rpc = createSolanaRpc("https://api.devnet.solana.com");
+await rpc.requestAirdrop(signer.address, 1_000_000_000n).send();
+
+// 2. Initialize the SDK (zero config - no API keys needed)
+const sdk = new SatiAgent0({ network: "devnet", signer });
+
+// 3. Register an agent (metadata uploaded to IPFS automatically)
+const agent = sdk.createAgent("MyAgent", "An AI trading assistant");
+agent.setActive(true);
+const regHandle = await agent.registerIPFS();
+console.log(agent.agentId); // solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1:MintAddr...
+
+// 4. Give feedback (0-100 score with optional tags)
+const fbHandle = await sdk.giveFeedback(agent.agentId!, 85, "quality", "speed");
+const { result: feedback } = await fbHandle.waitMined();
+
+// 5. Query reputation
+const summary = await sdk.getReputationSummary(agent.agentId!);
+console.log(`${summary.count} reviews, avg ${summary.averageValue}`);
+```
+
+---
+
+## Why SATI?
+
+**Proof of participation.** Agents sign a cryptographic commitment with every response, before knowing what score the reviewer will give. They can't cherry-pick positive reviews - they already committed to the interaction on-chain.
+
+- **On-chain identity** - Agents are Token-2022 NFTs, visible in Phantom, Solflare, Backpack
+- **Blind feedback** - Agent commits before outcome is known; reviewer needs agent's signature to submit
+- **Complete histories** - Every interaction stored on-chain (~$0.002 each), not just aggregates
+- **Zero infrastructure** - Hosted IPFS uploads and Photon RPC built into the SDK, no API keys needed
+- **Sub-second finality** - ~400ms today, ~150ms with Alpenglow
+
+**100% ERC-8004 compatible** - same registration file format, same functional interfaces, cross-chain agent identity via CAIP-2.
+
+---
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| **[@cascade-fyi/sati-agent0-sdk](./packages/sati-agent0-sdk/)** | High-level SDK for agent registration, feedback, search, and reputation. **Start here.** |
+| **[@cascade-fyi/sati-sdk](./packages/sdk/)** | Low-level SDK for raw attestations, custom schemas, compression, encryption. |
+| **[@cascade-fyi/compression-kit](./packages/compression-kit/)** | Light Protocol compression primitives for `@solana/kit`. |
+| **[SATI Program](./programs/sati/)** | Anchor program for on-chain registration and attestation routing. |
+
+---
+
+## Architecture
 
 ```
 ┌───────────────────────────┐
 │      Token-2022           │
-│  • Identity storage       │
-│  • TokenMetadata          │
-│  • TokenGroup             │
+│  - Identity storage       │
+│  - TokenMetadata          │
+│  - TokenGroup             │
 └───────────────────────────┘
           ▲
           │ (CPI: mint NFT)
 ┌─────────────────────────────────────────────────────────────────┐
-│                         SATI Program                             │
-│           (satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)          │
+│                         SATI Program                            │
+│           (satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)        │
 ├─────────────────────────────────────────────────────────────────┤
-│  Registry:                                                       │
-│    initialize()              → Create registry + TokenGroup      │
-│    register_agent()          → Token-2022 NFT + group membership │
-│    update_registry_authority() → Transfer/renounce control       │
-│  Attestation:                                                    │
-│    register_schema_config()  → Register schema + storage type    │
-│    create_attestation()      → Verify sigs → route to storage    │
-│    close_attestation()       → Close/nullify attestation         │
+│  Registry:                                                      │
+│    initialize()              → Create registry + TokenGroup     │
+│    register_agent()          → Token-2022 NFT + group member    │
+│  Attestation:                                                   │
+│    register_schema_config()  → Register schema + storage type   │
+│    create_attestation()      → Verify sigs → route to storage   │
+│    close_attestation()       → Close/nullify attestation        │
 └─────────────────────────────────────────────────────────────────┘
           │                                         │
           │ (CPI: compressed)                       │ (CPI: regular)
@@ -46,158 +103,75 @@ SATI enables agents to establish trust across organizational boundaries without 
 │   Light Protocol          │         │  Solana Attestation Service│
 │   (Compressed Storage)    │         │  (Regular Storage)         │
 ├───────────────────────────┤         ├────────────────────────────┤
-│ • Feedback attestations   │         │ • ReputationScore          │
-│ • Validation attestations │         │ • On-chain queryable       │
-│ • ~$0.002 per attestation │         │                            │
+│ - Feedback attestations   │         │ - ReputationScore          │
+│ - Validation attestations │         │ - On-chain queryable       │
+│ - ~$0.002 per attestation │         │                            │
 └───────────────────────────┘         └────────────────────────────┘
 ```
 
 ---
 
-## Why SATI?
-
-**Proof of participation.** SATI implements a blind feedback model where agents sign BEFORE knowing feedback sentiment — they cannot selectively participate in only positive reviews. This security guarantee was removed from ERC-8004 in January 2026.
-
-- **Cryptographic proof of interaction** — Both parties must sign; agent commits before knowing outcome
-- **Native indexing** — Photon provides query capabilities for compressed accounts via standard RPC
-- **Complete histories, not just averages** — Store every feedback on-chain, aggregate algorithmically
-- **Sub-second finality** — ~400ms today, ~150ms with Alpenglow
-- **Native wallet support** — Agents visible in Phantom, Solflare, Backpack
-
-| Capability | SATI |
-|------------|------|
-| Proof of participation | Agent signs before outcome known |
-| Native indexing | Photon RPC for compressed accounts |
-| Feedback cost | ~$0.002 per attestation |
-| On-chain history | Full (not just aggregates) |
-
-**100% ERC-8004 compatible** — same registration file format, same functional interfaces, cross-chain agent identity via DIDs.
-
----
-
-## Quick Start
-
-```bash
-# Clone repository
-git clone https://github.com/cascade-protocol/sati.git
-cd sati
-
-# Install dependencies
-pnpm install
-
-# Build program
-anchor build
-
-# Build SDK
-pnpm --filter @cascade-fyi/sati-sdk build
-
-# Run tests
-anchor test
-```
-
-**Requirements:**
-- Rust 1.89.0
-- Solana CLI 2.0+
-- Anchor 0.32.1+
-- Node.js 18+
-- pnpm
-
----
-
-## SDK Usage
-
-```typescript
-import { Sati } from "@cascade-fyi/sati-sdk";
-
-// Initialize client (auto-loads deployed schema addresses)
-const sati = new Sati({ network: "mainnet" }); // or "devnet"
-
-// Register an agent
-const { mint, memberNumber } = await sati.registerAgent({
-  payer: keypair,
-  name: "MyAgent",
-  uri: "ipfs://QmRegistrationFile",
-  additionalMetadata: [
-    ["agentWallet", `solana:${keypair.address}`],
-    ["a2a", "https://agent.example/.well-known/agent-card.json"],
-  ],
-});
-
-// Give feedback (uses auto-loaded SAS schemas)
-const { attestation } = await sati.giveFeedback({
-  payer: keypair,
-  agentMint: mint,
-  score: 85,
-  tag1: "quality",
-});
-```
-
-See the [SDK documentation](./packages/sdk/README.md) for complete usage examples.
-
----
-
 ## Costs
-
-**Registration** (one-time, rent is reclaimable):
-
-| Operation | Cost (SOL) |
-|-----------|------------|
-| Register agent (minimal) | ~0.003 |
-| Register agent (3 metadata fields) | ~0.0035 |
-| Register agent (max 10 fields) | ~0.005 |
-
-**Reputation** (per attestation):
 
 | Operation | Cost |
 |-----------|------|
-| Feedback (single) | ~$0.002 (~0.00002 SOL) |
-| Feedback (batched 5/tx) | ~$0.001 (amortized) |
+| Agent registration | ~0.003 SOL |
+| Feedback (single) | ~$0.002 |
+| Feedback (batched 5/tx) | ~$0.001 |
 | Validation | ~$0.002 |
 
-See [benchmarks](./docs/benchmarks/) for detailed CU measurements.
-
----
-
-## Architecture Benefits
-
-**Why this design matters:**
-
-Systems constrained by gas costs store only aggregates (averages, counts). SATI stores complete histories, enabling:
-- Spam detection via pattern analysis
-- Reviewer reputation (weight feedback by reviewer quality)
-- Time-decay scoring (recent feedback matters more)
-- Payment-verified feedback (x402 proofs)
-
-**Native indexing via Photon:**
-- Compressed accounts queryable via standard RPC
-- Same trust model as reading blockchain state
-- No external indexing infrastructure required
-
----
-
-## ERC-8004 Compatibility
-
-SATI achieves **100% functional compatibility** with ERC-8004:
-
-| ERC-8004 Feature | SATI Equivalent |
-|------------------|-----------------|
-| `registrationFile` | Token-2022 `uri` field (IPFS/HTTP) |
-| `transfer()` | Native Token-2022 transfer |
-| `setApprovalForAll()` | Token-2022 delegate |
-| `giveFeedback()` | Blind feedback model (DualSignature) |
-| `feedbackAuth` (removed Jan 2026) | N/A — SATI uses stronger dual-signature |
-| Collection membership | TokenGroup extension |
+See [benchmarks](./docs/advanced/benchmarks.md) for detailed CU measurements.
 
 ---
 
 ## Documentation
 
-📚 **[sati.cascade.fyi](https://cascade-protocol.github.io/sati/)** — Full documentation site
+**[cascade-protocol.github.io/sati](https://cascade-protocol.github.io/sati/)** - Full documentation
 
-- [Getting Started](https://cascade-protocol.github.io/sati/getting-started) — 5-minute quickstart
-- [Core Concepts](https://cascade-protocol.github.io/sati/guide/concepts) — Blind feedback, x402 integration
-- [Specification](https://cascade-protocol.github.io/sati/specification) — Complete technical reference
-- [TypeScript SDK](./packages/sdk/) — Developer SDK with generated client
+- [Getting Started](https://cascade-protocol.github.io/sati/getting-started) - zero to working in 5 minutes
+- [How It Works](https://cascade-protocol.github.io/sati/how-it-works) - blind feedback, compression, schemas
+- [Guides](https://cascade-protocol.github.io/sati/guides/agent-marketplace) - agent marketplace, MCP registration, browser wallets
+- [Specification](https://cascade-protocol.github.io/sati/specification) - byte-level protocol details
+
+---
+
+## Building from Source
+
+```bash
+git clone https://github.com/cascade-protocol/sati.git
+cd sati && pnpm install
+
+# Build program + SDK
+anchor build
+cd packages/sdk && pnpm build
+
+# Run tests
+anchor test
+```
+
+**Requirements:** Rust 1.89.0, Solana CLI 2.0+, Anchor 0.32.1+, Node.js 18+, pnpm
+
+---
+
+## Deployed Addresses
+
+| Network | Program ID |
+|---------|------------|
+| Mainnet | `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe` |
+| Devnet | `satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe` |
+
+[View on Solana Explorer](https://explorer.solana.com/address/satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)
+
+---
+
+## ERC-8004 Compatibility
+
+| ERC-8004 Feature | SATI Equivalent |
+|------------------|-----------------|
+| `registrationFile` | Token-2022 `uri` field (IPFS/HTTP) |
+| `transfer()` | Native Token-2022 transfer |
+| `giveFeedback()` | FeedbackPublicV1 (open, ERC-8004 compatible) + FeedbackV1 (dual-signature for on-chain composability) |
+| Collection membership | TokenGroup extension |
 
 ---
 
@@ -205,41 +179,21 @@ SATI achieves **100% functional compatibility** with ERC-8004:
 
 See [SECURITY.md](./SECURITY.md) for vulnerability reporting.
 
-**Deployment Status:** Deployed on Mainnet and Devnet
-**On-chain Verification:** [Program on Solana Explorer](https://explorer.solana.com/address/satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe)
-
----
-
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
----
-
 ## Acknowledgments
 
-**Inspired by:**
-- [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) (Ethereum Foundation, MetaMask, Google, Coinbase)
-- [Solana Attestation Service](https://github.com/solana-foundation/solana-attestation-service)
-- Google's Agent-to-Agent (A2A) Protocol
-- Anthropic's Model Context Protocol (MCP)
+**Built on:** [Token-2022](https://spl.solana.com/token-2022), [Anchor](https://www.anchor-lang.com), [Solana Attestation Service](https://github.com/solana-foundation/solana-attestation-service), [Light Protocol](https://www.lightprotocol.com/)
 
-**Built on:**
-- [Token-2022](https://spl.solana.com/token-2022) (SPL Token Extensions)
-- [Anchor Framework](https://www.anchor-lang.com)
-- [Solana Attestation Service](https://github.com/solana-foundation/solana-attestation-service)
-
----
+**Inspired by:** [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004), [A2A Protocol](https://google.github.io/A2A/), [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ## Connect
 
 - **Twitter:** [@opwizardx](https://twitter.com/opwizardx)
 - **Discussion:** [GitHub Discussions](https://github.com/cascade-protocol/sati/discussions)
 
----
-
 ## License
 
-[Apache License 2.0](./LICENSE)
-
-Copyright 2025 Cascade Protocol
+[Apache License 2.0](./LICENSE) - Copyright 2025-present Cascade Protocol

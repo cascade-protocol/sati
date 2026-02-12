@@ -19,8 +19,8 @@
  * - AGENT_ID: existing agent ID in CAIP-2 format (solana:<chainRef>:<mint>)
  */
 
-import { loadSigner, RPC_URL, AGENT_ID, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, AGENT_ID, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 type FeedbackPlanItem = {
   value: string; // keep as string to avoid JS float surprises
@@ -35,7 +35,7 @@ async function main() {
     throw new Error("AGENT_ID is required for this example. Run quick-start.ts first to get one.");
   }
 
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,
@@ -66,20 +66,14 @@ async function main() {
     const item = planned[i];
     const endpoint = `${endpointBase}&i=${i}&t=${encodeURIComponent(item.tag2)}`;
 
-    const handle = await sdk.giveFeedback(
-      AGENT_ID,
-      item.value,
-      item.tag1,
-      item.tag2,
-      endpoint,
-    );
+    const handle = await sdk.giveFeedback(AGENT_ID, item.value, item.tag1, item.tag2, endpoint);
     const { result: feedback } = await handle.waitMined();
 
     console.log(
       `- submitted ${i + 1}/${planned.length}:` +
-      ` value=${feedback.value} tags=${feedback.tags.join(",")}` +
-      ` endpoint=${feedback.endpoint ?? ""}` +
-      ` sig=${handle.hash.slice(0, 16)}...`,
+        ` value=${feedback.value} tags=${feedback.tags.join(",")}` +
+        ` endpoint=${feedback.endpoint ?? ""}` +
+        ` sig=${handle.hash.slice(0, 16)}...`,
     );
   }
 
@@ -91,9 +85,7 @@ async function main() {
   );
   console.log(`Found ${latencyResults.length} feedback entries with tag "latency"`);
   for (const fb of latencyResults) {
-    console.log(
-      `- value=${fb.value} tags=${fb.tags.join(",")} endpoint=${fb.endpoint ?? ""}`,
-    );
+    console.log(`- value=${fb.value} tags=${fb.tags.join(",")} endpoint=${fb.endpoint ?? ""}`);
   }
 
   // Get reputation summary for the tag pair
@@ -105,13 +97,11 @@ async function main() {
   const expectedLatencyValues = planned
     .filter((p) => p.tag1 === "quality" && p.tag2 === "latency")
     .map((p) => Number(p.value));
-  const expectedAvg =
-    expectedLatencyValues.reduce((sum, v) => sum + v, 0) /
-    Math.max(1, expectedLatencyValues.length);
+  const expectedAvg = expectedLatencyValues.reduce((sum, v) => sum + v, 0) / Math.max(1, expectedLatencyValues.length);
   const expectedAvgRounded = Math.round(expectedAvg * 100) / 100;
   console.log(
     `Expected (this run): count=${expectedLatencyValues.length}` +
-    ` averageValue=${expectedAvgRounded} (unrounded=${expectedAvg})`,
+      ` averageValue=${expectedAvgRounded} (unrounded=${expectedAvg})`,
   );
 
   // Note: actual average may differ from expected if the agent already had

@@ -7,22 +7,19 @@
 
 import {
   Sati,
-  loadDeployedConfig,
   fetchRegistrationFile as fetchSatiRegistrationFile,
   buildRegistrationFile as buildSatiRegistrationFile,
   Outcome,
   ContentType,
-  serializeFeedback,
-  zeroDataHash,
-  buildCounterpartyMessage,
+  FeedbackCache,
   findAssociatedTokenAddress,
   TOKEN_2022_PROGRAM_ADDRESS,
   type AgentIdentity,
-  type SATISASConfig,
   type FeedbackData,
   type RegistrationFile as SatiRegistrationFile,
+  type SATISASConfig,
 } from "@cascade-fyi/sati-sdk";
-import { signBytes, address as solAddress, getAddressDecoder } from "@solana/kit";
+import { address as solAddress, getAddressDecoder } from "@solana/kit";
 import { getCreateAssociatedTokenIdempotentInstruction, getTransferInstruction } from "@solana-program/token-2022";
 import type {
   AgentSummary,
@@ -35,7 +32,7 @@ import type {
   Address,
 } from "agent0-sdk";
 import type {
-  SatiSDKConfig,
+  SatiAgent0Config,
   SatiSearchOptions,
   SatiFeedbackSearchOptions,
   WriteAccess,
@@ -45,15 +42,8 @@ import type {
 } from "./types.js";
 import type { KeyPairSigner, TransactionSigner } from "@solana/kit";
 import { SatiAgent } from "./agent.js";
-import {
-  SOLANA_CAIP2_CHAINS,
-  parseSatiAgentId,
-  toAgentSummary,
-  toAgent0RegistrationFile,
-  toFeedback,
-} from "./adapters.js";
+import { SOLANA_CAIP2_CHAINS, parseSatiAgentId, toAgentSummary, toFeedback } from "./adapters.js";
 import { SolanaTransactionHandle } from "./transaction-handle.js";
-import { FeedbackCache } from "./feedback-cache.js";
 import {
   SatiError,
   AgentNotFoundError,
@@ -73,11 +63,11 @@ import {
  *
  * @example
  * ```typescript
- * import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+ * import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
  * import { generateKeyPairSigner } from "@solana/kit";
  *
  * const signer = await generateKeyPairSigner();
- * const sdk = new SatiSDK({
+ * const sdk = new SatiAgent0({
  *   network: "devnet",
  *   signer,
  * });
@@ -85,26 +75,28 @@ import {
  * const agent = sdk.createAgent("MyAgent", "An AI assistant");
  * ```
  */
-export class SatiSDK {
-  private readonly _config: SatiSDKConfig;
+export class SatiAgent0 {
+  private readonly _config: SatiAgent0Config;
   private readonly _sati: Sati;
-  private readonly _sasConfig: SATISASConfig | null;
   private readonly _chain: string;
   private readonly _feedbackCache = new FeedbackCache();
 
-  constructor(config: SatiSDKConfig) {
+  constructor(config: SatiAgent0Config) {
     this._config = config;
     this._sati = new Sati({
       network: config.network,
       rpcUrl: config.rpcUrl,
       photonRpcUrl: config.photonRpcUrl,
+      // Agent0 SatiWarning.code is a narrower union than sati-sdk's string
+      onWarning: config.onWarning as
+        | ((w: { code: string; message: string; context?: string; cause?: unknown }) => void)
+        | undefined,
     });
-    this._sasConfig = loadDeployedConfig(config.network);
     this._chain = SOLANA_CAIP2_CHAINS[config.network] ?? `solana:${config.network}`;
   }
 
   /** Get the SATI network. */
-  get network(): SatiSDKConfig["network"] {
+  get network(): SatiAgent0Config["network"] {
     return this._config.network;
   }
 
@@ -136,7 +128,7 @@ export class SatiSDK {
 
   /** @internal Access the SAS schema config. */
   get sasConfig(): SATISASConfig | null {
-    return this._sasConfig;
+    return this._sati.deployedConfig;
   }
 
   // =========================================================================
@@ -164,8 +156,7 @@ export class SatiSDK {
         description: "",
         image: "https://placehold.co/256",
       });
-    const agent0RegFile = toAgent0RegistrationFile(fallback, identity, this._chain);
-    return SatiAgent.fromIdentity(this, identity, agent0RegFile);
+    return SatiAgent.fromIdentity(this, identity, fallback);
   }
 
   /**
@@ -339,26 +330,13 @@ export class SatiSDK {
     const wantFeedbackStats = !!(options?.includeFeedbackStats || filters?.feedback);
     let feedbackStatsMap: Map<string, { count: number; averageValue: number }> | null = null;
 
-    if (wantFeedbackStats && this._sasConfig && cheapFiltered.length > 0) {
+    if (wantFeedbackStats && this._sati.deployedConfig && cheapFiltered.length > 0) {
       feedbackStatsMap = new Map();
-      const schema = this._sasConfig.schemas.feedbackPublic ?? this._sasConfig.schemas.feedback;
       await Promise.all(
         cheapFiltered.map(async ({ identity }) => {
           try {
-            const cacheKey = FeedbackCache.cacheKey(schema, identity.mint);
-            const cached = this._feedbackCache.get<{ items: { data: FeedbackData }[] }>(cacheKey);
-            const result = cached ?? (await this._sati.listFeedbacks({ sasSchema: schema, agentMint: identity.mint }));
-            if (!cached) this._feedbackCache.set(cacheKey, result);
-
-            const scores = result.items
-              .map((item) => {
-                const raw = this._parseContentJson(item.data.content, item.data.contentType);
-                return raw?.score as number | undefined;
-              })
-              .filter((s): s is number => s !== undefined);
-            const count = scores.length;
-            const averageValue = count > 0 ? scores.reduce((a, b) => a + b, 0) / count : 0;
-            feedbackStatsMap?.set(identity.mint, { count, averageValue });
+            const summary = await this._sati.getReputationSummary(identity.mint);
+            feedbackStatsMap?.set(identity.mint, { count: summary.count, averageValue: summary.averageScore });
           } catch (error) {
             this._warn({
               code: "RPC_ERROR",
@@ -506,12 +484,6 @@ export class SatiSDK {
     endpoint?: string,
     feedbackFile?: FeedbackFileInput,
   ): Promise<SolanaTransactionHandle<Feedback>> {
-    const sasConfig = this._requireSASConfig();
-    const feedbackPublicSchema = sasConfig.schemas.feedbackPublic;
-    if (!feedbackPublicSchema) {
-      throw new SchemaNotDeployedError("FeedbackPublic", this._config.network);
-    }
-
     const identity = await this._resolveIdentity(agentId);
     const access = this._requireWriteAccess("giveFeedback");
 
@@ -521,60 +493,22 @@ export class SatiSDK {
       throw new SatiError("INVALID_VALUE", `Feedback value must be a finite number, got: ${value}`);
     }
 
-    // Build content JSON
-    const contentObj: Record<string, unknown> = {};
-    if (value !== undefined) contentObj.score = numericValue;
-    if (tag1) contentObj.tags = tag2 ? [tag1, tag2] : [tag1];
-    if (endpoint) contentObj.endpoint = endpoint;
-    if (feedbackFile?.text) contentObj.m = feedbackFile.text;
-
-    const content =
-      Object.keys(contentObj).length > 0 ? new TextEncoder().encode(JSON.stringify(contentObj)) : new Uint8Array(0);
-    const contentType = content.length > 0 ? ContentType.JSON : ContentType.None;
-
-    // Extract SATI-specific fields from feedbackFile
-    const taskRef =
-      (feedbackFile?.taskRef as Uint8Array | undefined) ?? globalThis.crypto.getRandomValues(new Uint8Array(32));
-    const outcome = (feedbackFile?.outcome as Outcome | undefined) ?? Outcome.Neutral;
-
     if (access.type === "keypair") {
       const signer = access.signer;
-      // Serialize feedback data to build SIWS message
-      const feedbackData: FeedbackData = {
-        taskRef,
-        agentMint: identity.mint,
-        counterparty: signer.address,
-        dataHash: zeroDataHash(),
-        outcome,
-        contentType,
-        content,
-      };
-      const serializedData = serializeFeedback(feedbackData);
 
-      // Build SIWS message and sign with counterparty (signer)
-      const { messageBytes } = buildCounterpartyMessage({
-        schemaName: "FeedbackPublicV1",
-        data: serializedData,
-      });
-      const sig = await signBytes(signer.keyPair.privateKey, messageBytes);
+      // Delegate content building, SIWS signing, and on-chain creation to Sati
+      const tags = tag1 ? (tag2 ? ([tag1, tag2] as [string, string]) : ([tag1] as [string])) : undefined;
+      const outcome = (feedbackFile?.outcome as Outcome | undefined) ?? Outcome.Neutral;
 
-      // Create feedback via SATI (CounterpartySigned mode)
-      const result = await this._sati.createFeedback({
+      const result = await this._sati.giveFeedback({
         payer: signer,
-        sasSchema: feedbackPublicSchema,
-        taskRef,
         agentMint: identity.mint,
-        counterparty: signer.address,
-        dataHash: zeroDataHash(),
+        score: numericValue,
+        tags,
+        endpoint,
+        message: feedbackFile?.text,
         outcome,
-        contentType,
-        content,
-        agentSignature: {
-          pubkey: signer.address,
-          signature: new Uint8Array(sig),
-        },
-        counterpartyMessage: messageBytes,
-        lookupTableAddress: sasConfig.lookupTable,
+        taskRef: feedbackFile?.taskRef as Uint8Array | undefined,
       });
 
       const feedback = toFeedback({
@@ -625,12 +559,6 @@ export class SatiSDK {
       taskRef?: Uint8Array;
     },
   ): Promise<PreparedFeedback> {
-    const sasConfig = this._requireSASConfig();
-    const feedbackPublicSchema = sasConfig.schemas.feedbackPublic;
-    if (!feedbackPublicSchema) {
-      throw new SchemaNotDeployedError("FeedbackPublic", this._config.network);
-    }
-
     const identity = await this._resolveIdentity(agentId);
 
     // Determine counterparty address
@@ -645,49 +573,31 @@ export class SatiSDK {
       throw new SatiError("INVALID_VALUE", `Feedback value must be a finite number, got: ${value}`);
     }
 
-    // Build content JSON
-    const contentObj: Record<string, unknown> = {};
-    if (value !== undefined) contentObj.score = value;
-    if (tag1) contentObj.tags = tag2 ? [tag1, tag2] : [tag1];
-    if (opts?.endpoint) contentObj.endpoint = opts.endpoint;
-    if (opts?.text) contentObj.m = opts.text;
+    // Delegate content building and SIWS message construction to Sati
+    const tags = tag1 ? (tag2 ? ([tag1, tag2] as [string, string]) : ([tag1] as [string])) : undefined;
 
-    const content =
-      Object.keys(contentObj).length > 0 ? new TextEncoder().encode(JSON.stringify(contentObj)) : new Uint8Array(0);
-    const contentType = content.length > 0 ? ContentType.JSON : ContentType.None;
-
-    const taskRef = opts?.taskRef ?? globalThis.crypto.getRandomValues(new Uint8Array(32));
-    const outcome = opts?.outcome ?? Outcome.Neutral;
-
-    // Serialize feedback data to build SIWS message
-    const feedbackData: FeedbackData = {
-      taskRef,
+    const prepared = await this._sati.prepareFeedback({
       agentMint: identity.mint,
       counterparty: solAddress(counterpartyAddr),
-      dataHash: zeroDataHash(),
-      outcome,
-      contentType,
-      content,
-    };
-    const serializedData = serializeFeedback(feedbackData);
-
-    // Build SIWS message
-    const { messageBytes } = buildCounterpartyMessage({
-      schemaName: "FeedbackPublicV1",
-      data: serializedData,
+      score: value,
+      tags,
+      endpoint: opts?.endpoint,
+      message: opts?.text,
+      outcome: opts?.outcome,
+      taskRef: opts?.taskRef,
     });
 
     return {
-      messageBytes,
-      agentMint: identity.mint,
-      counterparty: solAddress(counterpartyAddr),
-      taskRef,
-      dataHash: zeroDataHash(),
-      outcome,
-      contentType,
-      content,
-      sasSchema: feedbackPublicSchema,
-      lookupTable: sasConfig.lookupTable,
+      messageBytes: prepared.messageBytes,
+      agentMint: prepared.agentMint,
+      counterparty: prepared.counterparty,
+      taskRef: prepared.taskRef,
+      dataHash: prepared.dataHash,
+      outcome: prepared.outcome,
+      contentType: prepared.contentType,
+      content: prepared.content,
+      sasSchema: prepared.sasSchema,
+      lookupTable: prepared.lookupTable,
       feedbackMeta: {
         value,
         tag1,
@@ -756,11 +666,11 @@ export class SatiSDK {
    * `getCreationSignature()` + Solana's `getBlockTime()`.
    */
   async searchFeedback(filters: FeedbackSearchFilters, options?: SatiFeedbackSearchOptions): Promise<Feedback[]> {
-    const sasConfig = this._requireSASConfig();
+    const deployedConfig = this._requireDeployedConfig();
 
     // Build SATI attestation filter
     const satiFilter: Record<string, unknown> = {
-      sasSchema: sasConfig.schemas.feedbackPublic ?? sasConfig.schemas.feedback,
+      sasSchema: deployedConfig.schemas.feedbackPublic ?? deployedConfig.schemas.feedback,
     };
 
     // Resolve agentId to agentMint (use agentId or first of agents[])
@@ -937,42 +847,10 @@ export class SatiSDK {
     tag1?: string,
     tag2?: string,
   ): Promise<{ count: number; averageValue: number }> {
-    const sasConfig = this._requireSASConfig();
     const identity = await this._resolveIdentity(agentId);
-
-    const schema = sasConfig.schemas.feedbackPublic ?? sasConfig.schemas.feedback;
-    const cacheKey = FeedbackCache.cacheKey(schema, identity.mint);
-    const cached = this._feedbackCache.get<{ items: { data: FeedbackData }[] }>(cacheKey);
-    const result = cached ?? (await this._sati.listFeedbacks({ sasSchema: schema, agentMint: identity.mint }));
-    if (!cached) this._feedbackCache.set(cacheKey, result);
-
-    if (result.items.length === 0) {
-      return { count: 0, averageValue: 0 };
-    }
-
-    let sum = 0;
-    let count = 0;
-
-    for (const item of result.items) {
-      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
-
-      const score = rawContent?.score as number | undefined;
-      const tags = (rawContent?.tags as string[]) ?? [];
-
-      // Apply tag filters
-      if (tag1 && !tags.includes(tag1)) continue;
-      if (tag2 && !tags.includes(tag2)) continue;
-
-      if (score !== undefined) {
-        sum += score;
-        count++;
-      }
-    }
-
-    return {
-      count,
-      averageValue: count > 0 ? sum / count : 0,
-    };
+    const tags = [tag1, tag2].filter((t): t is string => !!t);
+    const summary = await this._sati.getReputationSummary(identity.mint, tags.length > 0 ? tags : undefined);
+    return { count: summary.count, averageValue: summary.averageScore };
   }
 
   /**
@@ -1034,10 +912,10 @@ export class SatiSDK {
     feedbackOrAgentId: Feedback | AgentId,
     feedbackIndex?: number,
   ): Promise<SolanaTransactionHandle<Feedback>> {
-    const sasConfig = this._requireSASConfig();
+    const deployedConfig = this._requireDeployedConfig();
     const signer = this._requireSigner("revokeFeedback");
 
-    // Feedback object path
+    // Feedback object path - delegate to Sati.revokeFeedback()
     if (typeof feedbackOrAgentId === "object" && "id" in feedbackOrAgentId) {
       const fb = feedbackOrAgentId as Feedback;
       const addr = fb.context?.satiCompressedAddress as string | undefined;
@@ -1047,13 +925,9 @@ export class SatiSDK {
         );
       }
 
-      const schema = sasConfig.schemas.feedbackPublic ?? sasConfig.schemas.feedback;
-      const result = await this._sati.closeCompressedAttestation({
+      const result = await this._sati.revokeFeedback({
         payer: signer,
-        counterparty: signer,
-        sasSchema: schema,
         attestationAddress: solAddress(addr),
-        lookupTableAddress: sasConfig.lookupTable,
       });
 
       this._feedbackCache.invalidate();
@@ -1065,7 +939,7 @@ export class SatiSDK {
     const agentId = feedbackOrAgentId as AgentId;
     const idx = feedbackIndex as number;
     const identity = await this._resolveIdentity(agentId);
-    const schema = sasConfig.schemas.feedbackPublic ?? sasConfig.schemas.feedback;
+    const schema = deployedConfig.schemas.feedbackPublic ?? deployedConfig.schemas.feedback;
     const queryResult = await this._sati.listFeedbacks({
       sasSchema: schema,
       agentMint: identity.mint,
@@ -1084,7 +958,7 @@ export class SatiSDK {
       counterparty: signer,
       sasSchema: item.attestation.sasSchema,
       attestationAddress,
-      lookupTableAddress: sasConfig.lookupTable,
+      lookupTableAddress: deployedConfig.lookupTable,
     });
 
     const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
@@ -1114,15 +988,10 @@ export class SatiSDK {
    * @param compressedAddress - Base58 compressed account address
    */
   async revokeFeedbackByAddress(compressedAddress: string): Promise<SolanaTransactionHandle<{ signature: string }>> {
-    const sasConfig = this._requireSASConfig();
     const signer = this._requireSigner("revokeFeedbackByAddress");
-
-    const result = await this._sati.closeCompressedAttestation({
+    const result = await this._sati.revokeFeedback({
       payer: signer,
-      counterparty: signer,
-      sasSchema: sasConfig.schemas.feedbackPublic ?? sasConfig.schemas.feedback,
       attestationAddress: solAddress(compressedAddress),
-      lookupTableAddress: sasConfig.lookupTable,
     });
 
     this._feedbackCache.invalidate();
@@ -1145,36 +1014,15 @@ export class SatiSDK {
    * `getCreationSignature()` + Solana's `getBlockTime()`.
    */
   async searchValidations(agentId: AgentId): Promise<ValidationResult[]> {
-    const sasConfig = this._requireSASConfig();
-    const validationSchema = sasConfig.schemas.validation;
-    if (!validationSchema) {
-      throw new SchemaNotDeployedError("Validation", this._config.network);
-    }
-
     const identity = await this._resolveIdentity(agentId);
-
-    const result = await this._sati.listValidations({
-      sasSchema: validationSchema,
-      agentMint: identity.mint,
-    });
-
-    // Fetch current slot for timestamp conversion
-    const currentSlot = await this._sati.getRpc().getSlot({ commitment: "confirmed" }).send();
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    return result.items.map((item) => {
-      const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
-      const createdAt = nowSec - Math.floor(slotDiff * 0.4);
-      const [compressedAddress] = getAddressDecoder().read(item.address, 0);
-
-      return {
-        outcome: item.data.outcome,
-        agentMint: item.data.agentMint,
-        counterparty: item.data.counterparty,
-        createdAt,
-        compressedAddress,
-      };
-    });
+    const results = await this._sati.searchValidations(identity.mint);
+    return results.map((v) => ({
+      outcome: v.outcome,
+      agentMint: v.agentMint as string,
+      counterparty: v.counterparty as string,
+      createdAt: v.createdAt,
+      compressedAddress: v.compressedAddress as string,
+    }));
   }
 
   // =========================================================================
@@ -1183,22 +1031,22 @@ export class SatiSDK {
 
   /** Get the feedback schema address for the current network. */
   get feedbackSchema(): string | undefined {
-    return this._sasConfig?.schemas.feedback;
+    return this._sati.feedbackSchema;
   }
 
   /** Get the feedbackPublic schema address for the current network. */
   get feedbackPublicSchema(): string | undefined {
-    return this._sasConfig?.schemas.feedbackPublic;
+    return this._sati.feedbackPublicSchema;
   }
 
   /** Get the validation schema address for the current network. */
   get validationSchema(): string | undefined {
-    return this._sasConfig?.schemas.validation;
+    return this._sati.validationSchema;
   }
 
   /** Get the lookup table address for the current network. */
   get lookupTable(): string | undefined {
-    return this._sasConfig?.lookupTable;
+    return this._sati.lookupTable;
   }
 
   // =========================================================================
@@ -1206,7 +1054,7 @@ export class SatiSDK {
   // =========================================================================
 
   /** @internal */
-  get config(): SatiSDKConfig {
+  get config(): SatiAgent0Config {
     return this._config;
   }
 
@@ -1243,11 +1091,12 @@ export class SatiSDK {
     throw new ReadOnlyError(operation);
   }
 
-  private _requireSASConfig(): SATISASConfig {
-    if (!this._sasConfig) {
+  private _requireDeployedConfig(): SATISASConfig {
+    const config = this._sati.deployedConfig;
+    if (!config) {
       throw new SchemaNotDeployedError("SAS", this._config.network);
     }
-    return this._sasConfig;
+    return config;
   }
 
   private async _resolveIdentity(agentId: AgentId): Promise<AgentIdentity> {

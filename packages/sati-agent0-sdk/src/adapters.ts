@@ -59,7 +59,7 @@ const SATI_TO_AGENT0_TYPE: Record<string, EndpointType> = {
   OASF: EndpointType.OASF,
 };
 
-const AGENT0_TO_SATI_NAME: Record<string, string> = {
+export const AGENT0_TO_SATI_NAME: Record<string, string> = {
   [EndpointType.MCP]: "MCP",
   [EndpointType.A2A]: "A2A",
   [EndpointType.ENS]: "ENS",

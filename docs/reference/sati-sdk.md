@@ -1,11 +1,11 @@
 ---
 title: "@cascade-fyi/sati-sdk"
-description: API reference for the low-level SATI SDK
+description: API reference for the SATI SDK
 ---
 
 # @cascade-fyi/sati-sdk
 
-Low-level SDK for direct access to SATI's Solana program - raw attestations, custom schemas, compression, and encryption.
+Full-featured SDK for SATI on Solana. Agent registration, feedback, search, reputation queries, and low-level attestation access.
 
 [[toc]]
 
@@ -17,13 +17,13 @@ pnpm add @cascade-fyi/sati-sdk
 
 **Peer dependencies:**
 ```bash
-pnpm add @solana/kit @solana-program/token-2022 @coral-xyz/anchor
+pnpm add @solana/kit @solana-program/token-2022
 ```
 
 ## Sati Client
 
 ```typescript
-import { Sati, Outcome } from "@cascade-fyi/sati-sdk";
+import { Sati } from "@cascade-fyi/sati-sdk";
 
 const sati = new Sati({
   network: "devnet",
@@ -31,9 +31,347 @@ const sati = new Sati({
 });
 ```
 
+### SATIClientOptions
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `network` | `"mainnet" \| "devnet" \| "localnet"` | Yes | SATI network |
+| `rpcUrl` | `string` | No | Custom RPC URL (overrides network default) |
+| `wsUrl` | `string` | No | Custom WebSocket URL for subscriptions |
+| `photonRpcUrl` | `string` | No | Photon RPC URL for Light Protocol queries (defaults to hosted proxy) |
+| `onWarning` | `(warning: SatiWarning) => void` | No | Non-fatal warning callback (parse errors, RPC failures) |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `network` | `"mainnet" \| "devnet" \| "localnet"` | Configured network |
+| `rpc` | `SolanaRpc` | Solana RPC client |
+| `deployedConfig` | `SATISASConfig \| null` | SAS schema config for this network |
+| `feedbackPublicSchema` | `Address \| undefined` | FeedbackPublic schema address |
+| `feedbackSchema` | `Address \| undefined` | Feedback schema address |
+| `validationSchema` | `Address \| undefined` | Validation schema address |
+| `lookupTable` | `Address \| undefined` | Address Lookup Table address |
+
 ---
 
-## Agent Registration
+## SatiAgentBuilder
+
+Fluent builder for agent registration and management. Created via `sati.createAgentBuilder()`.
+
+### Create a Builder
+
+```typescript
+const builder = sati.createAgentBuilder(
+  "My AI Assistant",
+  "An intelligent assistant for data analysis.",
+  "https://example.com/agent-image.png",
+);
+```
+
+### Fluent Configuration
+
+All setters return `this` for chaining:
+
+```typescript
+builder
+  .setMCP("https://mcp.example.com", "2025-06-18", {
+    tools: ["search", "summarize"],
+    prompts: ["code-review"],
+    resources: ["project-context"],
+  })
+  .setA2A("https://a2a.example.com/.well-known/agent-card.json", "1.0", {
+    skills: ["data-analysis"],
+  })
+  .setWallet("WalletAddress123")
+  .setActive(true)
+  .setX402Support(true)
+  .setSupportedTrust(["reputation"])
+  .setExternalUrl("https://myagent.com");
+```
+
+| Method | Parameters | Description |
+|--------|-----------|-------------|
+| `setMCP(url, version?, meta?)` | `meta: { tools?, prompts?, resources? }` | Set MCP endpoint with optional capabilities |
+| `setA2A(url, version?, meta?)` | `meta: { skills? }` | Set A2A endpoint with optional skills |
+| `setWallet(address)` | `string` | Set payment wallet endpoint |
+| `setEndpoint(endpoint)` | `Endpoint` | Set a generic endpoint |
+| `removeEndpoint(name)` | `string` | Remove an endpoint by name |
+| `setActive(active)` | `boolean` | Set active status |
+| `setX402Support(x402)` | `boolean` | Set x402 payment support |
+| `setSupportedTrust(trusts)` | `TrustMechanism[]` | Set trust mechanisms |
+| `setExternalUrl(url)` | `string` | Set external URL |
+| `updateInfo(opts)` | `{ name?, description?, image? }` | Update basic info |
+
+::: tip No Auto-Fetch
+Unlike `sati-agent0-sdk`'s `SatiAgent.setMCP()`, the builder does **not** auto-fetch MCP capabilities. Pass tools/prompts/resources explicitly via the `meta` parameter.
+:::
+
+### Register
+
+```typescript
+import { createSatiUploader, createPinataUploader } from "@cascade-fyi/sati-sdk";
+
+// Hosted uploader (zero config)
+const result = await builder.register({
+  payer: signer,
+  uploader: createSatiUploader(),
+});
+
+// Or with Pinata
+const result = await builder.register({
+  payer: signer,
+  uploader: createPinataUploader(process.env.PINATA_JWT!),
+  nonTransferable: true,  // soulbound (default)
+});
+
+console.log(result.mint);         // Agent mint address
+console.log(result.memberNumber); // Registry member number
+console.log(result.signature);    // Transaction signature
+```
+
+**Cost:** ~0.003 SOL
+
+### Register with Pre-existing URI
+
+```typescript
+const result = await builder.registerWithUri({
+  payer: signer,
+  uri: "ipfs://Qm...",
+});
+```
+
+### Update
+
+After modifying the builder with fluent setters:
+
+```typescript
+const updated = await builder.update({
+  payer: signer,
+  owner: ownerKeypair,  // must be the current NFT owner
+  uploader: createSatiUploader(),
+});
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `params` | `RegistrationFileParams` | Current registration parameters |
+| `identity` | `AgentIdentity \| undefined` | On-chain identity (available after register/load) |
+
+---
+
+## Feedback Methods
+
+### giveFeedback
+
+Give feedback to an agent. Uses FeedbackPublicV1 schema. Handles SIWS message construction and signing automatically.
+
+```typescript
+const result = await sati.giveFeedback({
+  payer: signer,             // pays fees + is the reviewer
+  agentMint: address("..."), // agent to review
+  score: 85,                 // 0-100
+  tags: ["quality", "speed"],
+  message: "Fast and accurate",
+  endpoint: "https://api.example.com",
+  outcome: Outcome.Positive, // optional (defaults to Neutral)
+  taskRef: taskHashBytes,    // optional 32-byte reference
+});
+
+console.log(result.signature);          // transaction signature
+console.log(result.attestationAddress); // compressed account address
+```
+
+**Cost:** ~$0.002
+
+#### GiveFeedbackParams
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `payer` | `KeyPairSigner` | Yes | Pays fees and is the reviewer |
+| `agentMint` | `Address` | Yes | Agent mint address |
+| `score` | `number` | No | Score 0-100 |
+| `tags` | `[string] \| [string, string]` | No | 1 or 2 tag dimensions |
+| `message` | `string` | No | Human-readable feedback |
+| `endpoint` | `string` | No | Endpoint being reviewed |
+| `outcome` | `Outcome` | No | Defaults to Neutral |
+| `taskRef` | `Uint8Array` | No | 32-byte task reference (random if omitted) |
+
+### prepareFeedback
+
+Prepare feedback for browser wallet signing (step 1 of 2). Returns SIWS message bytes for the counterparty to sign externally.
+
+```typescript
+const prepared = await sati.prepareFeedback({
+  agentMint: address("..."),
+  counterparty: walletAddress,
+  score: 90,
+  tags: ["quality"],
+});
+
+// Send prepared.messageBytes to the wallet for signing
+```
+
+### submitPreparedFeedback
+
+Submit wallet-signed feedback (step 2 of 2).
+
+```typescript
+const result = await sati.submitPreparedFeedback({
+  payer: serverSigner,
+  prepared,
+  counterpartySignature: walletSignature,
+});
+```
+
+### searchFeedback
+
+Search feedback attestations with client-side filtering.
+
+```typescript
+const feedbacks = await sati.searchFeedback({
+  agentMint: address("..."),
+  counterparty: address("..."), // filter by reviewer
+  tags: ["quality"],
+  minScore: 70,
+  maxScore: 100,
+  includeTxHash: true,
+});
+
+for (const fb of feedbacks) {
+  console.log(`${fb.score}/100 from ${fb.counterparty}`);
+  console.log(`Tags: ${fb.tags}, Message: ${fb.message}`);
+}
+```
+
+#### FeedbackSearchOptions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentMint` | `Address` | Filter by agent |
+| `counterparty` | `Address` | Filter by reviewer |
+| `tags` | `string[]` | Filter by tag dimensions (all must match) |
+| `minScore` | `number` | Minimum score (inclusive) |
+| `maxScore` | `number` | Maximum score (inclusive) |
+| `includeTxHash` | `boolean` | Populate `txSignature` per result (extra RPC call each) |
+
+#### ParsedFeedback
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `compressedAddress` | `Address` | Compressed account address |
+| `agentMint` | `Address` | Agent mint address |
+| `counterparty` | `Address` | Reviewer address |
+| `outcome` | `Outcome` | Feedback outcome |
+| `score` | `number \| undefined` | Numeric score 0-100 |
+| `tags` | `string[]` | Tag dimensions |
+| `message` | `string \| undefined` | Feedback message |
+| `endpoint` | `string \| undefined` | Endpoint reviewed |
+| `createdAt` | `number` | Approximate Unix timestamp |
+| `txSignature` | `string \| undefined` | Transaction signature (if requested) |
+
+### getReputationSummary
+
+Aggregate feedback stats for an agent.
+
+```typescript
+const summary = await sati.getReputationSummary(agentMint);
+console.log(`${summary.count} reviews, avg ${summary.averageScore}/100`);
+
+// Filter by tags
+const quality = await sati.getReputationSummary(agentMint, ["quality"]);
+```
+
+Returns `{ count: number; averageScore: number }`.
+
+### revokeFeedback
+
+Revoke (close) a feedback attestation. The payer must be the original reviewer.
+
+```typescript
+const result = await sati.revokeFeedback({
+  payer: signer,
+  attestationAddress: feedback.compressedAddress,
+});
+```
+
+---
+
+## Agent Search Methods
+
+### searchAgents
+
+Search registered agents with filters.
+
+```typescript
+// All agents
+const all = await sati.searchAgents();
+
+// Filtered
+const results = await sati.searchAgents({
+  name: "weather",
+  active: true,
+  endpointTypes: ["MCP"],
+  limit: 25,
+  offset: 50n,
+  includeFeedbackStats: true,
+});
+
+for (const agent of results) {
+  console.log(`${agent.identity.name} (${agent.identity.mint})`);
+  if (agent.registrationFile) {
+    console.log(`  MCP: ${agent.registrationFile.endpoints?.find(e => e.name === "MCP")?.endpoint}`);
+  }
+  if (agent.feedbackStats) {
+    console.log(`  Score: ${agent.feedbackStats.averageScore}/100 (${agent.feedbackStats.count} reviews)`);
+  }
+}
+```
+
+#### AgentSearchOptions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Substring match on agent name |
+| `owner` | `Address` | Filter by owner address |
+| `active` | `boolean` | Filter by active status |
+| `endpointTypes` | `string[]` | Filter by endpoint types (e.g., `["MCP", "A2A"]`) |
+| `limit` | `number` | Max results |
+| `offset` | `bigint` | Offset for pagination (member number) |
+| `includeFeedbackStats` | `boolean` | Compute feedback stats per agent (slower) |
+
+#### AgentSearchResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `identity` | `AgentIdentity` | On-chain identity (mint, owner, name, uri, memberNumber) |
+| `registrationFile` | `RegistrationFile \| null` | Fetched metadata (null if fetch failed) |
+| `feedbackStats` | `ReputationSummary \| undefined` | Only if `includeFeedbackStats` was true |
+
+### searchValidations
+
+Query validation attestations for an agent.
+
+```typescript
+const validations = await sati.searchValidations(agentMint);
+
+for (const v of validations) {
+  console.log(`${v.outcome === 2 ? "Positive" : "Negative"} by ${v.counterparty}`);
+  console.log(`At: ${new Date(v.createdAt * 1000).toISOString()}`);
+}
+```
+
+::: warning Timestamp Precision
+`createdAt` is approximate - derived from Solana slot numbers at ~400ms/slot. May drift by minutes for recent data.
+:::
+
+---
+
+## Agent Registration (Low-Level)
+
+For full control over registration without using `SatiAgentBuilder`.
 
 ```typescript
 const result = await sati.registerAgent({
@@ -50,8 +388,6 @@ const result = await sati.registerAgent({
 console.log(result.mint);         // Agent's token address (identity)
 console.log(result.memberNumber); // Registry member number
 ```
-
-**Cost:** ~0.003 SOL
 
 ### IPFS Upload + Registration
 
@@ -90,7 +426,7 @@ const arweaveUploader: MetadataUploader = {
 
 ---
 
-## Querying
+## Querying (Low-Level)
 
 ### List Agents
 
@@ -137,7 +473,7 @@ if (result.cursor) {
 
 ---
 
-## Creating Attestations
+## Creating Attestations (Low-Level)
 
 ### Feedback (Compressed)
 

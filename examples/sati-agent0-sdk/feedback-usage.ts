@@ -13,8 +13,8 @@
  * - AGENT_ID: existing agent ID in CAIP-2 format (solana:<chainRef>:<mint>)
  */
 
-import { loadSigner, RPC_URL, AGENT_ID, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { loadSigner, RPC_URL, AGENT_ID, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 async function main() {
   const signer = await loadSigner();
@@ -24,7 +24,7 @@ async function main() {
   }
 
   // Initialize SDK (no pinataJwt needed for on-chain feedback)
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
     signer,
@@ -40,11 +40,11 @@ async function main() {
   console.log("Submitting feedback...");
   const handle = await sdk.giveFeedback(
     AGENT_ID,
-    85,                                    // value (score)
-    "data_analyst",                        // tag1
-    "finance",                             // tag2
-    "https://api.example.com/feedback",    // endpoint
-    feedbackFile,                          // off-chain feedback payload
+    85, // value (score)
+    "data_analyst", // tag1
+    "finance", // tag2
+    "https://api.example.com/feedback", // endpoint
+    feedbackFile, // off-chain feedback payload
   );
   const { result: feedback } = await handle.waitMined();
   console.log(`Transaction signature: ${handle.hash}`);
@@ -64,8 +64,8 @@ async function main() {
     console.log("\nAttempting appendResponse (expected to fail on SATI)...");
     try {
       await sdk.appendResponse(AGENT_ID, signer.address, 0, {
-        uri: "ipfs://QmExampleResponse" as any,
-        hash: "0x" + "00".repeat(32),
+        uri: "ipfs://QmExampleResponse" as unknown as import("agent0-sdk").URI,
+        hash: `0x${"00".repeat(32)}`,
       });
     } catch (error) {
       console.log(`Expected error: ${error instanceof Error ? error.message : error}`);

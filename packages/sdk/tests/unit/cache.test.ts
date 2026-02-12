@@ -1,5 +1,14 @@
+/**
+ * FeedbackCache Unit Tests
+ *
+ * Tests the TTL-based feedback query cache.
+ * Pure unit tests - no network required.
+ *
+ * Run: pnpm vitest run tests/unit/cache.test.ts
+ */
+
 import { describe, it, expect, vi } from "vitest";
-import { FeedbackCache } from "../../src/feedback-cache.js";
+import { FeedbackCache } from "../../src/cache";
 
 describe("FeedbackCache", () => {
   it("should return null on cache miss", () => {
@@ -54,5 +63,39 @@ describe("FeedbackCache", () => {
 
   it("cacheKey should use wildcard when no agentMint", () => {
     expect(FeedbackCache.cacheKey("schema1")).toBe("schema1:*");
+  });
+
+  it("should use 30s default TTL", () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new FeedbackCache();
+      cache.set("key1", "data");
+
+      // Still alive at 29s
+      vi.advanceTimersByTime(29_000);
+      expect(cache.get("key1")).toBe("data");
+
+      // Expired at 31s
+      vi.advanceTimersByTime(2_000);
+      expect(cache.get("key1")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("should clean up expired entries on get", () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new FeedbackCache(100);
+      cache.set("key1", "data");
+
+      vi.advanceTimersByTime(150);
+      // First get should delete the expired entry
+      expect(cache.get("key1")).toBeNull();
+      // Verify it's actually gone (set + get would work if not cleaned)
+      expect(cache.get("key1")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

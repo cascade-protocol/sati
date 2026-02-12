@@ -1,12 +1,14 @@
 /**
  * Agent0-compatible agent wrapper backed by SATI infrastructure.
  *
- * Mirrors agent0-sdk's `Agent` class: fluent builders for endpoints,
- * metadata, trust models, and registration file management.
+ * Internally delegates state management to sati-sdk's SatiAgentBuilder.
+ * The builder holds the SATI-native RegistrationFileParams as the source
+ * of truth; this class adds agent0-specific features (EndpointCrawler,
+ * metadata dict, CAIP-2 IDs) and converts to agent0 types on demand.
  */
 
-import type { RegistrationFile, Endpoint, AgentId, URI, Address } from "agent0-sdk";
-import { EndpointType, TrustModel, EndpointCrawler } from "agent0-sdk";
+import type { RegistrationFile, AgentId, URI, Address } from "agent0-sdk";
+import { type EndpointType, TrustModel, EndpointCrawler } from "agent0-sdk";
 import {
   createPinataUploader,
   createSatiUploader,
@@ -16,6 +18,8 @@ import {
   findAssociatedTokenAddress,
   findAgentIndexPda,
   type AgentIdentity,
+  type SatiAgentBuilder,
+  type Endpoint as SatiEndpoint,
 } from "@cascade-fyi/sati-sdk";
 import { address as solAddress, generateKeyPairSigner, type TransactionSigner } from "@solana/kit";
 import {
@@ -24,68 +28,73 @@ import {
   getTransferInstruction,
 } from "@solana-program/token-2022";
 import { getCreateAssociatedTokenIdempotentInstruction } from "@solana-program/token-2022";
-import type { SatiSDK } from "./sdk.js";
+import type { SatiAgent0 } from "./sdk.js";
 import type { WriteAccess } from "./types.js";
-import { formatSatiAgentId, fromAgent0RegistrationFile } from "./adapters.js";
+import { formatSatiAgentId, toAgent0Endpoints, AGENT0_TO_SATI_NAME } from "./adapters.js";
 import { TOKEN_2022_PROGRAM_ADDRESS } from "@cascade-fyi/sati-sdk";
 import { SolanaTransactionHandle } from "./transaction-handle.js";
 import { SatiError, AgentNotFoundError, ReadOnlyError } from "./errors.js";
+import type { RegistrationFile as SatiRegistrationFile } from "@cascade-fyi/sati-sdk";
 
 /**
  * Agent0-compatible agent class backed by SATI's Solana infrastructure.
  *
- * Manages an in-memory registration file that can be flushed to chain
- * via `registerIPFS()`.
+ * State is managed by an internal SatiAgentBuilder. Agent0-specific extras
+ * (metadata dict, OASF endpoint crawling) are layered on top.
  */
 export class SatiAgent {
-  private _registrationFile: RegistrationFile;
-  private _endpointCrawler: EndpointCrawler;
-  private _identity: AgentIdentity | undefined;
+  private readonly _builder: SatiAgentBuilder;
+  private readonly _endpointCrawler: EndpointCrawler;
+  private readonly _sdk: SatiAgent0;
 
-  private readonly _sdk: SatiSDK;
+  /** Agent0-specific metadata (not stored in builder) */
+  private _metadata: Record<string, unknown>;
 
-  constructor(sdk: SatiSDK, registrationFile: RegistrationFile) {
+  /** Last modification timestamp (agent0-specific) */
+  private _updatedAt: number;
+
+  constructor(sdk: SatiAgent0, builder: SatiAgentBuilder, metadata?: Record<string, unknown>) {
     this._sdk = sdk;
-    this._registrationFile = registrationFile;
+    this._builder = builder;
     this._endpointCrawler = new EndpointCrawler(5000);
+    this._metadata = metadata ?? {};
+    this._updatedAt = Math.floor(Date.now() / 1000);
   }
 
-  /** @internal Access the underlying SatiSDK instance. */
-  get sdk(): SatiSDK {
+  /** @internal Access the underlying SatiAgent0 instance. */
+  get sdk(): SatiAgent0 {
     return this._sdk;
   }
 
   /**
    * Create a new agent in memory (not yet registered on-chain).
-   * @internal Called by SatiSDK.createAgent()
+   * @internal Called by SatiAgent0.createAgent()
    */
-  static create(sdk: SatiSDK, name: string, description: string, image?: URI): SatiAgent {
-    const registrationFile: RegistrationFile = {
-      name,
-      description,
-      image,
-      endpoints: [],
-      trustModels: [TrustModel.REPUTATION],
-      owners: [],
-      operators: [],
-      active: false,
-      x402support: false,
-      metadata: {},
-      updatedAt: Math.floor(Date.now() / 1000),
-    };
-    return new SatiAgent(sdk, registrationFile);
+  static create(sdk: SatiAgent0, name: string, description: string, image?: URI): SatiAgent {
+    const builder = sdk.sati.createAgentBuilder(name, description, image ?? "");
+    builder.setActive(false).setX402Support(false).setSupportedTrust(["reputation"]);
+    return new SatiAgent(sdk, builder);
   }
 
   /**
-   * Reconstruct an agent from on-chain identity and registration file.
-   * @internal Called by SatiSDK.loadAgent()
+   * Reconstruct an agent from on-chain identity and SATI registration file.
+   * @internal Called by SatiAgent0.loadAgent()
    */
-  static fromIdentity(sdk: SatiSDK, identity: AgentIdentity, registrationFile: RegistrationFile): SatiAgent {
-    const agent = new SatiAgent(sdk, registrationFile);
-    agent._identity = identity;
-    agent._registrationFile.agentId = formatSatiAgentId(identity.mint, sdk.chain);
-    agent._registrationFile.agentURI = identity.uri;
-    return agent;
+  static fromIdentity(sdk: SatiAgent0, identity: AgentIdentity, satiRegFile: SatiRegistrationFile): SatiAgent {
+    const builder = sdk.sati.createAgentBuilder(satiRegFile.name, satiRegFile.description, satiRegFile.image);
+
+    // Populate builder from SATI registration file endpoints
+    for (const ep of satiRegFile.endpoints ?? []) {
+      builder.setEndpoint(ep);
+    }
+    if (satiRegFile.active !== undefined) builder.setActive(satiRegFile.active);
+    if (satiRegFile.x402support !== undefined) builder.setX402Support(satiRegFile.x402support);
+    if (satiRegFile.supportedTrust) builder.setSupportedTrust(satiRegFile.supportedTrust);
+    if (satiRegFile.external_url) builder.setExternalUrl(satiRegFile.external_url);
+
+    builder.setIdentity(identity);
+
+    return new SatiAgent(sdk, builder);
   }
 
   // =========================================================================
@@ -93,78 +102,73 @@ export class SatiAgent {
   // =========================================================================
 
   get agentId(): AgentId | undefined {
-    return this._registrationFile.agentId;
+    const identity = this._builder.identity;
+    return identity ? formatSatiAgentId(identity.mint, this._sdk.chain) : undefined;
   }
 
   get agentURI(): URI | undefined {
-    return this._registrationFile.agentURI;
+    return this._builder.identity?.uri;
   }
 
   get name(): string {
-    return this._registrationFile.name;
+    return this._builder.params.name;
   }
 
   get description(): string {
-    return this._registrationFile.description;
+    return this._builder.params.description;
   }
 
   get image(): URI | undefined {
-    return this._registrationFile.image;
+    return this._builder.params.image || undefined;
   }
 
   get mcpEndpoint(): string | undefined {
-    return this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP)?.value;
+    return this._findEndpoint("MCP")?.endpoint;
   }
 
   get a2aEndpoint(): string | undefined {
-    return this._registrationFile.endpoints.find((e) => e.type === EndpointType.A2A)?.value;
+    return this._findEndpoint("A2A")?.endpoint;
   }
 
   get walletAddress(): Address | undefined {
-    return this._registrationFile.walletAddress;
+    return this._findEndpoint("agentWallet")?.endpoint as Address | undefined;
   }
 
   /** SATI-specific: the on-chain agent identity (available after registration). */
   get identity(): AgentIdentity | undefined {
-    return this._identity;
+    return this._builder.identity;
   }
 
   get ensEndpoint(): string | undefined {
-    return this._registrationFile.endpoints.find((e) => e.type === EndpointType.ENS)?.value;
+    return this._findEndpoint("ENS")?.endpoint;
   }
 
   get didEndpoint(): string | undefined {
-    return this._registrationFile.endpoints.find((e) => e.type === EndpointType.DID)?.value;
+    return this._findEndpoint("DID")?.endpoint;
   }
 
   get mcpTools(): string[] {
-    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP);
-    return (ep?.meta?.mcpTools as string[]) ?? [];
+    return this._findEndpoint("MCP")?.mcpTools ?? [];
   }
 
   get mcpPrompts(): string[] {
-    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP);
-    return (ep?.meta?.mcpPrompts as string[]) ?? [];
+    return this._findEndpoint("MCP")?.mcpPrompts ?? [];
   }
 
   get mcpResources(): string[] {
-    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.MCP);
-    return (ep?.meta?.mcpResources as string[]) ?? [];
+    return this._findEndpoint("MCP")?.mcpResources ?? [];
   }
 
   get a2aSkills(): string[] {
-    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.A2A);
-    return (ep?.meta?.a2aSkills as string[]) ?? [];
+    return this._findEndpoint("A2A")?.a2aSkills ?? [];
   }
 
   get oasfSkills(): string[] {
-    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.OASF);
-    return (ep?.meta?.skills as string[]) ?? [];
+    return this._findEndpoint("OASF")?.skills ?? [];
   }
 
   get oasfDomains(): string[] {
-    const ep = this._registrationFile.endpoints.find((e) => e.type === EndpointType.OASF);
-    return (ep?.meta?.domains as string[]) ?? [];
+    return this._findEndpoint("OASF")?.domains ?? [];
   }
 
   // =========================================================================
@@ -175,28 +179,21 @@ export class SatiAgent {
    * Set MCP endpoint. Auto-fetches capabilities by default.
    */
   async setMCP(endpoint: string, version = "2025-06-18", autoFetch = true): Promise<this> {
-    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.MCP);
-
-    const meta: Record<string, unknown> = { version };
+    const meta: { tools?: string[]; prompts?: string[]; resources?: string[] } = {};
     if (autoFetch) {
       try {
         const capabilities = await this._endpointCrawler.fetchMcpCapabilities(endpoint);
         if (capabilities) {
-          if (capabilities.mcpTools) meta.mcpTools = capabilities.mcpTools;
-          if (capabilities.mcpPrompts) meta.mcpPrompts = capabilities.mcpPrompts;
-          if (capabilities.mcpResources) meta.mcpResources = capabilities.mcpResources;
+          if (capabilities.mcpTools) meta.tools = capabilities.mcpTools;
+          if (capabilities.mcpPrompts) meta.prompts = capabilities.mcpPrompts;
+          if (capabilities.mcpResources) meta.resources = capabilities.mcpResources;
         }
       } catch {
         // Soft fail - continue without capabilities
       }
     }
-
-    this._registrationFile.endpoints.push({
-      type: EndpointType.MCP,
-      value: endpoint,
-      meta,
-    });
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setMCP(endpoint, version, meta);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -204,26 +201,19 @@ export class SatiAgent {
    * Set A2A endpoint. Auto-fetches capabilities by default.
    */
   async setA2A(agentcard: string, version = "0.30", autoFetch = true): Promise<this> {
-    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.A2A);
-
-    const meta: Record<string, unknown> = { version };
+    const meta: { skills?: string[] } = {};
     if (autoFetch) {
       try {
         const capabilities = await this._endpointCrawler.fetchA2aCapabilities(agentcard);
         if (capabilities?.a2aSkills) {
-          meta.a2aSkills = capabilities.a2aSkills;
+          meta.skills = capabilities.a2aSkills;
         }
       } catch {
         // Soft fail - continue without capabilities
       }
     }
-
-    this._registrationFile.endpoints.push({
-      type: EndpointType.A2A,
-      value: agentcard,
-      meta,
-    });
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setA2A(agentcard, version, meta);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -231,13 +221,8 @@ export class SatiAgent {
    * Set ENS endpoint.
    */
   setENS(name: string, version = "1.0"): this {
-    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.ENS);
-    this._registrationFile.endpoints.push({
-      type: EndpointType.ENS,
-      value: name,
-      meta: { version },
-    });
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setEndpoint({ name: "ENS", endpoint: name, version });
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -245,16 +230,23 @@ export class SatiAgent {
    * Remove endpoint(s).
    */
   removeEndpoint(opts?: { type?: EndpointType; value?: string }): this {
+    const endpoints = this._builder.params.endpoints ?? [];
     if (!opts || (opts.type === undefined && opts.value === undefined)) {
-      this._registrationFile.endpoints = [];
+      // Remove all
+      for (const ep of [...endpoints]) {
+        this._builder.removeEndpoint(ep.name);
+      }
     } else {
-      this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => {
-        const typeMatches = opts.type === undefined || ep.type === opts.type;
-        const valueMatches = opts.value === undefined || ep.value === opts.value;
-        return !(typeMatches && valueMatches);
-      });
+      for (const ep of [...endpoints]) {
+        const satiName = opts.type !== undefined ? (AGENT0_TO_SATI_NAME[opts.type] ?? opts.type) : undefined;
+        const typeMatches = satiName === undefined || ep.name === satiName;
+        const valueMatches = opts.value === undefined || ep.endpoint === opts.value;
+        if (typeMatches && valueMatches) {
+          this._builder.removeEndpoint(ep.name);
+        }
+      }
     }
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -273,7 +265,7 @@ export class SatiAgent {
    * Get wallet address from the registration file.
    */
   getWallet(): Address | undefined {
-    return this._registrationFile.walletAddress;
+    return this._findEndpoint("agentWallet")?.endpoint as Address | undefined;
   }
 
   /**
@@ -281,13 +273,8 @@ export class SatiAgent {
    * In-memory only - call registerIPFS() or registerHTTP() to persist on-chain.
    */
   setWallet(addr: Address): this {
-    this._registrationFile.walletAddress = addr;
-    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.WALLET);
-    this._registrationFile.endpoints.push({
-      type: EndpointType.WALLET,
-      value: addr,
-    });
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setWallet(addr);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -295,9 +282,8 @@ export class SatiAgent {
    * Remove wallet address and wallet endpoint.
    */
   unsetWallet(): this {
-    this._registrationFile.walletAddress = undefined;
-    this._registrationFile.endpoints = this._registrationFile.endpoints.filter((ep) => ep.type !== EndpointType.WALLET);
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.removeEndpoint("agentWallet");
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -306,47 +292,63 @@ export class SatiAgent {
   // =========================================================================
 
   addSkill(slug: string): this {
-    const oasfEp = this._getOrCreateOasfEndpoint();
-    if (!oasfEp.meta) oasfEp.meta = {};
-    if (!Array.isArray(oasfEp.meta.skills)) oasfEp.meta.skills = [];
-    const skills = oasfEp.meta.skills as string[];
+    const oasfEp = this._findEndpoint("OASF");
+    const skills = [...(oasfEp?.skills ?? [])];
     if (!skills.includes(slug)) skills.push(slug);
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setEndpoint({
+      name: "OASF",
+      endpoint: oasfEp?.endpoint ?? "https://github.com/agntcy/oasf/",
+      version: oasfEp?.version ?? "v0.8.0",
+      skills,
+      domains: oasfEp?.domains,
+    });
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
   removeSkill(slug: string): this {
-    const oasfEp = this._registrationFile.endpoints.find((ep) => ep.type === EndpointType.OASF);
-    if (oasfEp?.meta) {
-      const skills = oasfEp.meta.skills;
-      if (Array.isArray(skills)) {
-        const idx = skills.indexOf(slug);
-        if (idx !== -1) skills.splice(idx, 1);
-      }
-      this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    const oasfEp = this._findEndpoint("OASF");
+    if (oasfEp?.skills) {
+      const skills = oasfEp.skills.filter((s) => s !== slug);
+      this._builder.setEndpoint({
+        name: "OASF",
+        endpoint: oasfEp.endpoint,
+        version: oasfEp.version,
+        skills,
+        domains: oasfEp.domains,
+      });
+      this._updatedAt = Math.floor(Date.now() / 1000);
     }
     return this;
   }
 
   addDomain(slug: string): this {
-    const oasfEp = this._getOrCreateOasfEndpoint();
-    if (!oasfEp.meta) oasfEp.meta = {};
-    if (!Array.isArray(oasfEp.meta.domains)) oasfEp.meta.domains = [];
-    const domains = oasfEp.meta.domains as string[];
+    const oasfEp = this._findEndpoint("OASF");
+    const domains = [...(oasfEp?.domains ?? [])];
     if (!domains.includes(slug)) domains.push(slug);
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setEndpoint({
+      name: "OASF",
+      endpoint: oasfEp?.endpoint ?? "https://github.com/agntcy/oasf/",
+      version: oasfEp?.version ?? "v0.8.0",
+      skills: oasfEp?.skills,
+      domains,
+    });
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
   removeDomain(slug: string): this {
-    const oasfEp = this._registrationFile.endpoints.find((ep) => ep.type === EndpointType.OASF);
-    if (oasfEp?.meta) {
-      const domains = oasfEp.meta.domains;
-      if (Array.isArray(domains)) {
-        const idx = domains.indexOf(slug);
-        if (idx !== -1) domains.splice(idx, 1);
-      }
-      this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    const oasfEp = this._findEndpoint("OASF");
+    if (oasfEp?.domains) {
+      const domains = oasfEp.domains.filter((d) => d !== slug);
+      this._builder.setEndpoint({
+        name: "OASF",
+        endpoint: oasfEp.endpoint,
+        version: oasfEp.version,
+        skills: oasfEp.skills,
+        domains,
+      });
+      this._updatedAt = Math.floor(Date.now() / 1000);
     }
     return this;
   }
@@ -356,24 +358,24 @@ export class SatiAgent {
   // =========================================================================
 
   setActive(active: boolean): this {
-    this._registrationFile.active = active;
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setActive(active);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
   setX402Support(x402Support: boolean): this {
-    this._registrationFile.x402support = x402Support;
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.setX402Support(x402Support);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
   setTrust(reputation = false, cryptoEconomic = false, teeAttestation = false): this {
-    const trustModels: (TrustModel | string)[] = [];
-    if (reputation) trustModels.push(TrustModel.REPUTATION);
-    if (cryptoEconomic) trustModels.push(TrustModel.CRYPTO_ECONOMIC);
-    if (teeAttestation) trustModels.push(TrustModel.TEE_ATTESTATION);
-    this._registrationFile.trustModels = trustModels;
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    const trusts: ("reputation" | "crypto-economic" | "tee-attestation")[] = [];
+    if (reputation) trusts.push("reputation");
+    if (cryptoEconomic) trusts.push("crypto-economic");
+    if (teeAttestation) trusts.push("tee-attestation");
+    this._builder.setSupportedTrust(trusts);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
@@ -382,19 +384,19 @@ export class SatiAgent {
   // =========================================================================
 
   setMetadata(kv: Record<string, unknown>): this {
-    Object.assign(this._registrationFile.metadata, kv);
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    Object.assign(this._metadata, kv);
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
   getMetadata(): Record<string, unknown> {
-    return { ...this._registrationFile.metadata };
+    return { ...this._metadata };
   }
 
   delMetadata(key: string): this {
-    if (key in this._registrationFile.metadata) {
-      delete this._registrationFile.metadata[key];
-      this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    if (key in this._metadata) {
+      delete this._metadata[key];
+      this._updatedAt = Math.floor(Date.now() / 1000);
     }
     return this;
   }
@@ -403,18 +405,22 @@ export class SatiAgent {
    * Update basic agent information.
    */
   updateInfo(name?: string, description?: string, image?: URI): this {
-    if (name !== undefined) this._registrationFile.name = name;
-    if (description !== undefined) this._registrationFile.description = description;
-    if (image !== undefined) this._registrationFile.image = image;
-    this._registrationFile.updatedAt = Math.floor(Date.now() / 1000);
+    this._builder.updateInfo({
+      ...(name !== undefined && { name }),
+      ...(description !== undefined && { description }),
+      ...(image !== undefined && { image }),
+    });
+    this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
 
   /**
-   * Get the current in-memory registration file.
+   * Get the current in-memory registration file (agent0 format).
+   *
+   * Constructed on-demand from the internal builder state.
    */
   getRegistrationFile(): RegistrationFile {
-    return this._registrationFile;
+    return this._toAgent0RegFile();
   }
 
   // =========================================================================
@@ -424,66 +430,84 @@ export class SatiAgent {
   /**
    * Register agent on-chain with IPFS.
    *
-   * Converts the in-memory agent0 registration file to SATI format,
-   * uploads to IPFS via Pinata, then mints the agent NFT on Solana.
+   * Converts the in-memory registration to SATI format,
+   * uploads to IPFS, then mints the agent NFT on Solana.
    *
-   * @throws SatiError if image URL is not set or pinataJwt is not configured
+   * @throws SatiError if image URL is not set
    * @throws ReadOnlyError if SDK is in read-only mode
    */
   async registerIPFS(): Promise<SolanaTransactionHandle<RegistrationFile>> {
-    if (this._identity) {
+    if (this._builder.identity) {
       throw new SatiError("ALREADY_REGISTERED", "Agent is already registered on-chain. Use updateIPFS() instead.");
     }
-    if (!this._registrationFile.image) {
+    if (!this._builder.params.image) {
       throw new SatiError(
         "IMAGE_REQUIRED",
         "Image URL is required for registration. Set it via updateInfo() or createAgent().",
       );
     }
 
-    // Convert agent0 registration file to SATI format and upload to IPFS
-    const satiParams = fromAgent0RegistrationFile(this._registrationFile);
+    const access = this._requireWriteAccess("registerAgent");
     const pinataJwt = this._sdk.config.pinataJwt;
     const uploader = pinataJwt ? createPinataUploader(pinataJwt) : createSatiUploader();
-    const uri = await this._sdk.sati.uploadRegistrationFile(satiParams, uploader);
 
-    return this._registerOnChain(uri);
+    if (access.type === "keypair") {
+      const result = await this._builder.register({ payer: access.signer, uploader });
+      this._updatedAt = Math.floor(Date.now() / 1000);
+      return new SolanaTransactionHandle(result.signature, this._toAgent0RegFile());
+    }
+
+    // Sender path: upload manually, then build instructions
+    const uri = await this._sdk.sati.uploadRegistrationFile(this._builder.params, uploader);
+    return this._registerOnChainSender(access, uri);
   }
 
   /**
    * Register agent on-chain with an HTTP URI.
    *
    * Same as registerIPFS but takes a URI directly instead of uploading to IPFS.
-   * Use this when you already have a hosted registration file.
    *
    * @throws ReadOnlyError if SDK is in read-only mode
    */
   async registerHTTP(agentUri: URI): Promise<SolanaTransactionHandle<RegistrationFile>> {
-    if (this._identity) {
+    if (this._builder.identity) {
       throw new SatiError("ALREADY_REGISTERED", "Agent is already registered on-chain. Use updateHTTP() instead.");
     }
-    return this._registerOnChain(agentUri);
+
+    const access = this._requireWriteAccess("registerAgent");
+
+    if (access.type === "keypair") {
+      const result = await this._builder.registerWithUri({ payer: access.signer, uri: agentUri });
+      this._updatedAt = Math.floor(Date.now() / 1000);
+      return new SolanaTransactionHandle(result.signature, this._toAgent0RegFile());
+    }
+
+    return this._registerOnChainSender(access, agentUri);
   }
 
   /**
    * Re-upload the current in-memory registration file to IPFS and update the on-chain URI.
    *
-   * Use after modifying the agent via fluent builders (setMCP, addSkill, setMetadata, etc.)
-   * to persist changes on-chain.
-   *
    * @throws AgentNotFoundError if agent is not registered on-chain
-   * @throws SatiError if pinataJwt is not configured
    * @throws ReadOnlyError if SDK is in read-only mode
    */
   async updateIPFS(): Promise<SolanaTransactionHandle<RegistrationFile>> {
-    if (!this._identity) {
+    if (!this._builder.identity) {
       throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() first.");
     }
 
-    const satiParams = fromAgent0RegistrationFile(this._registrationFile);
+    const access = this._requireWriteAccess("updateIPFS");
     const pinataJwt = this._sdk.config.pinataJwt;
     const uploader = pinataJwt ? createPinataUploader(pinataJwt) : createSatiUploader();
-    const newUri = await this._sdk.sati.uploadRegistrationFile(satiParams, uploader);
+
+    if (access.type === "keypair") {
+      const result = await this._builder.update({ payer: access.signer, owner: access.signer, uploader });
+      this._updatedAt = Math.floor(Date.now() / 1000);
+      return new SolanaTransactionHandle(result.signature, this._toAgent0RegFile());
+    }
+
+    // Sender path: upload manually, then update URI
+    const newUri = await this._sdk.sati.uploadRegistrationFile(this._builder.params, uploader);
     return this.setAgentURI(newUri);
   }
 
@@ -494,7 +518,7 @@ export class SatiAgent {
    * @throws ReadOnlyError if SDK is in read-only mode
    */
   async updateHTTP(agentUri: URI): Promise<SolanaTransactionHandle<RegistrationFile>> {
-    if (!this._identity) {
+    if (!this._builder.identity) {
       throw new AgentNotFoundError("Agent not registered on-chain. Call registerHTTP() first.");
     }
     return this.setAgentURI(agentUri);
@@ -507,36 +531,32 @@ export class SatiAgent {
    * @throws ReadOnlyError if SDK is in read-only mode
    */
   async setAgentURI(agentURI: URI): Promise<SolanaTransactionHandle<RegistrationFile>> {
-    if (!this._identity) {
+    const identity = this._builder.identity;
+    if (!identity) {
       throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() or registerHTTP() first.");
     }
 
     const access = this._requireWriteAccess("setAgentURI");
 
     if (access.type === "keypair") {
-      const result = await this._sdk.sati.updateAgentMetadata({
-        payer: access.signer,
-        owner: access.signer,
-        mint: solAddress(this._identity.mint),
-        updates: { uri: agentURI },
-      });
-      this._identity.uri = agentURI;
-      this._registrationFile.agentURI = agentURI;
-      return new SolanaTransactionHandle(result.signature, this._registrationFile);
+      const result = await this._builder.updateUri({ payer: access.signer, owner: access.signer, uri: agentURI });
+      this._updatedAt = Math.floor(Date.now() / 1000);
+      return new SolanaTransactionHandle(result.signature, this._toAgent0RegFile());
     }
 
     // Sender path: build instruction and send via wallet
     const updateIx = getUpdateTokenMetadataFieldInstruction({
-      metadata: this._identity.mint,
+      metadata: identity.mint,
       updateAuthority: { address: solAddress(access.sender.address) } as TransactionSigner,
       field: tokenMetadataField("Uri"),
       value: agentURI,
     });
 
     const signature = await access.sender.signAndSend([updateIx]);
-    this._identity.uri = agentURI;
-    this._registrationFile.agentURI = agentURI;
-    return new SolanaTransactionHandle(signature, this._registrationFile);
+    // Manually update builder identity URI
+    this._builder.setIdentity({ ...identity, uri: agentURI });
+    this._updatedAt = Math.floor(Date.now() / 1000);
+    return new SolanaTransactionHandle(signature, this._toAgent0RegFile());
   }
 
   /**
@@ -548,7 +568,8 @@ export class SatiAgent {
   async transfer(
     newOwner: Address,
   ): Promise<SolanaTransactionHandle<{ txHash: string; from: string; to: string; agentId: AgentId | undefined }>> {
-    if (!this._identity) {
+    const identity = this._builder.identity;
+    if (!identity) {
       throw new AgentNotFoundError("Agent not registered on-chain. Call registerIPFS() or registerHTTP() first.");
     }
 
@@ -558,7 +579,7 @@ export class SatiAgent {
       const result = await this._sdk.sati.transferAgent({
         payer: access.signer,
         owner: access.signer,
-        mint: this._identity.mint,
+        mint: identity.mint,
         newOwner: solAddress(newOwner),
       });
       return new SolanaTransactionHandle(result.signature, {
@@ -571,13 +592,13 @@ export class SatiAgent {
 
     // Sender path: build ATA creation + transfer instructions
     const ownerAddr = solAddress(access.sender.address);
-    const [sourceAta] = await findAssociatedTokenAddress(this._identity.mint, ownerAddr);
-    const [destAta] = await findAssociatedTokenAddress(this._identity.mint, solAddress(newOwner));
+    const [sourceAta] = await findAssociatedTokenAddress(identity.mint, ownerAddr);
+    const [destAta] = await findAssociatedTokenAddress(identity.mint, solAddress(newOwner));
 
     const createAtaIx = getCreateAssociatedTokenIdempotentInstruction({
       payer: { address: ownerAddr } as TransactionSigner,
       owner: solAddress(newOwner),
-      mint: this._identity.mint,
+      mint: identity.mint,
       ata: destAta,
       tokenProgram: TOKEN_2022_PROGRAM_ADDRESS,
     });
@@ -608,25 +629,51 @@ export class SatiAgent {
     throw new ReadOnlyError(operation);
   }
 
+  /** Find a SATI endpoint by name in the builder's params. */
+  private _findEndpoint(name: string): SatiEndpoint | undefined {
+    return this._builder.params.endpoints?.find((ep) => ep.name === name);
+  }
+
+  /** Construct agent0 RegistrationFile on-demand from builder state. */
+  private _toAgent0RegFile(): RegistrationFile {
+    const params = this._builder.params;
+    const identity = this._builder.identity;
+    const endpoints = toAgent0Endpoints(params.endpoints ?? []);
+    const trustModels: (TrustModel | string)[] = (params.supportedTrust ?? []).map((t) => {
+      if (t === "reputation") return TrustModel.REPUTATION;
+      if (t === "crypto-economic") return TrustModel.CRYPTO_ECONOMIC;
+      if (t === "tee-attestation") return TrustModel.TEE_ATTESTATION;
+      return t;
+    });
+
+    const walletEp = params.endpoints?.find((ep) => ep.name === "agentWallet");
+
+    return {
+      agentId: identity ? formatSatiAgentId(identity.mint, this._sdk.chain) : undefined,
+      agentURI: identity?.uri,
+      name: params.name,
+      description: params.description,
+      image: params.image || undefined,
+      endpoints,
+      trustModels,
+      walletAddress: walletEp?.endpoint as Address | undefined,
+      owners: identity ? [identity.owner] : [],
+      operators: [],
+      active: params.active ?? true,
+      x402support: params.x402support ?? false,
+      metadata: { ...this._metadata },
+      updatedAt: this._updatedAt,
+    };
+  }
+
   /**
-   * Shared registration logic for registerIPFS/registerHTTP.
-   * Supports both keypair and sender paths.
+   * Sender-path registration: build instructions manually and send via wallet.
+   * Retries on PDA collision from concurrent registrations.
    */
-  private async _registerOnChain(uri: string): Promise<SolanaTransactionHandle<RegistrationFile>> {
-    const access = this._requireWriteAccess("registerAgent");
-
-    if (access.type === "keypair") {
-      const result = await this._sdk.sati.registerAgent({
-        payer: access.signer,
-        name: this._registrationFile.name,
-        uri,
-      });
-      this._storeIdentity(result.mint, access.signer.address, uri, result.memberNumber);
-      return new SolanaTransactionHandle(result.signature, this._registrationFile);
-    }
-
-    // Sender path: build register instruction manually.
-    // Retry on collision - concurrent registrations can race on memberNumber PDA.
+  private async _registerOnChainSender(
+    access: Extract<WriteAccess, { type: "sender" }>,
+    uri: string,
+  ): Promise<SolanaTransactionHandle<RegistrationFile>> {
     const agentMint = await generateKeyPairSigner();
     const rpc = this._sdk.sati.getRpc();
     const [registryConfigAddress] = await findRegistryConfigPda();
@@ -651,7 +698,7 @@ export class SatiAgent {
           agentMint,
           agentTokenAccount,
           agentIndex,
-          name: this._registrationFile.name,
+          name: this._builder.params.name,
           symbol: "",
           uri,
           additionalMetadata: null,
@@ -659,8 +706,17 @@ export class SatiAgent {
         });
 
         const signature = await access.sender.signAndSend([registerIx], [agentMint]);
-        this._storeIdentity(agentMint.address, ownerAddress, uri, memberNumber);
-        return new SolanaTransactionHandle(signature, this._registrationFile);
+        this._builder.setIdentity({
+          mint: agentMint.address,
+          owner: ownerAddress,
+          name: this._builder.params.name,
+          uri,
+          memberNumber,
+          additionalMetadata: {},
+          nonTransferable: false,
+        });
+        this._updatedAt = Math.floor(Date.now() / 1000);
+        return new SolanaTransactionHandle(signature, this._toAgent0RegFile());
       } catch (error) {
         lastError = error;
         if (!isRegistrationCollisionError(error)) throw error;
@@ -673,38 +729,6 @@ export class SatiAgent {
     throw new SatiError("REGISTRATION_FAILED", `Registration failed after ${MAX_RETRIES} attempts`, {
       cause: lastError,
     });
-  }
-
-  private _storeIdentity(
-    mint: import("@solana/kit").Address,
-    owner: import("@solana/kit").Address,
-    uri: string,
-    memberNumber: bigint,
-  ): void {
-    this._identity = {
-      mint,
-      owner,
-      name: this._registrationFile.name,
-      uri,
-      memberNumber,
-      additionalMetadata: {},
-      nonTransferable: false,
-    };
-    this._registrationFile.agentId = formatSatiAgentId(mint, this._sdk.chain);
-    this._registrationFile.agentURI = uri;
-  }
-
-  private _getOrCreateOasfEndpoint(): Endpoint {
-    const existing = this._registrationFile.endpoints.find((ep) => ep.type === EndpointType.OASF);
-    if (existing) return existing;
-
-    const oasfEndpoint: Endpoint = {
-      type: EndpointType.OASF,
-      value: "https://github.com/agntcy/oasf/",
-      meta: { version: "v0.8.0", skills: [], domains: [] },
-    };
-    this._registrationFile.endpoints.push(oasfEndpoint);
-    return oasfEndpoint;
   }
 }
 

@@ -11,12 +11,12 @@
  * `metadataValue`, `operators`.
  */
 
-import { RPC_URL, NETWORK } from "./_env.js";
-import { SatiSDK } from "@cascade-fyi/sati-agent0-sdk";
+import { RPC_URL, NETWORK } from "../shared/_env.js";
+import { SatiAgent0 } from "@cascade-fyi/sati-agent0-sdk";
 
 async function main() {
   // Initialize SDK in read-only mode (no signer needed for search)
-  const sdk = new SatiSDK({
+  const sdk = new SatiAgent0({
     network: NETWORK,
     rpcUrl: RPC_URL,
   });

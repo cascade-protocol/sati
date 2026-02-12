@@ -1,13 +1,6 @@
-# Cascade Tabs
+# SATI Dashboard
 
-Non-custodial smart account management for API-based USDC spending.
-
-## Features
-
-- Create Squads smart accounts with 1-of-1 threshold
-- Deposit/withdraw USDC to/from vault
-- Configure spending limits for API key access
-- Generate API keys for third-party facilitators
+SATI Identity Service dashboard and API. Serves the web application and provides backend endpoints for agent registration, discovery, feedback, reputation, and hosted SDK infrastructure.
 
 ## Setup
 
@@ -22,8 +15,9 @@ Non-custodial smart account management for API-based USDC spending.
    ```
 
 3. Set required variables in `.env`:
-   - `VITE_MAINNET_RPC` - Solana RPC endpoint
-   - `VITE_MAINNET_WS` - Solana WebSocket endpoint
+   - `VITE_HELIUS_API_KEY` - Helius RPC API key (powers all on-chain operations)
+   - `SATI_AGENT_SIGNER_KEY` - Server signing key (base58-encoded keypair)
+   - `PINATA_JWT` - Pinata JWT for IPFS metadata uploads
 
 4. Start development server:
    ```bash
@@ -37,42 +31,53 @@ Build and deploy to Cloudflare Workers:
 pnpm build && pnpm deploy
 ```
 
-### Worker Configuration
-
 Set secrets via Wrangler:
 ```bash
-wrangler secret put HELIUS_RPC_URL
-wrangler secret put EXECUTOR_KEY
+wrangler secret put VITE_HELIUS_API_KEY
+wrangler secret put SATI_AGENT_SIGNER_KEY
+wrangler secret put PINATA_JWT
 ```
 
-Monitor deployed worker:
-```bash
-npx wrangler tail
-```
+## API Endpoints
 
-## Worker API Endpoints
+### Identity Service
 
-- `GET /api/health` - Health check
-- `POST /api/verify` - Verify spending limit for payment
-- `POST /api/settle` - Execute payment from spending limit
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/register` | Register agent identity (x402 paywalled, $0.30 USDC) |
+| `GET` | `/api/agents` | List/search agents |
+| `GET` | `/api/agents/:mint` | Get agent details with reputation |
+| `GET` | `/api/reputation/:mint` | Get reputation summary |
+| `GET` | `/api/feedback/:mint` | List feedback for an agent |
+| `POST` | `/api/feedback` | Submit feedback (server-signed) |
+
+### Demo Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/echo` | Agent blind signature (x402 paywalled) |
+| `POST` | `/api/predict` | AI prediction with validation attestation (x402 paywalled) |
+| `POST` | `/api/build-feedback-tx` | Build feedback transaction for browser wallet signing |
+| `POST` | `/api/credit-score` | Compute and publish on-chain credit score |
+
+### SDK Infrastructure
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/photon/:network` | Photon RPC proxy for compressed account queries |
+| `POST` | `/api/upload-metadata` | Upload metadata JSON to IPFS (rate limited: 10/min per IP, 100KB max) |
+| `GET` | `/api/health` | Health check |
+
+The Photon proxy and metadata upload endpoints power the SDK's zero-config experience. The SDK defaults to these hosted endpoints so developers don't need API keys to get started.
 
 ## Architecture
 
-- **React 19** + Vite + React Compiler
+- **React 19** + Vite + React Compiler (frontend)
+- **Hono** on Cloudflare Workers (backend)
 - **TanStack Query** for server state
 - **Tailwind v4** + shadcn/ui
-- **@solana/react-hooks** (framework-kit v1)
-- **@cascade-fyi/tabs-sdk** for Squads integration
-
-## How It Works
-
-1. **Create Account** - User creates a Squads smart account with themselves as owner
-2. **Deposit** - Transfer USDC from wallet to the smart account vault
-3. **Set Spending Limit** - Configure how much the facilitator can spend per day/transaction
-4. **Get API Key** - Generated key encodes the smart account and spending limit addresses
-5. **Use API Key** - Third-party services use the key to execute payments within limits
-6. **Withdraw** - Owner can withdraw funds at any time
+- **x402** payment middleware for paywalled endpoints
 
 ## License
 
-MIT
+Apache-2.0

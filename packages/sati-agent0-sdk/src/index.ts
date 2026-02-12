@@ -10,7 +10,7 @@
  */
 
 // SATI adapter classes
-export { SatiSDK } from "./sdk.js";
+export { SatiAgent0 } from "./sdk.js";
 export { SatiAgent } from "./agent.js";
 
 // Transaction handle (agent0-sdk TransactionHandle pattern for Solana)
@@ -30,7 +30,7 @@ export {
 
 // SATI-specific config and types
 export type {
-  SatiSDKConfig,
+  SatiAgent0Config,
   SatiSearchOptions,
   SatiFeedbackSearchOptions,
   SatiTransactionSender,

@@ -183,6 +183,25 @@ export {
   type UpdateReputationScoreParams,
 } from "./client";
 
+// Feedback cache (TTL-based query result cache)
+export { FeedbackCache } from "./cache";
+
+// Agent builder (fluent registration helper)
+export { SatiAgentBuilder } from "./agent-builder";
+
+// Convenience types (simplified API on Sati class)
+export type {
+  GiveFeedbackParams,
+  GiveFeedbackResult,
+  PreparedFeedbackData,
+  FeedbackSearchOptions,
+  ParsedFeedback,
+  ReputationSummary,
+  AgentSearchOptions,
+  AgentSearchResult,
+  ParsedValidation,
+} from "./convenience";
+
 // Registration file helpers (ERC-8004 + Phantom compatible)
 export {
   // Functions

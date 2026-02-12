@@ -17,11 +17,21 @@ describe("createPinataUploader", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("should upload JSON and return ipfs:// URI", async () => {
+  test("should upload via v3 API and return ipfs:// URI", async () => {
     const mockCid = "QmTestHash123abc";
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ IpfsHash: mockCid, PinSize: 42, Timestamp: "2026-02-10T00:00:00Z" }),
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      // Upload call -> v3 response
+      if (url === "https://uploads.pinata.cloud/v3/files") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ data: { id: "file-id", name: "registration.json", cid: mockCid, created_at: "" } }),
+        });
+      }
+      // Gateway verification call -> 200 OK
+      if (url.includes("gateway.pinata.cloud")) {
+        return Promise.resolve({ ok: true });
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
     });
 
     const uploader = createPinataUploader("test-jwt-token");
@@ -29,17 +39,15 @@ describe("createPinataUploader", () => {
 
     expect(uri).toBe(`ipfs://${mockCid}`);
 
-    // Verify fetch was called with correct args
-    expect(globalThis.fetch).toHaveBeenCalledOnce();
-    const [url, opts] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe("https://api.pinata.cloud/pinning/pinJSONToIPFS");
-    expect(opts.method).toBe("POST");
-    expect(opts.headers.Authorization).toBe("Bearer test-jwt-token");
-    expect(opts.headers["Content-Type"]).toBe("application/json");
+    // Verify upload fetch was called with correct args
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const [uploadUrl, uploadOpts] = calls[0];
+    expect(uploadUrl).toBe("https://uploads.pinata.cloud/v3/files");
+    expect(uploadOpts.method).toBe("POST");
+    expect(uploadOpts.headers.Authorization).toBe("Bearer test-jwt-token");
 
-    // Verify the body wraps data in pinataContent
-    const body = JSON.parse(opts.body);
-    expect(body.pinataContent).toEqual({ name: "TestAgent", description: "A test" });
+    // Body is FormData (v3 API uses multipart upload)
+    expect(uploadOpts.body).toBeInstanceOf(FormData);
   });
 
   test("should throw on non-ok response", async () => {
@@ -58,5 +66,15 @@ describe("createPinataUploader", () => {
 
     const uploader = createPinataUploader("test-jwt");
     await expect(uploader.upload({ name: "test" })).rejects.toThrow("Network error");
+  });
+
+  test("should throw when no CID in response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: {} }),
+    });
+
+    const uploader = createPinataUploader("test-jwt");
+    await expect(uploader.upload({ name: "test" })).rejects.toThrow("No CID returned from Pinata");
   });
 });
