@@ -48,9 +48,6 @@ export function Header() {
               <NavLink to="/predict" className={({ isActive }) => getNavLinkClasses(isActive)}>
                 Predict
               </NavLink>
-              <NavLink to="/credit" className={({ isActive }) => getNavLinkClasses(isActive)}>
-                Credit
-              </NavLink>
               <NavLink to="/profile" className={({ isActive }) => getNavLinkClasses(isActive)}>
                 My Profile
               </NavLink>
@@ -61,6 +58,14 @@ export function Header() {
                 className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
                 Docs
+              </a>
+              <a
+                href="/skill.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                skill.md
               </a>
             </nav>
           </div>
@@ -107,9 +112,6 @@ export function Header() {
                     <NavLink to="/predict" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       Predict
                     </NavLink>
-                    <NavLink to="/credit" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
-                      Credit
-                    </NavLink>
                     <NavLink to="/profile" className={({ isActive }) => getMobileNavLinkClasses(isActive)}>
                       My Profile
                     </NavLink>
@@ -120,6 +122,14 @@ export function Header() {
                       className="block rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:text-foreground"
                     >
                       Docs
+                    </a>
+                    <a
+                      href="/skill.md"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      skill.md
                     </a>
                   </nav>
                   <Separator />

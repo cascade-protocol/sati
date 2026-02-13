@@ -1,9 +1,7 @@
 ---
 name: sati-identity
-version: 0.2.0
 description: On-chain identity, reputation, and discovery for AI agents on Solana. ERC-8004 compatible.
-homepage: https://sati.cascade.fyi
-metadata: {"x402":{"supported":true,"chains":["solana"],"networks":["solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp","solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"]}}
+metadata: {"version":"0.2.0","homepage":"https://sati.cascade.fyi","x402":{"supported":true,"chains":["solana"],"networks":["solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp","solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"]}}
 ---
 
 # SATI Identity

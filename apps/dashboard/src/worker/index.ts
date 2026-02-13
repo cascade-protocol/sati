@@ -80,7 +80,7 @@ interface BuildFeedbackTxRequest {
 // =============================================================================
 
 // Facilitator URLs
-const FACILITATOR_URL_DEVNET = "https://x402.org/facilitator";
+const FACILITATOR_URL_DEVNET = "https://www.x402.org/facilitator";
 const FACILITATOR_URL_MAINNET = "https://x402.dexter.cash";
 // const FACILITATOR_URL_MAINNET = "https://facilitator.payai.network";
 // const FACILITATOR_URL_MAINNET = "https://pay.x402.jobs";
