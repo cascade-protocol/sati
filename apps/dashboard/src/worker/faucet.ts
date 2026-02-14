@@ -24,8 +24,8 @@ type SignedBlockhashTransaction = Awaited<ReturnType<typeof signTransactionMessa
 
 const FAUCET_AMOUNT_SOL = 0.01;
 const FAUCET_AMOUNT_LAMPORTS = BigInt(FAUCET_AMOUNT_SOL * 1_000_000_000);
-const RATE_LIMIT_SECONDS = 24 * 60 * 60;
-const IP_RATE_LIMIT_SECONDS = 60 * 60;
+const RATE_LIMIT_SECONDS = 5 * 60;
+const IP_RATE_LIMIT_SECONDS = 5 * 60;
 const IP_MAX_REQUESTS = 5;
 
 interface FaucetEnv {
