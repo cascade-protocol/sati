@@ -30,6 +30,7 @@ import { parse } from "../env";
 import { fetchPopularMarket, generatePrediction, passesConfidenceThreshold } from "./predict";
 import { computeCreditScore, computeLendingDecision } from "../react-app/lib/credit-engine";
 import { createIdentityApi } from "./identity-api";
+import { createFaucetApi } from "./faucet";
 
 // =============================================================================
 // Types
@@ -38,6 +39,8 @@ import { createIdentityApi } from "./identity-api";
 interface WorkerBindings extends Record<string, unknown> {
   VITE_HELIUS_API_KEY?: string;
   SATI_AGENT_SIGNER_KEY?: string;
+  FAUCET_DEVNET_KEYPAIR?: string;
+  FAUCET_KV?: KVNamespace;
 }
 
 interface EchoRequest {
@@ -1041,6 +1044,18 @@ function createApp(bindings: WorkerBindings) {
 
   const identityApi = createIdentityApi(env);
   app.route("/", identityApi);
+
+  // Faucet API (devnet only) - requires FAUCET_DEVNET_KEYPAIR + FAUCET_KV bindings
+  const faucetKeypair = bindings.FAUCET_DEVNET_KEYPAIR as string | undefined;
+  const faucetKv = bindings.FAUCET_KV as KVNamespace | undefined;
+  if (faucetKeypair && faucetKv && env.VITE_HELIUS_API_KEY) {
+    const faucetApi = createFaucetApi({
+      faucetKeypair,
+      heliusApiKey: env.VITE_HELIUS_API_KEY,
+      kv: faucetKv,
+    });
+    app.route("/", faucetApi);
+  }
 
   return app;
 }

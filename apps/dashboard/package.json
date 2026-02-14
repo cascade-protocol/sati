@@ -30,6 +30,7 @@
     "@radix-ui/react-switch": "^1.1.7",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@solana-program/system": "^0.10.0",
     "@solana-program/token-2022": "^0.6.1",
     "@solana/client": "^1.1.1",
     "@solana/kit": "^5.1.0",

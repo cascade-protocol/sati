@@ -13,5 +13,11 @@
     "directory": "./dist/client",
     "not_found_handling": "single-page-application"
   },
-  "routes": [{ "pattern": "sati.cascade.fyi", "custom_domain": true }]
+  "routes": [{ "pattern": "sati.cascade.fyi", "custom_domain": true }],
+  "kv_namespaces": [
+    {
+      "binding": "FAUCET_KV",
+      "id": "38d8efd2dea04030ab6db1f530d67474"
+    }
+  ]
 }
