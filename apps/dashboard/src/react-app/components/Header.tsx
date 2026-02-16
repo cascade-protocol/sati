@@ -59,14 +59,6 @@ export function Header() {
               >
                 Docs
               </a>
-              <a
-                href="/skill.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                skill.md
-              </a>
             </nav>
           </div>
 
@@ -122,14 +114,6 @@ export function Header() {
                       className="block rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:text-foreground"
                     >
                       Docs
-                    </a>
-                    <a
-                      href="/skill.md"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block rounded-md px-3 py-2 text-base text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      skill.md
                     </a>
                   </nav>
                   <Separator />
