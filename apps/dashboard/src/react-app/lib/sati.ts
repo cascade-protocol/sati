@@ -7,7 +7,6 @@
 
 import {
   Sati,
-  SATI_PROGRAM_ADDRESS,
   type AgentIdentity,
   type ParsedAttestation,
   type ParsedValidationAttestation,
@@ -134,6 +133,11 @@ export function getFeedbackSchemaType(feedback: ParsedFeedback): FeedbackSchemaT
   return "unknown";
 }
 
+/** Sort attestations by createdAt descending (newest first) */
+function sortByCreatedAtDesc<T extends { createdAt?: number }>(items: T[]): T[] {
+  return items.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+}
+
 /**
  * Parsed feedback from SDK - re-exported for convenience
  */
@@ -159,7 +163,7 @@ export async function listAgentFeedbacks(agentMint: Address): Promise<ParsedFeed
       allFeedbacks.push(...result.items);
     }
 
-    return allFeedbacks;
+    return sortByCreatedAtDesc(allFeedbacks);
   } catch (e) {
     console.error("Failed to list agent feedbacks:", e);
     return [];
@@ -179,7 +183,7 @@ export async function listAgentValidations(agentMint: Address): Promise<ParsedVa
 
   try {
     const result = await sati.listValidations({ sasSchema: validationSchema, agentMint });
-    return result.items;
+    return sortByCreatedAtDesc(result.items);
   } catch (e) {
     console.error("Failed to list agent validations:", e);
     return [];
@@ -207,7 +211,7 @@ export async function listAllFeedbacks(): Promise<ParsedFeedback[]> {
       allFeedbacks.push(...result.items);
     }
 
-    return allFeedbacks;
+    return sortByCreatedAtDesc(allFeedbacks);
   } catch (e) {
     console.error("Failed to list all feedbacks:", e);
     return [];
@@ -218,10 +222,18 @@ export async function listAllFeedbacks(): Promise<ParsedFeedback[]> {
  * List feedbacks submitted by a specific counterparty
  */
 export async function listFeedbacksByCounterparty(counterparty: Address): Promise<ParsedFeedback[]> {
-  // Counterparty is in the schema data, filter client-side
+  const sati = getSatiClient();
+  const { feedback, feedbackPublic } = getFeedbackSchemas();
+  const schemas = [feedback, feedbackPublic].filter(Boolean) as Address[];
+  if (schemas.length === 0) return [];
+
   try {
-    const allFeedbacks = await listAllFeedbacks();
-    return allFeedbacks.filter((f) => f.data.counterparty === counterparty);
+    const all: ParsedFeedback[] = [];
+    for (const sasSchema of schemas) {
+      const result = await sati.listFeedbacks({ sasSchema, counterparty });
+      all.push(...result.items);
+    }
+    return sortByCreatedAtDesc(all);
   } catch (e) {
     console.error("Failed to list feedbacks by counterparty:", e);
     return [];
@@ -295,36 +307,13 @@ export function formatSlotTime(slot: bigint, currentSlot: bigint): string {
  */
 export async function getCurrentSlot(): Promise<bigint> {
   try {
-    const rpcUrl = getCurrentRpcUrl();
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "get-slot",
-        method: "getSlot",
-        params: [{ commitment: "confirmed" }],
-      }),
-    });
-    const data = await response.json();
-    return BigInt(data.result ?? 0);
+    const sati = getSatiClient();
+    const rpc = sati.getRpc();
+    const slot = await rpc.getSlot({ commitment: "confirmed" }).send();
+    return slot;
   } catch {
     return 0n;
   }
-}
-
-/**
- * Get deployed reputation score schema address (always fresh for current network)
- */
-export function getReputationScoreSchema(): Address | undefined {
-  return getSatiClient().deployedConfig?.schemas?.reputationScore as Address | undefined;
-}
-
-/**
- * Get deployed SATI credential address (always fresh for current network)
- */
-export function getSatiCredential(): Address | undefined {
-  return getSatiClient().deployedConfig?.credential as Address | undefined;
 }
 
 /**
@@ -332,7 +321,7 @@ export function getSatiCredential(): Address | undefined {
  */
 export async function listAgentReputationScores(agentMint: Address): Promise<ReputationScoreData[]> {
   const sati = getSatiClient();
-  const reputationSchema = getReputationScoreSchema();
+  const reputationSchema = sati.reputationScoreSchema;
 
   if (!reputationSchema) {
     return [];
@@ -350,120 +339,12 @@ export async function listAgentReputationScores(agentMint: Address): Promise<Rep
 export { getSolscanUrl } from "./network";
 
 /**
- * Helius getTransactionsForAddress response types
- */
-interface HeliusTransaction {
-  transaction: {
-    message: {
-      accountKeys: Array<{ pubkey: string; signer: boolean; writable: boolean } | string>;
-    };
-  };
-}
-
-interface HeliusResponse {
-  result?: {
-    data?: HeliusTransaction[];
-  };
-  error?: { message: string };
-}
-
-/**
  * List all agents registered in the SATI registry.
- *
- * Uses Helius getTransactionsForAddress to discover mints, then SDK's registry.load
- * for proper ownership resolution (owner = current token holder, not registrant).
+ * Uses SDK's AgentIndex-based enumeration for reliable discovery.
  */
 export async function listAllAgents(params?: { offset?: number; limit?: number }): Promise<ListAgentsResult> {
-  const { offset = 0, limit = 20 } = params ?? {};
-
   const sati = getSatiClient();
-  const rpcUrl = getCurrentRpcUrl();
-  const stats = await sati.getRegistryStats();
-  const groupMint = stats.groupMint;
-
-  try {
-    // Step 1: Discover mints via Helius getTransactionsForAddress
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "list-agents",
-        method: "getTransactionsForAddress",
-        params: [
-          SATI_PROGRAM_ADDRESS,
-          {
-            transactionDetails: "full",
-            encoding: "jsonParsed",
-            limit: 100,
-            sortOrder: "desc",
-            filters: { status: "succeeded" },
-          },
-        ],
-      }),
-    });
-
-    const data: HeliusResponse = await response.json();
-
-    if (data.error) {
-      console.warn("Helius getTransactionsForAddress error:", data.error.message);
-      return { agents: [], totalAgents: stats.totalAgents };
-    }
-
-    const transactions = data.result?.data ?? [];
-
-    if (transactions.length === 0) {
-      return { agents: [], totalAgents: stats.totalAgents };
-    }
-
-    // Step 2: Extract agent mints from registerAgent transactions
-    const agentMints: string[] = [];
-
-    for (const tx of transactions) {
-      if (!tx?.transaction?.message) continue;
-
-      const accounts = tx.transaction.message.accountKeys;
-      const pubkeys = accounts.map((acc) => (typeof acc === "object" && "pubkey" in acc ? acc.pubkey : String(acc)));
-
-      // Check if this transaction involves the group mint (indicates registerAgent)
-      if (!pubkeys.includes(groupMint)) continue;
-
-      // Find the agent mint - it's the second signer (first is payer)
-      const signerAccounts = accounts.filter((acc) => typeof acc === "object" && "signer" in acc && acc.signer);
-
-      if (signerAccounts.length >= 2) {
-        const agentMint =
-          typeof signerAccounts[1] === "object" && "pubkey" in signerAccounts[1] ? signerAccounts[1].pubkey : null;
-
-        // Skip if this is the groupMint itself (from initialize transaction)
-        if (agentMint && agentMint !== groupMint && !agentMints.includes(agentMint)) {
-          agentMints.push(agentMint);
-        }
-      }
-    }
-
-    if (agentMints.length === 0) {
-      return { agents: [], totalAgents: stats.totalAgents };
-    }
-
-    // Step 3: Apply pagination
-    const paginatedMints = agentMints.slice(offset, offset + limit);
-
-    // Step 4: Load agents via SDK (handles owner lookup correctly)
-    const agentPromises = paginatedMints.map((mint) => sati.loadAgent(mint as Address));
-    const loadedAgents = await Promise.all(agentPromises);
-
-    // Filter out nulls (failed loads)
-    const agents = loadedAgents.filter((agent): agent is AgentIdentity => agent !== null);
-
-    return {
-      agents,
-      totalAgents: stats.totalAgents,
-    };
-  } catch (error) {
-    console.warn("Failed to fetch agents:", error);
-    return { agents: [], totalAgents: stats.totalAgents };
-  }
+  return sati.listAllAgents(params);
 }
 
 /**

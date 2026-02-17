@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-17
+
+### Breaking Changes
+
+- **`SatiSearchOptions.offset` changed** from `bigint` to `number` (0-based) - matches sati-sdk 0.10.0
+
+### Changed
+
+- Updated `listAllAgents` call to handle new `{ agents, totalAgents }` return type from sati-sdk
+
+### Dependencies
+
+- Requires `@cascade-fyi/sati-sdk` >= 0.10.0
+
 ## [0.6.0] - 2026-02-12
 
 ### Breaking Changes
@@ -150,6 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transaction sender support for browser wallet integration
 - Re-exports of agent0-sdk types and SATI constants for consumer convenience
 
+[0.7.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.6.0...@cascade-fyi/sati-agent0-sdk@0.7.0
 [0.6.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.5.0...@cascade-fyi/sati-agent0-sdk@0.6.0
 [0.5.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.4.0...@cascade-fyi/sati-agent0-sdk@0.5.0
 [0.4.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-agent0-sdk@0.3.1...@cascade-fyi/sati-agent0-sdk@0.4.0

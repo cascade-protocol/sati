@@ -93,8 +93,8 @@ export interface SatiSearchOptions extends SearchOptions {
   includeFeedbackStats?: boolean;
   /** Max results to return. Default: 100. */
   limit?: number;
-  /** Offset (1-based member number) for agent pagination. */
-  offset?: bigint;
+  /** Offset for pagination (0-based). */
+  offset?: number;
 }
 
 /**

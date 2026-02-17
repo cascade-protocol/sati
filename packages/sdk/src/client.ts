@@ -572,6 +572,15 @@ export class Sati {
     return this.rpc;
   }
 
+  /** Fetch current slot for timestamp approximation. Returns undefined on failure. */
+  private async fetchCurrentSlot(): Promise<bigint | undefined> {
+    try {
+      return await this.rpc.getSlot({ commitment: "confirmed" }).send();
+    } catch {
+      return undefined;
+    }
+  }
+
   /** @internal */
   getSendAndConfirm(): ReturnType<typeof sendAndConfirmTransactionFactory> {
     return this.sendAndConfirm;
@@ -1025,40 +1034,59 @@ export class Sati {
    * Member numbers are 1-indexed and sequential.
    *
    * @param options.limit - Maximum agents to return (default: 100)
-   * @param options.offset - Starting member number, 1-indexed (default: 1)
-   * @returns Array of AgentIdentity objects
+   * @param options.offset - 0-based pagination offset (default: 0)
+   * @param options.order - Sort order: "newest" (default) or "oldest"
+   * @returns Object with agents array and totalAgents count
    *
    * @example
    * ```typescript
-   * // Get first 10 agents
-   * const agents = await sati.listAllAgents({ limit: 10 });
+   * // Get 10 newest agents
+   * const { agents, totalAgents } = await sati.listAllAgents({ limit: 10 });
    *
    * // Get next page
-   * const page2 = await sati.listAllAgents({ limit: 10, offset: 11n });
+   * const page2 = await sati.listAllAgents({ limit: 10, offset: 10 });
    * ```
    */
-  async listAllAgents(options?: { limit?: number; offset?: bigint }): Promise<AgentIdentity[]> {
+  async listAllAgents(options?: {
+    limit?: number;
+    offset?: number;
+    order?: "newest" | "oldest";
+  }): Promise<{ agents: AgentIdentity[]; totalAgents: bigint }> {
     const limit = options?.limit ?? 100;
-    const offset = options?.offset ?? 1n;
-
-    if (offset < 1n) {
-      return [];
-    }
+    const offset = options?.offset ?? 0;
+    const order = options?.order ?? "newest";
 
     const stats = await this.getRegistryStats();
-    const totalAgents = stats.totalAgents;
+    const total = stats.totalAgents;
 
-    if (totalAgents === 0n || offset > totalAgents) {
-      return [];
+    if (total === 0n || BigInt(offset) >= total) {
+      return { agents: [], totalAgents: total };
     }
 
-    // Calculate end member number (inclusive)
-    const end = offset + BigInt(limit) - 1n > totalAgents ? totalAgents : offset + BigInt(limit) - 1n;
+    // Member numbers are 1-based. Compute the range based on order.
+    let memberNumbers: bigint[];
+    if (order === "newest") {
+      // Newest first: start from totalAgents and go down
+      const start = total - BigInt(offset);
+      const end = start - BigInt(limit) + 1n < 1n ? 1n : start - BigInt(limit) + 1n;
+      memberNumbers = [];
+      for (let i = start; i >= end; i--) {
+        memberNumbers.push(i);
+      }
+    } else {
+      // Oldest first: start from 1 + offset and go up
+      const start = BigInt(offset) + 1n;
+      const end = start + BigInt(limit) - 1n > total ? total : start + BigInt(limit) - 1n;
+      memberNumbers = [];
+      for (let i = start; i <= end; i++) {
+        memberNumbers.push(i);
+      }
+    }
 
-    // Derive all AgentIndex PDAs for the range
+    // Derive all AgentIndex PDAs
     const pdas: Address[] = [];
-    for (let i = offset; i <= end; i++) {
-      const [pda] = await findAgentIndexPda(i);
+    for (const num of memberNumbers) {
+      const [pda] = await findAgentIndexPda(num);
       pdas.push(pda);
     }
 
@@ -1076,7 +1104,7 @@ export class Sati {
       }
     }
 
-    return agents;
+    return { agents, totalAgents: total };
   }
 
   /**
@@ -2279,7 +2307,8 @@ export class Sati {
    */
   async listFeedbacks(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedFeedbackAttestation>> {
     const light = this.getLightClient();
-    return light.listFeedbacks(filter);
+    const currentSlot = await this.fetchCurrentSlot();
+    return light.listFeedbacks(filter, currentSlot);
   }
 
   /**
@@ -2289,7 +2318,8 @@ export class Sati {
     filter: Partial<AttestationFilter>,
   ): Promise<PaginatedAttestations<ParsedValidationAttestation>> {
     const light = this.getLightClient();
-    return light.listValidations(filter);
+    const currentSlot = await this.fetchCurrentSlot();
+    return light.listValidations(filter, currentSlot);
   }
 
   /**
@@ -2619,6 +2649,16 @@ export class Sati {
   /** Address Lookup Table for transaction compression. */
   get lookupTable(): Address | undefined {
     return this._deployedConfig?.lookupTable;
+  }
+
+  /** ReputationScore schema address. */
+  get reputationScoreSchema(): Address | undefined {
+    return this._deployedConfig?.schemas.reputationScore;
+  }
+
+  /** SATI credential PDA. */
+  get credential(): Address | undefined {
+    return this._deployedConfig?.credential;
   }
 
   // ============================================================
@@ -3057,7 +3097,8 @@ export class Sati {
     if (options?.owner) {
       agents = await this.listAgentsByOwner(options.owner);
     } else {
-      agents = await this.listAllAgents({ limit, offset });
+      const result = await this.listAllAgents({ limit, offset });
+      agents = result.agents;
     }
 
     // Apply name filter

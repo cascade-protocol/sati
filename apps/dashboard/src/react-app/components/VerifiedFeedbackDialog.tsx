@@ -16,13 +16,15 @@ import { toast } from "sonner";
 import type { Address } from "@solana/kit";
 import {
   type Outcome,
-  loadDeployedConfig,
   MAX_COUNTERPARTY_SIGNED_CONTENT_SIZE,
   buildCounterpartyMessage,
   serializeFeedback,
   type FeedbackData,
   handleTransactionError,
+  hexToBytes,
+  bytesToHex,
 } from "@cascade-fyi/sati-sdk";
+import { getSatiClient } from "@/lib/sati";
 import { getChain, getNetwork, getSolscanUrl, getRpcUrl } from "@/lib/network";
 import { createPaymentFetch } from "@/lib/x402";
 
@@ -40,9 +42,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, CheckCircle2 } from "lucide-react";
 
-// Get deployed Feedback schema address (DualSignature mode)
-const deployedConfig = loadDeployedConfig(getNetwork());
-const FEEDBACK_SCHEMA_ADDRESS = deployedConfig?.schemas?.feedback as Address | undefined;
+// Get deployed Feedback schema address (DualSignature mode) - fetched fresh from client
+function getFeedbackSchemaAddress(): Address | undefined {
+  return getSatiClient().feedbackSchema;
+}
 
 // Pre-filled agent signature data (for skipping Step 1)
 interface PrefilledSignatureData {
@@ -105,25 +108,6 @@ interface SubmitFeedbackResponse {
   attestationAddress?: string;
   signature?: string;
   error?: string;
-}
-
-// Hex helpers
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
-  if (!/^[0-9a-fA-F]*$/.test(cleanHex) || cleanHex.length % 2 !== 0) {
-    throw new Error(`Invalid hex string: ${hex.slice(0, 20)}${hex.length > 20 ? "..." : ""}`);
-  }
-  const bytes = new Uint8Array(cleanHex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
 }
 
 // Agent signature data from Step 1
@@ -199,7 +183,8 @@ export function VerifiedFeedbackDialog({
   // Step 1: Interact - Pay and get agent's blind signature
   // ==========================================================================
   const handleInteract = async () => {
-    if (!session || !FEEDBACK_SCHEMA_ADDRESS) return;
+    const feedbackSchema = getFeedbackSchemaAddress();
+    if (!session || !feedbackSchema) return;
     setIsInteracting(true);
 
     const toastId = toast.loading("Preparing interaction...");
@@ -225,7 +210,7 @@ export function VerifiedFeedbackDialog({
 
       // Call /api/echo with x402 payment - agent signs WITHOUT knowing outcome
       const echoRequest: EchoRequest = {
-        sasSchema: FEEDBACK_SCHEMA_ADDRESS,
+        sasSchema: feedbackSchema,
         taskRef,
         agentMint,
         dataHash,
@@ -270,7 +255,8 @@ export function VerifiedFeedbackDialog({
   // ==========================================================================
   const submitMutation = useMutation({
     mutationFn: async (selectedOutcome: Outcome) => {
-      if (!session || !agentSignatureData || !FEEDBACK_SCHEMA_ADDRESS) {
+      const feedbackSchema = getFeedbackSchemaAddress();
+      if (!session || !agentSignatureData || !feedbackSchema) {
         throw new Error("Missing required data");
       }
 
@@ -323,7 +309,7 @@ export function VerifiedFeedbackDialog({
 
         const submitRequest: SubmitFeedbackRequest = {
           network: getNetwork(),
-          sasSchema: FEEDBACK_SCHEMA_ADDRESS,
+          sasSchema: feedbackSchema,
           taskRef: agentSignatureData.taskRef,
           agentMint,
           dataHash: agentSignatureData.dataHash,
@@ -462,7 +448,7 @@ export function VerifiedFeedbackDialog({
 
             <Button
               onClick={handleInteract}
-              disabled={!session || isInteracting || !FEEDBACK_SCHEMA_ADDRESS}
+              disabled={!session || isInteracting || !getFeedbackSchemaAddress()}
               className="w-full"
               size="lg"
             >

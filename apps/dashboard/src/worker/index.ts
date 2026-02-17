@@ -22,6 +22,8 @@ import {
   type ParsedAttestation,
   type ParsedValidationAttestation,
   SATI_CHAIN_IDS,
+  hexToBytes,
+  bytesToHex,
 } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
@@ -94,6 +96,12 @@ const FACILITATOR_URL_MAINNET = "https://x402.dexter.cash";
 const SOLANA_DEVNET_NETWORK = SATI_CHAIN_IDS.devnet;
 const SOLANA_MAINNET_NETWORK = SATI_CHAIN_IDS.mainnet;
 
+// Helper to create a Sati client for a given network
+function createSatiClient(network: "devnet" | "mainnet", env: ReturnType<typeof parse>) {
+  const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[network];
+  return new Sati({ network, rpcUrl, wsUrl, photonRpcUrl: rpcUrl });
+}
+
 // Helper to get deployed config for a network
 function getNetworkConfig(network: "devnet" | "mainnet") {
   const config = loadDeployedConfig(network);
@@ -105,29 +113,6 @@ function getNetworkConfig(network: "devnet" | "mainnet") {
     credential: config?.credential,
     lookupTable: config?.lookupTable,
   };
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function hexToBytes(hex: string): Uint8Array {
-  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
-  // Validate hex string format to prevent silent NaN corruption
-  if (!/^[0-9a-fA-F]*$/.test(cleanHex) || cleanHex.length % 2 !== 0) {
-    throw new Error(`Invalid hex string: ${hex}`);
-  }
-  const bytes = new Uint8Array(cleanHex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 // =============================================================================
@@ -625,13 +610,7 @@ function createApp(bindings: WorkerBindings) {
       const validatorSignature = await signBytes(validatorKeyPair.privateKey, validatorMessage);
 
       // Create ValidationV1 attestation
-      const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[network];
-      const sati = new Sati({
-        network,
-        rpcUrl,
-        wsUrl,
-        photonRpcUrl: rpcUrl,
-      });
+      const sati = createSatiClient(network, env);
 
       const serverPayer = await createKeyPairSignerFromBytes(agentSignerBytes);
 
@@ -811,15 +790,8 @@ function createApp(bindings: WorkerBindings) {
 
     try {
       // Get network-appropriate RPC URLs
-      const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[body.network];
-
       // Initialize Sati client with Helius RPC for Light Protocol
-      const sati = new Sati({
-        network: body.network,
-        rpcUrl,
-        wsUrl,
-        photonRpcUrl: rpcUrl,
-      });
+      const sati = createSatiClient(body.network, env);
 
       if (isCounterpartySigned) {
         // =================================================================
@@ -965,8 +937,7 @@ function createApp(bindings: WorkerBindings) {
     }
 
     try {
-      const { rpc: rpcUrl, ws: wsUrl } = env.RPC_URLS[body.network];
-      const sati = new Sati({ network: body.network, rpcUrl, wsUrl, photonRpcUrl: rpcUrl });
+      const sati = createSatiClient(body.network, env);
 
       // Fetch feedbacks from both schemas
       const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(

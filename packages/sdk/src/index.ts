@@ -73,6 +73,7 @@ export {
   outcomeToScore,
   getContentTypeLabel,
   createJsonContent,
+  buildFeedbackContent,
   zeroDataHash,
   validateBaseLayout,
   validateReputationScoreContent,

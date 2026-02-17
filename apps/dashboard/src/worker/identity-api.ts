@@ -18,6 +18,7 @@ import {
   createPinataUploader,
   serializeFeedback,
   buildCounterpartyMessage,
+  buildFeedbackContent,
   ContentType,
   parseFeedbackContent,
   Outcome as OutcomeEnum,
@@ -126,8 +127,8 @@ function getNetworkConfig(sati: Sati) {
     feedbackSchema: sati.feedbackSchema,
     feedbackPublicSchema: sati.feedbackPublicSchema,
     validationSchema: sati.validationSchema,
-    reputationScoreSchema: sati.deployedConfig?.schemas?.reputationScore,
-    credential: sati.deployedConfig?.credential,
+    reputationScoreSchema: sati.reputationScoreSchema,
+    credential: sati.credential,
     lookupTable: sati.lookupTable,
   };
 }
@@ -266,7 +267,8 @@ export function createIdentityApi(env: Env) {
         }
         agents = await sati.listAgentsByOwner(ownerFilter as Address);
       } else {
-        agents = await sati.listAllAgents({ limit });
+        const result = await sati.listAllAgents({ limit });
+        agents = result.agents;
       }
 
       // Fetch registration files and apply name filter
@@ -408,17 +410,15 @@ export function createIdentityApi(env: Env) {
 
         for (const fb of feedbacks.items) {
           const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
-          const contentJson = parsed as Record<string, unknown> | null;
 
           // Apply filters
-          if (tag1Filter && contentJson?.tag1 !== tag1Filter) continue;
-          if (tag2Filter && contentJson?.tag2 !== tag2Filter) continue;
+          if (tag1Filter && parsed?.tag1 !== tag1Filter) continue;
+          if (tag2Filter && parsed?.tag2 !== tag2Filter) continue;
           if (clientAddresses.length > 0 && !clientAddresses.includes(fb.data.counterparty)) continue;
 
           count++;
-          const value = contentJson?.value as number | undefined;
-          if (value !== undefined) {
-            totalValue += value;
+          if (parsed?.value !== undefined) {
+            totalValue += parsed.value;
             hasValues = true;
           }
         }
@@ -466,22 +466,21 @@ export function createIdentityApi(env: Env) {
 
         for (const fb of feedbacks.items) {
           const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
-          const contentJson = parsed as Record<string, unknown> | null;
 
           // Apply filters
           if (clientAddressFilter && fb.data.counterparty !== clientAddressFilter) continue;
-          if (tag1Filter && contentJson?.tag1 !== tag1Filter) continue;
-          if (tag2Filter && contentJson?.tag2 !== tag2Filter) continue;
+          if (tag1Filter && parsed?.tag1 !== tag1Filter) continue;
+          if (tag2Filter && parsed?.tag2 !== tag2Filter) continue;
 
           feedbackItems.push({
             clientAddress: fb.data.counterparty,
             feedbackIndex: feedbackIndex++,
-            value: (contentJson?.value as number) ?? 0,
-            valueDecimals: (contentJson?.valueDecimals as number) ?? 0,
-            tag1: (contentJson?.tag1 as string) ?? "",
-            tag2: (contentJson?.tag2 as string) ?? "",
-            endpoint: (contentJson?.endpoint as string) ?? "",
-            reviewer: (contentJson?.reviewer as string) ?? "",
+            value: parsed?.value ?? 0,
+            valueDecimals: parsed?.valueDecimals ?? 0,
+            tag1: parsed?.tag1 ?? "",
+            tag2: parsed?.tag2 ?? "",
+            endpoint: parsed?.endpoint ?? "",
+            reviewer: parsed?.reviewer ?? "",
             outcome: fb.data.outcome,
             isRevoked: false,
           });
@@ -533,19 +532,17 @@ export function createIdentityApi(env: Env) {
       const serverPayer = await createKeyPairSignerFromBytes(signerBytes);
       const counterpartyAddress = serverPayer.address;
 
-      // Build content JSON (ERC-8004 format)
-      const contentObj: Record<string, unknown> = {
+      // Build content JSON (ERC-8004 format) using SDK helper
+      const contentBytes = buildFeedbackContent({
         value: body.value,
         valueDecimals: body.valueDecimals ?? 0,
-      };
-      if (body.tag1) contentObj.tag1 = body.tag1;
-      if (body.tag2) contentObj.tag2 = body.tag2;
-      if (body.endpoint) contentObj.endpoint = body.endpoint;
-      if (body.reviewerAddress) contentObj.reviewer = body.reviewerAddress;
-      if (body.feedbackURI) contentObj.feedbackURI = body.feedbackURI;
-      if (body.feedbackHash) contentObj.feedbackHash = body.feedbackHash;
-
-      const contentBytes = new TextEncoder().encode(JSON.stringify(contentObj));
+        tag1: body.tag1,
+        tag2: body.tag2,
+        endpoint: body.endpoint,
+        reviewer: body.reviewerAddress,
+        feedbackURI: body.feedbackURI,
+        feedbackHash: body.feedbackHash,
+      });
 
       // Generate random taskRef
       const taskRef = crypto.getRandomValues(new Uint8Array(32));

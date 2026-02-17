@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-02-17
+
+### Breaking Changes
+
+- **`listAllAgents` return type changed** from `AgentIdentity[]` to `{ agents: AgentIdentity[]; totalAgents: bigint }` - callers must destructure
+- **`listAllAgents` offset changed** from 1-based `bigint` to 0-based `number` for simpler pagination
+- **`AgentSearchOptions.offset` changed** from `bigint` to `number`
+
+### Added
+
+- **Approximate `createdAt` timestamps** on `ParsedAttestation`, `ParsedFeedbackAttestation`, and `ParsedValidationAttestation` - derived from slot numbers, no more manual slot-to-time conversion needed
+- **`listAllAgents` order parameter** - `"newest"` (default) or `"oldest"` sort order
+- **`buildFeedbackContent()` helper** - builds typed ERC-8004 feedback content bytes from friendly params
+- **`hexToBytes()` / `bytesToHex()` utilities** - hex conversion exported from SDK
+- **Typed getters** `reputationScoreSchema` and `credential` on the `Sati` class
+- **`reviewer`, `feedbackURI`, `feedbackHash` fields** added to `FeedbackContent` type
+
+### Fixed
+
+- **`listFeedbacks` / `listValidations`** now automatically fetch current slot and compute `createdAt` timestamps
+
 ## [0.9.0] - 2026-02-12
 
 ### Breaking Changes
@@ -170,6 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.10.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.9.0...@cascade-fyi/sati-sdk@0.10.0
 [0.9.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.8.0...@cascade-fyi/sati-sdk@0.9.0
 [0.8.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.7.0...@cascade-fyi/sati-sdk@0.8.0
 [0.7.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.6.0...@cascade-fyi/sati-sdk@0.7.0

@@ -146,8 +146,8 @@ export interface AgentSearchOptions {
   endpointTypes?: string[];
   /** Maximum results to return */
   limit?: number;
-  /** Offset for pagination (member number) */
-  offset?: bigint;
+  /** Offset for pagination (0-based) */
+  offset?: number;
   /** Include feedback stats per agent */
   includeFeedbackStats?: boolean;
 }

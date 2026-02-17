@@ -199,7 +199,8 @@ export class SatiAgent0 {
       const ownerResults = await Promise.all(filters.owners.map((o) => this._sati.listAgentsByOwner(solAddress(o))));
       agents = ownerResults.flat();
     } else {
-      agents = await this._sati.listAllAgents({ limit, offset });
+      const result = await this._sati.listAllAgents({ limit, offset });
+      agents = result.agents;
     }
 
     // Step 2: Apply on-chain filters (cheap, no reg file needed)

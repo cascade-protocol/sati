@@ -253,6 +253,12 @@ export interface FeedbackContent {
   endpoint?: string;
   /** Feedback message */
   m?: string;
+  /** Reviewer identity (address or name) */
+  reviewer?: string;
+  /** URI to external feedback document */
+  feedbackURI?: string;
+  /** Hash of the external feedback document */
+  feedbackHash?: string;
 }
 
 /**
@@ -803,6 +809,34 @@ export function getContentTypeLabel(contentType: ContentType): string {
 export function createJsonContent<T>(content: T): Uint8Array {
   const json = JSON.stringify(content);
   return new TextEncoder().encode(json);
+}
+
+/**
+ * Build typed ERC-8004 feedback content bytes.
+ * Maps friendly param names to FeedbackContent fields and serializes to JSON bytes.
+ */
+export function buildFeedbackContent(params: {
+  value?: number;
+  valueDecimals?: number;
+  tag1?: string;
+  tag2?: string;
+  endpoint?: string;
+  message?: string;
+  reviewer?: string;
+  feedbackURI?: string;
+  feedbackHash?: string;
+}): Uint8Array {
+  const content: FeedbackContent = {};
+  if (params.value !== undefined) content.value = params.value;
+  if (params.valueDecimals !== undefined) content.valueDecimals = params.valueDecimals;
+  if (params.tag1) content.tag1 = params.tag1;
+  if (params.tag2) content.tag2 = params.tag2;
+  if (params.endpoint) content.endpoint = params.endpoint;
+  if (params.message) content.m = params.message;
+  if (params.reviewer) content.reviewer = params.reviewer;
+  if (params.feedbackURI) content.feedbackURI = params.feedbackURI;
+  if (params.feedbackHash) content.feedbackHash = params.feedbackHash;
+  return createJsonContent(content);
 }
 
 /**

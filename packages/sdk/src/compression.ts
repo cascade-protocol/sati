@@ -100,6 +100,8 @@ export interface ParsedAttestation {
   raw: CompressedAccount;
   attestation: CompressedAttestation;
   data: FeedbackData | ValidationData;
+  /** Approximate creation timestamp (Unix seconds), derived from slotCreated */
+  createdAt?: number;
 }
 
 /**
@@ -110,6 +112,8 @@ export interface ParsedFeedbackAttestation {
   raw: CompressedAccount;
   attestation: CompressedAttestation;
   data: FeedbackData;
+  /** Approximate creation timestamp (Unix seconds), derived from slotCreated */
+  createdAt?: number;
 }
 
 /**
@@ -120,6 +124,8 @@ export interface ParsedValidationAttestation {
   raw: CompressedAccount;
   attestation: CompressedAttestation;
   data: ValidationData;
+  /** Approximate creation timestamp (Unix seconds), derived from slotCreated */
+  createdAt?: number;
 }
 
 /**
@@ -240,10 +246,16 @@ export interface SATILightClient {
   getAttestationByAddress(addr: Address): Promise<ParsedAttestation | null>;
 
   /** List feedback attestations with pagination */
-  listFeedbacks(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedFeedbackAttestation>>;
+  listFeedbacks(
+    filter: Partial<AttestationFilter>,
+    currentSlot?: bigint,
+  ): Promise<PaginatedAttestations<ParsedFeedbackAttestation>>;
 
   /** List validation attestations with pagination */
-  listValidations(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedValidationAttestation>>;
+  listValidations(
+    filter: Partial<AttestationFilter>,
+    currentSlot?: bigint,
+  ): Promise<PaginatedAttestations<ParsedValidationAttestation>>;
 
   /** Get creation proof for a new compressed account */
   getCreationProof(addr: PublicKeyLike): Promise<CreationProofResult>;
@@ -323,9 +335,9 @@ export class SATILightClientImpl implements SATILightClient {
 
   async listFeedbacks(
     filter: AttestationFilter & { sasSchema: Address },
+    currentSlot?: bigint,
   ): Promise<PaginatedAttestations<ParsedFeedbackAttestation>> {
-    // Query compressed accounts owned by SATI program with sasSchema filter
-    const result = await this.queryAttestations(filter, deserializeFeedback);
+    const result = await this.queryAttestations(filter, deserializeFeedback, currentSlot);
     return {
       items: result.items as ParsedFeedbackAttestation[],
       cursor: result.cursor,
@@ -334,9 +346,9 @@ export class SATILightClientImpl implements SATILightClient {
 
   async listValidations(
     filter: AttestationFilter & { sasSchema: Address },
+    currentSlot?: bigint,
   ): Promise<PaginatedAttestations<ParsedValidationAttestation>> {
-    // Query compressed accounts owned by SATI program with sasSchema filter
-    const result = await this.queryAttestations(filter, deserializeValidation);
+    const result = await this.queryAttestations(filter, deserializeValidation, currentSlot);
     return {
       items: result.items as ParsedValidationAttestation[],
       cursor: result.cursor,
@@ -604,6 +616,7 @@ export class SATILightClientImpl implements SATILightClient {
   private async queryAttestations<T extends FeedbackData | ValidationData>(
     filter: AttestationFilter & { sasSchema: Address },
     deserializer: (data: Uint8Array) => T,
+    currentSlot?: bigint,
   ): Promise<PaginatedAttestations<ParsedAttestation>> {
     // Build memcmp filters for server-side filtering (Photon RPC)
     const memcmpFilters: MemcmpFilter[] = [];
@@ -619,6 +632,9 @@ export class SATILightClientImpl implements SATILightClient {
     });
     const attestations: ParsedAttestation[] = [];
 
+    // Compute approximate timestamps from slot numbers (~400ms per slot)
+    const nowSec = Math.floor(Date.now() / 1000);
+
     for (const account of result.items) {
       if (!account.data) continue;
 
@@ -630,6 +646,12 @@ export class SATILightClientImpl implements SATILightClient {
         // client-side filtering for fields at variable offsets
         if (filter.counterparty && parsed.data.counterparty !== filter.counterparty) continue;
         if (filter.outcome !== undefined && parsed.data.outcome !== filter.outcome) continue;
+
+        // Compute createdAt if currentSlot is available and account has slotCreated
+        if (currentSlot && account.slotCreated) {
+          const slotDiff = Number(currentSlot - account.slotCreated);
+          parsed.createdAt = nowSec - Math.floor(slotDiff * 0.4);
+        }
 
         attestations.push(parsed);
       } catch {
