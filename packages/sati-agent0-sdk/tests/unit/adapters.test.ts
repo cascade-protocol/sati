@@ -157,7 +157,7 @@ describe("adapters", () => {
         description: "Test",
         image: "https://example.com/img.png",
         properties: { files: [{ uri: "https://example.com/img.png", type: "image/png" }] },
-        endpoints: [
+        services: [
           {
             name: "MCP",
             endpoint: "https://mcp.example.com",

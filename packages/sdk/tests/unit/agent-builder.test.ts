@@ -144,22 +144,22 @@ describe("SatiAgentBuilder", () => {
   });
 
   // =========================================================================
-  // setEndpoint (generic)
+  // setService (generic)
   // =========================================================================
 
-  it("setEndpoint should add a custom endpoint", () => {
+  it("setService should add a custom service", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
-    builder.setEndpoint({ name: "custom", endpoint: "https://custom.example.com" });
+    builder.setService({ name: "custom", endpoint: "https://custom.example.com" });
 
     const ep = builder.params.services?.find((e) => e.name === "custom");
     expect(ep).toBeDefined();
     expect(ep?.endpoint).toBe("https://custom.example.com");
   });
 
-  it("setEndpoint should replace existing endpoint with same name", () => {
+  it("setService should replace existing service with same name", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
-    builder.setEndpoint({ name: "custom", endpoint: "https://v1.example.com" });
-    builder.setEndpoint({ name: "custom", endpoint: "https://v2.example.com" });
+    builder.setService({ name: "custom", endpoint: "https://v1.example.com" });
+    builder.setService({ name: "custom", endpoint: "https://v2.example.com" });
 
     const customEndpoints = builder.params.services?.filter((e) => e.name === "custom") ?? [];
     expect(customEndpoints).toHaveLength(1);
@@ -167,25 +167,25 @@ describe("SatiAgentBuilder", () => {
   });
 
   // =========================================================================
-  // removeEndpoint
+  // removeService
   // =========================================================================
 
-  it("removeEndpoint should remove by name", () => {
+  it("removeService should remove by name", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setMCP("https://mcp.example.com");
     builder.setA2A("https://a2a.example.com");
 
-    builder.removeEndpoint("MCP");
+    builder.removeService("MCP");
 
     expect(builder.params.services?.find((e) => e.name === "MCP")).toBeUndefined();
     expect(builder.params.services?.find((e) => e.name === "A2A")).toBeDefined();
   });
 
-  it("removeEndpoint should be a no-op for nonexistent name", () => {
+  it("removeService should be a no-op for nonexistent name", () => {
     const builder = new SatiAgentBuilder(mockSati, "Test", "desc", "img.png");
     builder.setMCP("https://mcp.example.com");
 
-    builder.removeEndpoint("nonexistent");
+    builder.removeService("nonexistent");
     expect(builder.params.services).toHaveLength(1);
   });
 

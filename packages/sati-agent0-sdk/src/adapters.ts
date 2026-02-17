@@ -14,7 +14,12 @@ import type {
 } from "agent0-sdk";
 import { EndpointType, TrustModel } from "agent0-sdk";
 import type { AgentIdentity } from "@cascade-fyi/sati-sdk";
-import type { RegistrationFile as SatiRegistrationFile, Endpoint as SatiEndpoint } from "@cascade-fyi/sati-sdk";
+import type {
+  RegistrationFile as SatiRegistrationFile,
+  ServiceDefinition as SatiServiceDefinition,
+} from "@cascade-fyi/sati-sdk";
+import { validateRegistrationFile } from "@cascade-fyi/sati-sdk";
+import type { SatiWarning } from "./types";
 
 /** CAIP-2 chain references for Solana networks */
 export const SOLANA_CAIP2_CHAINS: Record<string, string> = {
@@ -71,7 +76,7 @@ export const AGENT0_TO_SATI_NAME: Record<string, string> = {
 /**
  * Convert SATI endpoints (ERC-8004 format) to agent0 endpoint format.
  */
-export function toAgent0Endpoints(satiEndpoints: SatiEndpoint[]): Agent0Endpoint[] {
+export function toAgent0Endpoints(satiEndpoints: SatiServiceDefinition[]): Agent0Endpoint[] {
   return satiEndpoints.map((ep) => {
     const meta: Record<string, unknown> = {};
     if (ep.version) meta.version = ep.version;
@@ -82,7 +87,7 @@ export function toAgent0Endpoints(satiEndpoints: SatiEndpoint[]): Agent0Endpoint
     if (ep.skills?.length) meta.skills = ep.skills;
     if (ep.domains?.length) meta.domains = ep.domains;
     return {
-      type: SATI_TO_AGENT0_TYPE[ep.name.toUpperCase()] ?? (ep.name as EndpointType),
+      type: SATI_TO_AGENT0_TYPE[ep.name?.toUpperCase()] ?? (ep.name as EndpointType),
       value: ep.endpoint,
       meta: Object.keys(meta).length > 0 ? meta : undefined,
     };
@@ -92,9 +97,9 @@ export function toAgent0Endpoints(satiEndpoints: SatiEndpoint[]): Agent0Endpoint
 /**
  * Convert agent0 endpoints to SATI registration file endpoint format.
  */
-export function fromAgent0Endpoints(agent0Endpoints: Agent0Endpoint[]): SatiEndpoint[] {
+export function fromAgent0Endpoints(agent0Endpoints: Agent0Endpoint[]): SatiServiceDefinition[] {
   return agent0Endpoints.map((ep) => {
-    const result: SatiEndpoint = {
+    const result: SatiServiceDefinition = {
       name: AGENT0_TO_SATI_NAME[ep.type] ?? ep.type,
       endpoint: ep.value,
       version: ep.meta?.version as string | undefined,
@@ -129,13 +134,13 @@ export function toAgentSummary(
 ): AgentSummary {
   const services = regFile?.services ?? [];
 
-  const mcpEp = services.find((e) => e.name.toUpperCase() === "MCP");
-  const a2aEp = services.find((e) => e.name.toUpperCase() === "A2A");
-  const oasfEp = services.find((e) => e.name.toUpperCase() === "OASF");
-  const ensEp = services.find((e) => e.name.toUpperCase() === "ENS");
-  const didEp = services.find((e) => e.name.toUpperCase() === "DID");
-  const walletEp = services.find((e) => e.name.toUpperCase() === "AGENTWALLET" || e.name.toUpperCase() === "WALLET");
-  const webEp = services.find((e) => e.name.toUpperCase() === "WEB");
+  const mcpEp = services.find((e) => e.name?.toUpperCase() === "MCP");
+  const a2aEp = services.find((e) => e.name?.toUpperCase() === "A2A");
+  const oasfEp = services.find((e) => e.name?.toUpperCase() === "OASF");
+  const ensEp = services.find((e) => e.name?.toUpperCase() === "ENS");
+  const didEp = services.find((e) => e.name?.toUpperCase() === "DID");
+  const walletEp = services.find((e) => e.name?.toUpperCase() === "AGENTWALLET" || e.name?.toUpperCase() === "WALLET");
+  const webEp = services.find((e) => e.name?.toUpperCase() === "WEB");
 
   return {
     chainId: 0,
@@ -219,11 +224,14 @@ export function toAgent0RegistrationFile(
 
 /**
  * Convert agent0 RegistrationFile back to SATI registration file params.
+ *
+ * @param agent0File - Agent0 registration file
+ * @param onWarning - Optional callback for validation issues in the converted output
  */
-export function fromAgent0RegistrationFile(agent0File: Agent0RegistrationFile): Omit<
-  SatiRegistrationFile,
-  "type" | "properties"
-> & {
+export function fromAgent0RegistrationFile(
+  agent0File: Agent0RegistrationFile,
+  onWarning?: (warning: SatiWarning) => void,
+): Omit<SatiRegistrationFile, "type" | "properties"> & {
   name: string;
   description: string;
   image: string;
@@ -238,7 +246,7 @@ export function fromAgent0RegistrationFile(agent0File: Agent0RegistrationFile): 
     })
     .filter((t): t is NonNullable<typeof t> => t !== null);
 
-  return {
+  const result = {
     name: agent0File.name,
     description: agent0File.description,
     image: agent0File.image ?? "",
@@ -247,6 +255,24 @@ export function fromAgent0RegistrationFile(agent0File: Agent0RegistrationFile): 
     active: agent0File.active,
     x402Support: agent0File.x402support,
   };
+
+  // Validate the converted output and surface issues via warning callback
+  if (onWarning) {
+    const validation = validateRegistrationFile({
+      ...result,
+      type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+      properties: { files: [{ uri: result.image || "https://placeholder", type: "image/png" }] },
+    });
+    if (!validation.ok) {
+      onWarning({
+        code: "PARSE_ERROR",
+        message: `Registration file conversion has validation issues: ${validation.errors.map((e) => `${e.field}: ${e.message}`).join("; ")}`,
+        context: validation.errors.map((e) => `${e.field}: ${e.message}`).join("; "),
+      });
+    }
+  }
+
+  return result;
 }
 
 // ============================================================================

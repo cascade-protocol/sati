@@ -211,21 +211,42 @@ export {
   getImageUrl,
   inferMimeType,
   stringifyRegistrationFile,
+  validateRegistrationFile,
+  assertRegistrationFile,
+  parseRegistrationFile,
+  normalizeRegistrationFile,
   // SATI registration helpers
   buildSatiRegistrationEntry,
   hasSatiRegistration,
   getSatiAgentIds,
+  // CAIP validation
+  isValidAgentRegistry,
+  isSatiAgentRegistry,
   // Constants
+  ERC8004_TYPE,
+  VALID_TRUST_MODELS,
   SATI_CHAIN_ID,
+  SATI_CHAIN_ID_DEVNET,
+  SATI_CHAIN_IDS,
   SATI_PROGRAM_ID,
+  // Zod schemas (for advanced consumers)
+  RegistrationFileSchema,
+  ServiceDefinitionSchema,
+  RegistrationEntrySchema,
+  TrustMechanismSchema,
+  PropertyFileSchema,
+  PropertiesSchema,
   // Types
   type RegistrationFile,
   type RegistrationFileParams,
+  type ServiceDefinition,
   type Endpoint,
   type RegistrationEntry,
   type Properties,
   type PropertyFile,
   type TrustMechanism,
+  type ValidationError,
+  type ValidationResult,
 } from "./registration";
 
 // SDK error types and transaction error handling

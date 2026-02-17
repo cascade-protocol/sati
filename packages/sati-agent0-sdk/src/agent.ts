@@ -85,7 +85,7 @@ export class SatiAgent {
 
     // Populate builder from SATI registration file services
     for (const ep of satiRegFile.services ?? []) {
-      builder.setEndpoint(ep);
+      builder.setService(ep);
     }
     if (satiRegFile.active !== undefined) builder.setActive(satiRegFile.active);
     if (satiRegFile.x402Support !== undefined) builder.setX402Support(satiRegFile.x402Support);
@@ -221,7 +221,7 @@ export class SatiAgent {
    * Set ENS endpoint.
    */
   setENS(name: string, version = "1.0"): this {
-    this._builder.setEndpoint({ name: "ENS", endpoint: name, version });
+    this._builder.setService({ name: "ENS", endpoint: name, version });
     this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
@@ -234,7 +234,7 @@ export class SatiAgent {
     if (!opts || (opts.type === undefined && opts.value === undefined)) {
       // Remove all
       for (const ep of [...services]) {
-        this._builder.removeEndpoint(ep.name);
+        this._builder.removeService(ep.name);
       }
     } else {
       for (const ep of [...services]) {
@@ -242,7 +242,7 @@ export class SatiAgent {
         const typeMatches = satiName === undefined || ep.name === satiName;
         const valueMatches = opts.value === undefined || ep.endpoint === opts.value;
         if (typeMatches && valueMatches) {
-          this._builder.removeEndpoint(ep.name);
+          this._builder.removeService(ep.name);
         }
       }
     }
@@ -282,7 +282,7 @@ export class SatiAgent {
    * Remove wallet address and wallet endpoint.
    */
   unsetWallet(): this {
-    this._builder.removeEndpoint("agentWallet");
+    this._builder.removeService("agentWallet");
     this._updatedAt = Math.floor(Date.now() / 1000);
     return this;
   }
@@ -295,7 +295,7 @@ export class SatiAgent {
     const oasfEp = this._findEndpoint("OASF");
     const skills = [...(oasfEp?.skills ?? [])];
     if (!skills.includes(slug)) skills.push(slug);
-    this._builder.setEndpoint({
+    this._builder.setService({
       name: "OASF",
       endpoint: oasfEp?.endpoint ?? "https://github.com/agntcy/oasf/",
       version: oasfEp?.version ?? "v0.8.0",
@@ -310,7 +310,7 @@ export class SatiAgent {
     const oasfEp = this._findEndpoint("OASF");
     if (oasfEp?.skills) {
       const skills = oasfEp.skills.filter((s) => s !== slug);
-      this._builder.setEndpoint({
+      this._builder.setService({
         name: "OASF",
         endpoint: oasfEp.endpoint,
         version: oasfEp.version,
@@ -326,7 +326,7 @@ export class SatiAgent {
     const oasfEp = this._findEndpoint("OASF");
     const domains = [...(oasfEp?.domains ?? [])];
     if (!domains.includes(slug)) domains.push(slug);
-    this._builder.setEndpoint({
+    this._builder.setService({
       name: "OASF",
       endpoint: oasfEp?.endpoint ?? "https://github.com/agntcy/oasf/",
       version: oasfEp?.version ?? "v0.8.0",
@@ -341,7 +341,7 @@ export class SatiAgent {
     const oasfEp = this._findEndpoint("OASF");
     if (oasfEp?.domains) {
       const domains = oasfEp.domains.filter((d) => d !== slug);
-      this._builder.setEndpoint({
+      this._builder.setService({
         name: "OASF",
         endpoint: oasfEp.endpoint,
         version: oasfEp.version,

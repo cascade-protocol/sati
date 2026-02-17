@@ -1,7 +1,7 @@
 /**
  * SATI Registration File
  *
- * Helpers for building, fetching, and working with ERC-8004 + Phantom
+ * Helpers for building, fetching, validating, and working with ERC-8004 + Phantom
  * compatible registration files.
  *
  * @example
@@ -9,6 +9,8 @@
  * import {
  *   buildRegistrationFile,
  *   fetchRegistrationFile,
+ *   validateRegistrationFile,
+ *   parseRegistrationFile,
  *   getImageUrl,
  * } from "@cascade-fyi/sati-sdk";
  *
@@ -19,6 +21,13 @@
  *   image: "https://example.com/avatar.png",
  * });
  *
+ * // Validate untrusted data
+ * const result = validateRegistrationFile(untrustedData);
+ * if (!result.ok) console.error(result.errors);
+ *
+ * // Parse untrusted data (returns null if invalid)
+ * const parsed = parseRegistrationFile(untrustedData);
+ *
  * // Fetch from URI
  * const metadata = await fetchRegistrationFile(uri);
  * const imageUrl = getImageUrl(metadata);
@@ -28,20 +37,30 @@
 import * as z from "zod";
 
 // ============================================================================
-// INTERNAL: Zod Schemas (not exported)
+// Constants
 // ============================================================================
 
-const PropertyFileSchema = z.object({
+/** ERC-8004 registration file type identifier */
+export const ERC8004_TYPE = "https://eips.ethereum.org/EIPS/eip-8004#registration-v1" as const;
+
+// ============================================================================
+// Zod Schemas
+// ============================================================================
+
+/** Zod schema for a property file entry (Phantom/Metaplex wallet display) */
+export const PropertyFileSchema = z.object({
   uri: z.url(),
   type: z.string(),
 });
 
-const PropertiesSchema = z.object({
+/** Zod schema for properties object (wallet compatibility) */
+export const PropertiesSchema = z.object({
   files: z.array(PropertyFileSchema).min(1),
   category: z.enum(["image", "video", "audio"]).optional(),
 });
 
-const EndpointSchema = z.object({
+/** Zod schema for a service definition entry in the ERC-8004 services array */
+export const ServiceDefinitionSchema = z.object({
   name: z.string(),
   endpoint: z.string(),
   version: z.string().optional(),
@@ -53,21 +72,24 @@ const EndpointSchema = z.object({
   domains: z.array(z.string()).optional(),
 });
 
-const RegistrationEntrySchema = z.object({
+/** Zod schema for a cross-chain registration entry */
+export const RegistrationEntrySchema = z.object({
   agentId: z.union([z.string(), z.number()]),
   agentRegistry: z.string(),
 });
 
-const TrustMechanismSchema = z.enum(["reputation", "crypto-economic", "tee-attestation"]);
+/** Zod schema for supported trust mechanisms */
+export const TrustMechanismSchema = z.enum(["reputation", "crypto-economic", "tee-attestation"]);
 
-const RegistrationFileSchema = z.object({
-  type: z.literal("https://eips.ethereum.org/EIPS/eip-8004#registration-v1"),
+/** Zod schema for a complete ERC-8004 registration file */
+export const RegistrationFileSchema = z.object({
+  type: z.literal(ERC8004_TYPE),
   name: z.string().min(1),
   description: z.string().min(1),
   image: z.url(),
   properties: PropertiesSchema,
   external_url: z.url().optional(),
-  services: z.array(EndpointSchema).optional(),
+  services: z.array(ServiceDefinitionSchema).optional(),
   registrations: z.array(RegistrationEntrySchema).optional(),
   supportedTrust: z.array(TrustMechanismSchema).optional(),
   active: z.boolean().optional().default(true),
@@ -75,7 +97,7 @@ const RegistrationFileSchema = z.object({
 });
 
 // ============================================================================
-// PUBLIC: TypeScript Types
+// TypeScript Types
 // ============================================================================
 
 /** File entry for Phantom/Metaplex wallet display */
@@ -90,8 +112,8 @@ export interface Properties {
   category?: "image" | "video" | "audio";
 }
 
-/** Service endpoint (ERC-8004) */
-export interface Endpoint {
+/** Service definition entry in the ERC-8004 services array */
+export interface ServiceDefinition {
   name: string;
   endpoint: string;
   version?: string;
@@ -103,6 +125,9 @@ export interface Endpoint {
   domains?: string[];
 }
 
+/** @deprecated Use ServiceDefinition instead */
+export type Endpoint = ServiceDefinition;
+
 /** Cross-chain registration entry (ERC-8004) */
 export interface RegistrationEntry {
   agentId: string | number;
@@ -111,6 +136,9 @@ export interface RegistrationEntry {
 
 /** Trust mechanism type */
 export type TrustMechanism = "reputation" | "crypto-economic" | "tee-attestation";
+
+/** Valid trust model values */
+export const VALID_TRUST_MODELS: readonly TrustMechanism[] = ["reputation", "crypto-economic", "tee-attestation"];
 
 /**
  * Registration file schema (ERC-8004 + Phantom compatible)
@@ -130,8 +158,8 @@ export interface RegistrationFile {
   properties: Properties;
   /** Project website URL */
   external_url?: string;
-  /** Service endpoints (A2A, MCP, agentWallet) - ERC-8004 "services" array */
-  services?: Endpoint[];
+  /** Service definitions (A2A, MCP, agentWallet) - ERC-8004 "services" array */
+  services?: ServiceDefinition[];
   /** Cross-chain registration entries */
   registrations?: RegistrationEntry[];
   /** Supported trust mechanisms */
@@ -149,7 +177,7 @@ export interface RegistrationFileParams {
   image: string;
   imageMimeType?: string;
   externalUrl?: string;
-  services?: Endpoint[];
+  services?: ServiceDefinition[];
   registrations?: RegistrationEntry[];
   supportedTrust?: TrustMechanism[];
   active?: boolean;
@@ -157,7 +185,166 @@ export interface RegistrationFileParams {
 }
 
 // ============================================================================
-// PUBLIC: Helper Functions
+// Validation
+// ============================================================================
+
+/** A single validation issue with field path, message, and severity */
+export interface ValidationError {
+  field: string;
+  message: string;
+  severity: "error" | "warning";
+}
+
+/** Result of validating a registration file */
+export interface ValidationResult {
+  /** True if no errors (warnings are allowed) */
+  ok: boolean;
+  /** Structural errors that make the file invalid */
+  errors: ValidationError[];
+  /** Best-practice warnings (file is still valid) */
+  warnings: ValidationError[];
+}
+
+/**
+ * Validate an ERC-8004 registration file.
+ *
+ * Returns structural errors (from Zod schema) and best-practice warnings
+ * (name length, description length, MCP/A2A URL validity).
+ */
+export function validateRegistrationFile(data: unknown): ValidationResult {
+  const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
+
+  const result = RegistrationFileSchema.safeParse(data);
+
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      errors.push({
+        field: issue.path.join(".") || "root",
+        message: issue.message,
+        severity: "error",
+      });
+    }
+    return { ok: false, errors, warnings };
+  }
+
+  // Best-practice warnings on structurally valid data
+  const file = result.data;
+
+  if (file.name.length > 32) {
+    warnings.push({
+      field: "name",
+      message: "Should be 32 characters or less (recommended)",
+      severity: "warning",
+    });
+  }
+
+  if (file.description.length < 10) {
+    warnings.push({
+      field: "description",
+      message: "Should be at least 10 characters (explain what your agent does)",
+      severity: "warning",
+    });
+  }
+
+  if (file.services) {
+    for (let i = 0; i < file.services.length; i++) {
+      const svc = file.services[i];
+      if (svc.name === "MCP" || svc.name === "A2A") {
+        try {
+          new URL(svc.endpoint);
+        } catch {
+          warnings.push({
+            field: `services[${i}].endpoint`,
+            message: `Should be a valid URL for ${svc.name} services`,
+            severity: "warning",
+          });
+        }
+      }
+    }
+  }
+
+  return { ok: true, errors, warnings };
+}
+
+/**
+ * Assert that data is a valid ERC-8004 registration file.
+ * Throws with detailed error messages if invalid.
+ */
+export function assertRegistrationFile(data: unknown): asserts data is RegistrationFile {
+  const result = validateRegistrationFile(data);
+  if (!result.ok) {
+    const message = result.errors.map((e) => `  ${e.field}: ${e.message}`).join("\n");
+    throw new Error(`Invalid ERC-8004 registration file:\n${message}`);
+  }
+}
+
+/**
+ * Parse untrusted data as a registration file.
+ * Returns the typed object on success, null on failure.
+ */
+export function parseRegistrationFile(data: unknown): RegistrationFile | null {
+  const result = RegistrationFileSchema.safeParse(data);
+  return result.success ? result.data : null;
+}
+
+// ============================================================================
+// Normalization
+// ============================================================================
+
+/**
+ * Normalize a registration file from known variant shapes to spec-compliant format.
+ *
+ * Handles known divergences:
+ * - `endpoints` array -> `services` (agent0-sdk convention)
+ * - Endpoint entries with `type`/`value` -> `name`/`endpoint` (agent0-sdk format)
+ * - `x402support` (lowercase s) -> `x402Support` (spec uses capital S)
+ * - `trustModels` -> `supportedTrust` (agent0-sdk convention)
+ *
+ * Returns a new object (no mutation). Does NOT validate.
+ * Use `parseRegistrationFile(normalizeRegistrationFile(data))` for the full pipeline.
+ */
+export function normalizeRegistrationFile(data: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = { ...data };
+
+  // endpoints -> services (agent0-sdk uses "endpoints" instead of "services")
+  if ("endpoints" in normalized && !("services" in normalized)) {
+    const endpoints = normalized.endpoints;
+    if (Array.isArray(endpoints)) {
+      normalized.services = endpoints.map((ep: Record<string, unknown>) => {
+        // agent0-sdk uses type/value, spec uses name/endpoint
+        if ("type" in ep && "value" in ep && !("name" in ep) && !("endpoint" in ep)) {
+          const { type: name, value: endpoint, meta, ...rest } = ep;
+          return {
+            name,
+            endpoint,
+            ...rest,
+            ...(meta && typeof meta === "object" ? meta : {}),
+          };
+        }
+        return ep;
+      });
+    }
+    delete normalized.endpoints;
+  }
+
+  // x402support -> x402Support (agent0-sdk uses lowercase s)
+  if ("x402support" in normalized && !("x402Support" in normalized)) {
+    normalized.x402Support = normalized.x402support;
+    delete normalized.x402support;
+  }
+
+  // trustModels -> supportedTrust (agent0-sdk uses "trustModels")
+  if ("trustModels" in normalized && !("supportedTrust" in normalized)) {
+    normalized.supportedTrust = normalized.trustModels;
+    delete normalized.trustModels;
+  }
+
+  return normalized;
+}
+
+// ============================================================================
+// Helper Functions
 // ============================================================================
 
 const MIME_TYPES: Record<string, string> = {
@@ -193,7 +380,7 @@ export function buildRegistrationFile(params: RegistrationFileParams): Registrat
   const mimeType = params.imageMimeType ?? inferMimeType(params.image);
 
   const file = {
-    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1" as const,
+    type: ERC8004_TYPE,
     name: params.name,
     description: params.description,
     image: params.image,
@@ -222,11 +409,17 @@ export function buildRegistrationFile(params: RegistrationFileParams): Registrat
 /**
  * Fetch and parse a registration file from URI.
  *
- * - Returns null on network errors or invalid URIs
- * - Validates structure, returns raw data for non-conforming files
+ * By default (tolerant mode):
+ * - Returns raw data typed as RegistrationFile for non-conforming files
  * - Never throws, never logs to console
+ *
+ * With `opts.strict`:
+ * - Returns null if the data fails Zod validation (no unsafe cast)
  */
-export async function fetchRegistrationFile(uri: string): Promise<RegistrationFile | null> {
+export async function fetchRegistrationFile(
+  uri: string,
+  opts?: { strict?: boolean },
+): Promise<RegistrationFile | null> {
   if (!uri) return null;
 
   // Convert IPFS/Arweave URIs to gateway URLs
@@ -249,7 +442,8 @@ export async function fetchRegistrationFile(uri: string): Promise<RegistrationFi
     const result = RegistrationFileSchema.safeParse(data);
 
     if (!result.success) {
-      // Return raw data for backwards compatibility with non-conforming files
+      if (opts?.strict) return null;
+      // Tolerant mode: return raw data for backwards compatibility
       return data as RegistrationFile;
     }
 
@@ -302,6 +496,15 @@ export function stringifyRegistrationFile(file: RegistrationFile, space = 2): st
 /** CAIP-2 chain identifier for Solana mainnet */
 export const SATI_CHAIN_ID = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 
+/** CAIP-2 chain identifier for Solana devnet */
+export const SATI_CHAIN_ID_DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
+
+/** CAIP-2 chain identifiers by network */
+export const SATI_CHAIN_IDS = {
+  mainnet: SATI_CHAIN_ID,
+  devnet: SATI_CHAIN_ID_DEVNET,
+} as const;
+
 /** SATI program ID */
 export const SATI_PROGRAM_ID = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe";
 
@@ -309,18 +512,26 @@ export const SATI_PROGRAM_ID = "satiRkxEiwZ51cv8PRu8UMzuaqeaNU9jABo6oAFMsLe";
  * Build a registrations[] entry for linking a SATI agent to an off-chain registration file.
  *
  * @param agentMint - SATI agent mint address
+ * @param network - Network to use (defaults to "mainnet")
  * @returns RegistrationEntry for the registrations[] array
  *
  * @example
  * ```typescript
  * const entry = buildSatiRegistrationEntry("AgentMint...");
- * // { agentId: "AgentMint...", agentRegistry: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiR3q7..." }
+ * // { agentId: "AgentMint...", agentRegistry: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiRkxE..." }
+ *
+ * const devnetEntry = buildSatiRegistrationEntry("AgentMint...", "devnet");
+ * // { agentId: "AgentMint...", agentRegistry: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1:satiRkxE..." }
  * ```
  */
-export function buildSatiRegistrationEntry(agentMint: string): RegistrationEntry {
+export function buildSatiRegistrationEntry(
+  agentMint: string,
+  network: "mainnet" | "devnet" = "mainnet",
+): RegistrationEntry {
+  const chainId = SATI_CHAIN_IDS[network];
   return {
     agentId: agentMint,
-    agentRegistry: `${SATI_CHAIN_ID}:${SATI_PROGRAM_ID}`,
+    agentRegistry: `${chainId}:${SATI_PROGRAM_ID}`,
   };
 }
 
@@ -332,7 +543,7 @@ export function buildSatiRegistrationEntry(agentMint: string): RegistrationEntry
  */
 export function hasSatiRegistration(file: RegistrationFile): boolean {
   return (
-    file.registrations?.some((r) => typeof r.agentRegistry === "string" && r.agentRegistry.startsWith(SATI_CHAIN_ID)) ??
+    file.registrations?.some((r) => typeof r.agentRegistry === "string" && isSatiAgentRegistry(r.agentRegistry)) ??
     false
   );
 }
@@ -346,7 +557,43 @@ export function hasSatiRegistration(file: RegistrationFile): boolean {
 export function getSatiAgentIds(file: RegistrationFile): string[] {
   return (
     file.registrations
-      ?.filter((r) => typeof r.agentRegistry === "string" && r.agentRegistry.startsWith(SATI_CHAIN_ID))
+      ?.filter((r) => typeof r.agentRegistry === "string" && isSatiAgentRegistry(r.agentRegistry))
       .map((r) => String(r.agentId)) ?? []
   );
+}
+
+// ============================================================================
+// CAIP Format Validation
+// ============================================================================
+
+/**
+ * Validate a CAIP-10 agent registry string format.
+ * Expected format: `{namespace}:{chainReference}:{registryAddress}`
+ *
+ * @example
+ * ```typescript
+ * isValidAgentRegistry("eip155:1:0x742...") // true
+ * isValidAgentRegistry("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiRkxE...") // true
+ * isValidAgentRegistry("invalid") // false
+ * ```
+ */
+export function isValidAgentRegistry(registry: string): boolean {
+  if (typeof registry !== "string") return false;
+  const parts = registry.split(":");
+  return parts.length === 3 && parts.every((p) => p.length > 0);
+}
+
+/**
+ * Check if an agent registry string is a SATI registry (any network).
+ *
+ * @example
+ * ```typescript
+ * isSatiAgentRegistry("solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:satiRkxE...") // true (mainnet)
+ * isSatiAgentRegistry("solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1:satiRkxE...") // true (devnet)
+ * isSatiAgentRegistry("eip155:1:0x742...") // false
+ * ```
+ */
+export function isSatiAgentRegistry(registry: string): boolean {
+  if (!isValidAgentRegistry(registry)) return false;
+  return registry.startsWith(SATI_CHAIN_ID) || registry.startsWith(SATI_CHAIN_ID_DEVNET);
 }

@@ -483,7 +483,7 @@ export type AgentMetadata = RegistrationFile;
  * - Returns null on network errors or invalid URIs (never throws)
  */
 export async function fetchAgentMetadata(uri: string): Promise<AgentMetadata | null> {
-  return fetchRegistrationFile(uri);
+  return fetchRegistrationFile(uri, { strict: true });
 }
 
 /**

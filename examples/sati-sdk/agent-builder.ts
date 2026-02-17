@@ -45,7 +45,7 @@ async function main() {
     })
     .setWallet(signer.address)
     // Custom endpoint
-    .setEndpoint({ name: "web", endpoint: "https://tradingbot.com" })
+    .setService({ name: "web", endpoint: "https://tradingbot.com" })
     // Trust and flags
     .setSupportedTrust(["reputation", "crypto-economic"])
     .setActive(true)
@@ -71,7 +71,7 @@ async function main() {
   // Update the agent (change description, add endpoint)
   console.log("\nUpdating agent...");
   builder.updateInfo({ description: "Updated: now with DeFi protocol integration." });
-  builder.setEndpoint({ name: "DID", endpoint: "did:web:tradingbot.com" });
+  builder.setService({ name: "DID", endpoint: "did:web:tradingbot.com" });
 
   const updateResult = await builder.update({
     payer: signer,
@@ -81,7 +81,7 @@ async function main() {
   console.log(`Updated! Tx: ${updateResult.signature}`);
 
   // Remove an endpoint
-  builder.removeEndpoint("web");
+  builder.removeService("web");
   console.log(`\nServices after removal: ${builder.params.services?.length ?? 0}`);
 }
 

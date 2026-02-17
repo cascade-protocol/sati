@@ -60,6 +60,15 @@ export default defineConfig({
         ]
       },
       {
+        text: 'ERC-8004 Reference',
+        collapsed: true,
+        items: [
+          { text: 'Specification', link: '/reference/erc-8004/spec' },
+          { text: 'Registration Guide', link: '/reference/erc-8004/registration' },
+          { text: 'Reputation Guide', link: '/reference/erc-8004/reputation' },
+        ]
+      },
+      {
         text: 'Deep Dive',
         items: [
           { text: 'Specification', link: '/specification' },

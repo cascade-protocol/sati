@@ -21,7 +21,7 @@
 
 import type { Address, KeyPairSigner } from "@solana/kit";
 import type { AgentIdentity, RegisterAgentResult } from "./types";
-import type { Endpoint, RegistrationFileParams, TrustMechanism } from "./registration";
+import type { ServiceDefinition, RegistrationFileParams, TrustMechanism } from "./registration";
 import type { MetadataUploader } from "./uploaders";
 import type { Sati } from "./client";
 
@@ -59,11 +59,11 @@ export class SatiAgentBuilder {
   // Fluent setters
   // =========================================================================
 
-  /** Set a generic endpoint. */
-  setEndpoint(endpoint: Endpoint): this {
+  /** Set a generic service definition. */
+  setService(service: ServiceDefinition): this {
     if (!this._params.services) this._params.services = [];
-    this._params.services = this._params.services.filter((ep) => ep.name !== endpoint.name);
-    this._params.services.push(endpoint);
+    this._params.services = this._params.services.filter((s) => s.name !== service.name);
+    this._params.services.push(service);
     return this;
   }
 
@@ -74,7 +74,7 @@ export class SatiAgentBuilder {
    * Pass tools/prompts/resources explicitly via the `meta` parameter.
    */
   setMCP(url: string, version?: string, meta?: { tools?: string[]; prompts?: string[]; resources?: string[] }): this {
-    return this.setEndpoint({
+    return this.setService({
       name: "MCP",
       endpoint: url,
       ...(version && { version }),
@@ -84,9 +84,9 @@ export class SatiAgentBuilder {
     });
   }
 
-  /** Set A2A endpoint. */
+  /** Set A2A service. */
   setA2A(url: string, version?: string, meta?: { skills?: string[] }): this {
-    return this.setEndpoint({
+    return this.setService({
       name: "A2A",
       endpoint: url,
       ...(version && { version }),
@@ -94,18 +94,18 @@ export class SatiAgentBuilder {
     });
   }
 
-  /** Set wallet endpoint. */
+  /** Set wallet service. */
   setWallet(address: string): this {
-    return this.setEndpoint({
+    return this.setService({
       name: "agentWallet",
       endpoint: address,
     });
   }
 
-  /** Remove an endpoint by name. */
-  removeEndpoint(name: string): this {
+  /** Remove a service by name. */
+  removeService(name: string): this {
     if (this._params.services) {
-      this._params.services = this._params.services.filter((ep) => ep.name !== name);
+      this._params.services = this._params.services.filter((s) => s.name !== name);
     }
     return this;
   }

@@ -21,6 +21,7 @@ import {
   ContentType,
   type ParsedAttestation,
   type ParsedValidationAttestation,
+  SATI_CHAIN_IDS,
 } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
 import { paymentMiddleware, x402ResourceServer } from "@x402/hono";
@@ -90,8 +91,8 @@ const FACILITATOR_URL_MAINNET = "https://x402.dexter.cash";
 // const FACILITATOR_URL_MAINNET = "https://pay.openfacilitator.io";
 
 // Solana CAIP-2 network identifiers (used for x402 payments)
-const SOLANA_DEVNET_NETWORK = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1" as const;
-const SOLANA_MAINNET_NETWORK = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" as const;
+const SOLANA_DEVNET_NETWORK = SATI_CHAIN_IDS.devnet;
+const SOLANA_MAINNET_NETWORK = SATI_CHAIN_IDS.mainnet;
 
 // Helper to get deployed config for a network
 function getNetworkConfig(network: "devnet" | "mainnet") {

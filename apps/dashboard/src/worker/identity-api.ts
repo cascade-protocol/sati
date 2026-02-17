@@ -23,9 +23,10 @@ import {
   Outcome as OutcomeEnum,
   type FeedbackData,
   SATI_PROGRAM_ADDRESS,
+  SATI_CHAIN_IDS,
   type AgentIdentity,
 } from "@cascade-fyi/sati-sdk";
-import type { Endpoint, TrustMechanism } from "@cascade-fyi/sati-sdk";
+import type { ServiceDefinition, TrustMechanism } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
 import type { Env } from "../env";
 
@@ -104,11 +105,8 @@ interface FeedbackRequest {
   feedbackHash?: string;
 }
 
-// CAIP-2 chain identifiers
-const CAIP2_CHAINS = {
-  mainnet: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-  devnet: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-} as const;
+// CAIP-2 chain identifiers (from SDK)
+const CAIP2_CHAINS = SATI_CHAIN_IDS;
 
 // =============================================================================
 // Helpers
@@ -199,7 +197,7 @@ export function createIdentityApi(env: Env) {
         description: body.description.trim(),
         image: body.image.trim(),
         externalUrl: body.externalUrl,
-        services: body.services as Endpoint[],
+        services: body.services as ServiceDefinition[],
         supportedTrust: body.supportedTrust as TrustMechanism[],
         active: body.active ?? true,
         x402Support: body.x402Support,
@@ -276,7 +274,7 @@ export function createIdentityApi(env: Env) {
       for (const agent of agents) {
         if (results.length >= limit) break;
 
-        const regFile = await fetchRegistrationFile(agent.uri);
+        const regFile = await fetchRegistrationFile(agent.uri, { strict: true });
 
         if (nameFilter) {
           const agentName = (regFile?.name ?? agent.name).toLowerCase();
@@ -326,7 +324,7 @@ export function createIdentityApi(env: Env) {
         return c.json({ error: "Agent not found" }, 404);
       }
 
-      const regFile = await fetchRegistrationFile(agent.uri);
+      const regFile = await fetchRegistrationFile(agent.uri, { strict: true });
 
       // Fetch reputation summary
       const networkConfig = getNetworkConfig(sati);

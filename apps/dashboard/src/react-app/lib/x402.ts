@@ -18,10 +18,7 @@ import { x402Client, wrapFetchWithPayment, type SelectPaymentRequirements } from
 import { ExactSvmScheme } from "@x402/svm/exact/client";
 import { ExactSvmSchemeV1 } from "@x402/svm/exact/v1/client";
 import { getChain, type SolanaChain } from "./network";
-
-// CAIP-2 network identifiers used by x402 (based on genesis hash)
-const SOLANA_MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
-const SOLANA_DEVNET_CAIP2 = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
+import { SATI_CHAIN_IDS } from "@cascade-fyi/sati-sdk";
 
 /**
  * Maps our app's chain identifier to x402's CAIP-2 network identifier.
@@ -29,10 +26,10 @@ const SOLANA_DEVNET_CAIP2 = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 function chainToCaip2(chain: SolanaChain): string {
   switch (chain) {
     case "solana:mainnet":
-      return SOLANA_MAINNET_CAIP2;
+      return SATI_CHAIN_IDS.mainnet;
     default:
       // devnet, testnet, localnet all use devnet CAIP-2
-      return SOLANA_DEVNET_CAIP2;
+      return SATI_CHAIN_IDS.devnet;
   }
 }
 
