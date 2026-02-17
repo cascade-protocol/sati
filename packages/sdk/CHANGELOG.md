@@ -9,12 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **`Endpoint` renamed to `ServiceDefinition`** - deprecated `Endpoint` re-export kept for backward compatibility
+- **`setEndpoint`/`removeEndpoint` renamed** to `setService`/`removeService` on `AgentBuilder`
 - **`listAllAgents` return type changed** from `AgentIdentity[]` to `{ agents: AgentIdentity[]; totalAgents: bigint }` - callers must destructure
 - **`listAllAgents` offset changed** from 1-based `bigint` to 0-based `number` for simpler pagination
 - **`AgentSearchOptions.offset` changed** from `bigint` to `number`
 
 ### Added
 
+- **ERC-8004 validation and parsing** - exported Zod schemas (`RegistrationFileSchema`, `ServiceDefinitionSchema`, etc.), `validateRegistrationFile()`, `parseRegistrationFile()`, `normalizeRegistrationFile()`
+- **CAIP validation helpers** - `isValidAgentRegistry()`, `isSatiAgentRegistry()`
+- **`buildSatiRegistrationEntry()`** - network-aware helper with devnet support
+- **`ERC8004_TYPE`, `VALID_TRUST_MODELS`, `SATI_CHAIN_IDS` constants**
+- **Strict mode for `fetchRegistrationFile()`** - validates against ERC-8004 schema when `strict: true`
 - **Approximate `createdAt` timestamps** on `ParsedAttestation`, `ParsedFeedbackAttestation`, and `ParsedValidationAttestation` - derived from slot numbers, no more manual slot-to-time conversion needed
 - **`listAllAgents` order parameter** - `"newest"` (default) or `"oldest"` sort order
 - **`buildFeedbackContent()` helper** - builds typed ERC-8004 feedback content bytes from friendly params

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated `listAllAgents` call to handle new `{ agents, totalAgents }` return type from sati-sdk
+- Hardened adapters with optional chaining and validation guards for malformed on-chain data
 
 ### Dependencies
 
