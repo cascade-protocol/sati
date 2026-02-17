@@ -1052,8 +1052,8 @@ export class Sati {
     offset?: number;
     order?: "newest" | "oldest";
   }): Promise<{ agents: AgentIdentity[]; totalAgents: bigint }> {
-    const limit = options?.limit ?? 100;
-    const offset = options?.offset ?? 0;
+    const limit = Math.max(1, Math.floor(options?.limit ?? 100));
+    const offset = Math.max(0, Math.floor(options?.offset ?? 0));
     const order = options?.order ?? "newest";
 
     const stats = await this.getRegistryStats();
@@ -3053,17 +3053,15 @@ export class Sati {
       throw new Error(`No validation schema deployed for network "${this.network}"`);
     }
 
-    const result = await this.listValidations({
-      sasSchema: validationSchema,
-      agentMint,
-    });
+    const currentSlot = await this.fetchCurrentSlot();
+    const light = this.getLightClient();
+    const result = await light.listValidations({ sasSchema: validationSchema, agentMint }, currentSlot);
 
-    const currentSlot = await this.rpc.getSlot({ commitment: "confirmed" }).send();
     const nowSec = Math.floor(Date.now() / 1000);
 
     return result.items.map((item) => {
-      const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
-      const createdAt = nowSec - Math.floor(slotDiff * 0.4);
+      const createdAt =
+        currentSlot != null ? nowSec - Math.floor(Number(currentSlot - item.raw.slotCreated) * 0.4) : undefined;
       const [compressedAddress] = getAddressDecoder().read(item.address, 0);
 
       return {

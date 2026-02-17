@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-02-17
+
+### Fixed
+
+- **`listAllAgents` input validation** - offset and limit are now clamped to non-negative integers, preventing `BigInt` errors on fractional inputs and out-of-range member numbers on negative offsets
+- **`searchValidations` duplicate slot fetch** - eliminated redundant `getSlot` RPC call; now fetches slot once with graceful failure handling (consistent with `listValidations`)
+- **`isSatiAgentRegistry` false positives** - now verifies the registry address matches the SATI program ID, not just the Solana chain prefix
+
 ## [0.10.0] - 2026-02-17
 
 ### Breaking Changes
@@ -198,6 +206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.10.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.10.0...@cascade-fyi/sati-sdk@0.10.1
 [0.10.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.9.0...@cascade-fyi/sati-sdk@0.10.0
 [0.9.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.8.0...@cascade-fyi/sati-sdk@0.9.0
 [0.8.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.7.0...@cascade-fyi/sati-sdk@0.8.0

@@ -175,7 +175,7 @@ export interface ValidationResult {
    * hours for older attestations. For exact timestamps, use
    * `getCreationSignature()` + Solana's `getBlockTime()`.
    */
-  createdAt: number;
+  createdAt?: number;
   /** Compressed account address (for tx lookup) */
   compressedAddress: string;
 }

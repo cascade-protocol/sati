@@ -176,6 +176,6 @@ export interface ParsedValidation {
   counterparty: Address;
   /** Validation outcome */
   outcome: Outcome;
-  /** Approximate creation timestamp (Unix seconds) */
-  createdAt: number;
+  /** Approximate creation timestamp (Unix seconds), undefined if slot unavailable */
+  createdAt?: number;
 }

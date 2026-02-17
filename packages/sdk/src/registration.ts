@@ -35,6 +35,7 @@
  */
 
 import * as z from "zod";
+import { SATI_PROGRAM_ADDRESS } from "./generated/programs/sati.js";
 
 // ============================================================================
 // Constants
@@ -595,5 +596,7 @@ export function isValidAgentRegistry(registry: string): boolean {
  */
 export function isSatiAgentRegistry(registry: string): boolean {
   if (!isValidAgentRegistry(registry)) return false;
-  return registry.startsWith(SATI_CHAIN_ID) || registry.startsWith(SATI_CHAIN_ID_DEVNET);
+  if (!registry.startsWith(SATI_CHAIN_ID) && !registry.startsWith(SATI_CHAIN_ID_DEVNET)) return false;
+  const programAddress = registry.split(":")[2];
+  return programAddress === SATI_PROGRAM_ADDRESS;
 }
