@@ -526,7 +526,7 @@ describe("E2E: agentMint validation", () => {
       "created feedbacks can be queried by registered agent mint",
       async () => {
         // Query feedbacks for the registered agent
-        const result = await sati.listFeedbacks({ agentMint: registeredAgentMint });
+        const result = await sati.listFeedbacks({ agentMint: registeredAgentMint, sasSchema: feedbackSchema });
 
         expect(Array.isArray(result.items)).toBe(true);
 

@@ -2,11 +2,12 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 use light_sdk::{
     account::LightAccount,
-    address::v1::derive_address,
+    address::v2::derive_address,
     cpi::{
-        v1::CpiAccounts, v2::lowlevel::InstructionDataInvokeCpiWithReadOnly,
+        v2::{lowlevel::InstructionDataInvokeCpiWithReadOnly, CpiAccounts},
         InvokeLightSystemProgram, LightCpiInstruction,
     },
+    PackedAddressTreeInfoExt,
 };
 use solana_program::sysvar::instructions as instructions_sysvar;
 
@@ -206,14 +207,27 @@ pub fn handler<'info>(
         &counterparty_pubkey,
     );
 
-    // 12. Initialize Light Protocol CPI accounts
+    // 12. Enforce V2 invariants for tree indexes before CPI.
+    // AddressV2 uses the same account for tree and queue; output state tree index must
+    // reference a state queue account, not the address tree account.
+    require!(
+        params.address_tree_info.address_merkle_tree_pubkey_index
+            == params.address_tree_info.address_queue_pubkey_index,
+        SatiError::InvalidAddressTreeInfo
+    );
+    require!(
+        params.output_state_tree_index != params.address_tree_info.address_merkle_tree_pubkey_index,
+        SatiError::InvalidOutputStateTreeIndex
+    );
+
+    // 13. Initialize Light Protocol CPI accounts
     let light_cpi_accounts = CpiAccounts::new(
         ctx.accounts.payer.as_ref(),
         ctx.remaining_accounts,
         LIGHT_CPI_SIGNER,
     );
 
-    // 13. Get address tree pubkey from params
+    // 14. Get address tree pubkey from params
     let address_tree_pubkey = params
         .address_tree_info
         .get_tree_pubkey(&light_cpi_accounts)
@@ -230,7 +244,7 @@ pub fn handler<'info>(
         &ID,
     );
 
-    // 14. Initialize compressed account with proper tree index
+    // 15. Initialize compressed account with proper tree index
     let mut attestation = LightAccount::<CompressedAttestation>::new_init(
         &ID,
         Some(address),
@@ -250,20 +264,19 @@ pub fn handler<'info>(
         .map(|s| s.sig)
         .unwrap_or([0u8; 64]);
 
-    // 15. Compute new address params from params
+    // 16. Compute new address params from params
     let new_address_params = params
         .address_tree_info
         .into_new_address_params_assigned_packed(address_seed, Some(0));
 
-    // 16. CPI to Light System Program with proof from params
+    // 17. CPI to Light System Program with proof from params
     InstructionDataInvokeCpiWithReadOnly::new_cpi(LIGHT_CPI_SIGNER, params.proof)
-        .mode_v1()
         .with_light_account(attestation)?
         .with_new_addresses(&[new_address_params])
         .invoke(light_cpi_accounts)
         .map_err(|_| SatiError::LightCpiInvocationFailed)?;
 
-    // 17. Emit event
+    // 18. Emit event
     emit_cpi!(AttestationCreated {
         sas_schema: schema_config.sas_schema,
         agent_mint: agent_mint_pubkey,

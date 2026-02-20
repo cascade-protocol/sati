@@ -3,7 +3,7 @@ use anchor_spl::token_interface::{TokenAccount, TokenInterface};
 use light_sdk::{
     account::LightAccount,
     cpi::{
-        v1::{CpiAccounts, LightSystemProgramCpi},
+        v2::{CpiAccounts, LightSystemProgramCpi},
         InvokeLightSystemProgram, LightCpiInstruction,
     },
 };

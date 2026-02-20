@@ -58,10 +58,7 @@ mollusk-svm = "0.5"
 mollusk-svm-bencher = "0.5"
 
 # Light Protocol for compressed account testing
-# Note: devenv feature has version conflicts in crates.io releases
-# Use with_prover=true in ProgramTestConfig and run `light start-prover` manually
-light-program-test = "0.17"
-light-prover-client = "5.0"
+light-program-test = "0.22"
 
 # Ed25519 signature creation for tests
 ed25519-dalek = "2.1"

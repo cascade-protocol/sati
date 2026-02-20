@@ -163,4 +163,13 @@ pub enum SatiError {
 
     #[msg("Failed to extract EVM address from secp256k1 key recovery")]
     InvalidEvmAddressRecovery,
+
+    // ========================================================================
+    // V2 Tree Validation Errors
+    // ========================================================================
+    #[msg("Invalid address tree info for V2 (address tree and queue indexes must match)")]
+    InvalidAddressTreeInfo,
+
+    #[msg("Invalid output state tree index for V2")]
+    InvalidOutputStateTreeIndex,
 }

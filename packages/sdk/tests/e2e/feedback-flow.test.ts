@@ -225,7 +225,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         if (!agentMint) return;
 
         // listFeedbacks takes filter object with agentMint
-        const result = await sati.listFeedbacks({ agentMint });
+        const result = await sati.listFeedbacks({ agentMint, sasSchema });
 
         expect(Array.isArray(result.items)).toBe(true);
 
@@ -247,6 +247,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
         // Query positive feedbacks for this agent
         const result = await sati.listFeedbacks({
           agentMint,
+          sasSchema,
           outcome: Outcome.Positive,
         });
 
@@ -288,7 +289,7 @@ describe("E2E: Full Feedback Lifecycle", () => {
       async () => {
         if (!agentMint) return;
 
-        const result = await sati.listFeedbacks({ agentMint });
+        const result = await sati.listFeedbacks({ agentMint, sasSchema });
 
         if (result.items.length > 0) {
           const feedback = result.items[0];

@@ -1571,6 +1571,16 @@
       "code": 6049,
       "name": "InvalidEvmAddressRecovery",
       "msg": "Failed to extract EVM address from secp256k1 key recovery"
+    },
+    {
+      "code": 6050,
+      "name": "InvalidAddressTreeInfo",
+      "msg": "Invalid address tree info for V2 (address tree and queue indexes must match)"
+    },
+    {
+      "code": 6051,
+      "name": "InvalidOutputStateTreeIndex",
+      "msg": "Invalid output state tree index for V2"
     }
   ],
   "types": [
@@ -2063,6 +2073,13 @@
     },
     {
       "name": "PackedAddressTreeInfo",
+      "docs": [
+        "Packed address tree info for instruction data.",
+        "Contains indices to address tree accounts and root index."
+      ],
+      "repr": {
+        "kind": "c"
+      },
       "type": {
         "kind": "struct",
         "fields": [

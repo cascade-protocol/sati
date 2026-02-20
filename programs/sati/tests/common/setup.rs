@@ -87,7 +87,7 @@ pub struct LightTestEnv {
 /// Initialize Light Protocol test environment with SATI program
 ///
 /// This sets up:
-/// - LightProgramTest with V1 state/address trees
+/// - LightProgramTest with V2 batched state/address trees (required for V2 CPI mode)
 /// - TestIndexer for tracking compressed accounts and generating proofs
 /// - Funded payer keypair
 ///
@@ -107,12 +107,10 @@ pub async fn setup_light_test_env() -> LightTestEnv {
         std::env::set_var("SBF_OUT_DIR", deploy_dir);
     }
 
-    let mut config = ProgramTestConfig::new(
-        false, // use_batched_trees - use V1 trees for simpler setup
+    let config = ProgramTestConfig::new_v2(
+        true, // with_prover - requires localnet running
         Some(vec![("sati", SATI_PROGRAM_ID)]),
     );
-    // Enable prover - requires localnet running
-    config.with_prover = true;
 
     let rpc = LightProgramTest::new(config).await.expect(
         "Failed to setup Light Protocol test environment. \
@@ -122,6 +120,24 @@ pub async fn setup_light_test_env() -> LightTestEnv {
     let env = rpc.test_accounts.clone();
     let payer = rpc.get_payer().insecure_clone();
     let indexer = TestIndexer::init_from_acounts(&payer, &env, 0).await;
+
+    // Fail fast if the test harness is not exposing V2 trees.
+    let address_tree = rpc.get_address_tree_v2();
+    assert_eq!(
+        address_tree.tree, address_tree.queue,
+        "Expected AddressV2 tree where queue equals tree"
+    );
+    let state_tree = rpc
+        .get_random_state_tree_info()
+        .expect("Expected at least one V2 state tree");
+    assert_eq!(
+        state_tree.tree_type as u64, 3,
+        "Expected StateV2 tree type (3)"
+    );
+    rpc.get_account(state_tree.queue)
+        .await
+        .expect("Failed to fetch V2 state queue account")
+        .expect("Missing V2 state queue account");
 
     LightTestEnv {
         rpc,

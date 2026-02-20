@@ -316,4 +316,29 @@ mod tests {
         assert_eq!(cloned.key, "test_key");
         assert_eq!(cloned.value, "test_value");
     }
+
+    /// Verify LightDiscriminator produces the expected SHA256("CompressedAttestation")[0..8] hash.
+    /// This is critical for backward compatibility: existing compressed attestations on mainnet
+    /// were created with this discriminator. If it changes, deserialization of existing data breaks.
+    #[test]
+    fn test_compressed_attestation_discriminator_backward_compat() {
+        use light_sdk::LightDiscriminator as _;
+        use sha2::{Digest, Sha256};
+
+        // Compute expected discriminator: SHA256("CompressedAttestation")[0..8]
+        let mut hasher = Sha256::new();
+        hasher.update(b"CompressedAttestation");
+        let hash = hasher.finalize();
+        let expected: [u8; 8] = hash[..8].try_into().unwrap();
+
+        // Get actual discriminator from derive macro
+        let actual = CompressedAttestation::LIGHT_DISCRIMINATOR;
+
+        assert_eq!(
+            actual, expected,
+            "LightDiscriminator changed! Expected SHA256(\"CompressedAttestation\")[0..8] = {:?}, got {:?}. \
+             This would break deserialization of existing mainnet compressed attestations.",
+            expected, actual,
+        );
+    }
 }

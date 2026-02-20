@@ -108,12 +108,11 @@ import type { DeployedSASConfig, SATISASConfig } from "../src/types";
 import {
   LIGHT_SYSTEM_PROGRAM,
   ACCOUNT_COMPRESSION_PROGRAM,
-  NOOP_PROGRAM,
   REGISTERED_PROGRAM_PDA,
-  ADDRESS_TREE,
-  ADDRESS_QUEUE,
-  MERKLE_TREE_PUBKEY,
-  NULLIFIER_QUEUE_PUBKEY,
+  BATCH_ADDRESS_TREE,
+  BATCH_MERKLE_TREE_1,
+  BATCH_QUEUE_1,
+  BATCH_CPI_CONTEXT_1,
 } from "@cascade-fyi/compression-kit";
 
 // Type aliases for sendAndConfirmTransactionFactory - avoids cluster brand mismatch
@@ -1072,6 +1071,18 @@ async function main() {
     seeds: [new TextEncoder().encode("__event_authority")],
   });
 
+  // Derive CPI signer PDA: PDA(SATI_PROGRAM, ["cpi_authority"])
+  const [cpiSigner] = await getProgramDerivedAddress({
+    programAddress: programId,
+    seeds: [new TextEncoder().encode("cpi_authority")],
+  });
+
+  // Derive account compression authority PDA: PDA(LIGHT_SYSTEM_PROGRAM, ["cpi_authority"])
+  const [compressionAuthority] = await getProgramDerivedAddress({
+    programAddress: LIGHT_SYSTEM_PROGRAM,
+    seeds: [new TextEncoder().encode("cpi_authority")],
+  });
+
   // Derive schema config PDAs - these are what transactions actually reference!
   // NOTE: Schema ADDRESSES are NOT needed in ALT - only schema CONFIG PDAs are used
   const [feedbackConfigPda] = await findSchemaConfigPda(sasConfig.schemas.feedback);
@@ -1079,17 +1090,20 @@ async function main() {
   const [reputationScoreConfigPda] = await findSchemaConfigPda(sasConfig.schemas.reputationScore);
 
   const altAddresses: Address[] = [
-    // Light Protocol core programs
+    // Light Protocol core (V2 CPI: no Noop program)
     LIGHT_SYSTEM_PROGRAM,
     ACCOUNT_COMPRESSION_PROGRAM,
-    NOOP_PROGRAM,
     REGISTERED_PROGRAM_PDA,
 
-    // Light Protocol state trees (devnet)
-    ADDRESS_TREE,
-    ADDRESS_QUEUE,
-    MERKLE_TREE_PUBKEY,
-    NULLIFIER_QUEUE_PUBKEY,
+    // Light Protocol V2 batched trees (state + address)
+    BATCH_MERKLE_TREE_1,
+    BATCH_QUEUE_1,
+    BATCH_CPI_CONTEXT_1,
+    BATCH_ADDRESS_TREE,
+
+    // Light Protocol CPI authorities
+    cpiSigner,
+    compressionAuthority,
 
     // SATI program and PDAs
     programId,

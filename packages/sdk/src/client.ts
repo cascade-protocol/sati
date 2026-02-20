@@ -2303,23 +2303,35 @@ export class Sati {
   // ============================================================
 
   /**
-   * List Feedback attestations with pagination
+   * List Feedback attestations with pagination.
+   *
+   * @param filter.sasSchema - SAS schema address. Defaults to the deployed feedback schema
+   *   when Sati was initialized with a deployed config. Throws if neither is available.
    */
-  async listFeedbacks(filter: Partial<AttestationFilter>): Promise<PaginatedAttestations<ParsedFeedbackAttestation>> {
+  async listFeedbacks(filter: AttestationFilter): Promise<PaginatedAttestations<ParsedFeedbackAttestation>> {
+    const sasSchema = filter.sasSchema ?? this.feedbackSchema;
+    if (!sasSchema) {
+      throw new Error("sasSchema is required: provide it in the filter or initialize Sati with a deployed config");
+    }
     const light = this.getLightClient();
     const currentSlot = await this.fetchCurrentSlot();
-    return light.listFeedbacks(filter, currentSlot);
+    return light.listFeedbacks({ ...filter, sasSchema }, currentSlot);
   }
 
   /**
-   * List Validation attestations with pagination
+   * List Validation attestations with pagination.
+   *
+   * @param filter.sasSchema - SAS schema address. Defaults to the deployed validation schema
+   *   when Sati was initialized with a deployed config. Throws if neither is available.
    */
-  async listValidations(
-    filter: Partial<AttestationFilter>,
-  ): Promise<PaginatedAttestations<ParsedValidationAttestation>> {
+  async listValidations(filter: AttestationFilter): Promise<PaginatedAttestations<ParsedValidationAttestation>> {
+    const sasSchema = filter.sasSchema ?? this.validationSchema;
+    if (!sasSchema) {
+      throw new Error("sasSchema is required: provide it in the filter or initialize Sati with a deployed config");
+    }
     const light = this.getLightClient();
     const currentSlot = await this.fetchCurrentSlot();
-    return light.listValidations(filter, currentSlot);
+    return light.listValidations({ ...filter, sasSchema }, currentSlot);
   }
 
   /**

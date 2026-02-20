@@ -20,6 +20,7 @@ export enum VERSION {
 
 /**
  * Feature flags for protocol versioning.
+ * @deprecated Use `VERSION` enum directly and pass to functions/constructors instead.
  * @internal
  */
 export const featureFlags = {
@@ -29,7 +30,7 @@ export const featureFlags = {
 
 /**
  * Returns versioned endpoint name.
- * @example versionedEndpoint('getCompressedAccount') -> 'getCompressedAccountV2' (if V2)
+ * @deprecated Use `PhotonRpc` constructor's `version` parameter instead.
  */
 export const versionedEndpoint = (base: string): string => (featureFlags.isV2() ? `${base}V2` : base);
 
@@ -175,8 +176,17 @@ export const TRANSACTION_MERKLE_TREE_ROLLOVER_THRESHOLD = BigInt(Math.floor(2 **
 // Fees
 // =============================================================================
 
-/** Fee per output compressed account (for tree rollover) */
-export const STATE_MERKLE_TREE_ROLLOVER_FEE = featureFlags.isV2() ? 1n : 300n;
+/** Fee per output compressed account (V1 tree rollover) */
+export const STATE_MERKLE_TREE_ROLLOVER_FEE_V1 = 300n;
+
+/** Fee per output compressed account (V2 batched tree rollover) */
+export const STATE_MERKLE_TREE_ROLLOVER_FEE_V2 = 1n;
+
+/**
+ * @deprecated Use `STATE_MERKLE_TREE_ROLLOVER_FEE_V1` or `STATE_MERKLE_TREE_ROLLOVER_FEE_V2` instead.
+ * Defaults to V1 fee for backward compatibility.
+ */
+export const STATE_MERKLE_TREE_ROLLOVER_FEE = STATE_MERKLE_TREE_ROLLOVER_FEE_V1;
 
 /** Fee per new address (for address tree rollover) */
 export const ADDRESS_QUEUE_ROLLOVER_FEE = 392n;
@@ -242,9 +252,10 @@ export function defaultTestStateTreeAccounts(): {
 
 /**
  * Returns active state tree infos for localnet testing.
+ * @param version - Protocol version. Defaults to V1 for backward compatibility.
  * @internal
  */
-export function localTestActiveStateTreeInfos(): TreeInfo[] {
+export function localTestActiveStateTreeInfos(version: VERSION = VERSION.V1): TreeInfo[] {
   const v1Trees: TreeInfo[] = [
     {
       tree: MERKLE_TREE_PUBKEY,
@@ -262,7 +273,7 @@ export function localTestActiveStateTreeInfos(): TreeInfo[] {
     },
   ];
 
-  if (!featureFlags.isV2()) {
+  if (version !== VERSION.V2) {
     return v1Trees;
   }
 
@@ -294,9 +305,10 @@ export function localTestActiveStateTreeInfos(): TreeInfo[] {
 
 /**
  * Returns default address tree info.
+ * @param version - Protocol version. Defaults to V1 for backward compatibility.
  */
-export function getDefaultAddressTreeInfo(): TreeInfo {
-  if (featureFlags.isV2()) {
+export function getDefaultAddressTreeInfo(version: VERSION = VERSION.V1): TreeInfo {
+  if (version === VERSION.V2) {
     return {
       tree: BATCH_ADDRESS_TREE,
       queue: BATCH_ADDRESS_TREE,

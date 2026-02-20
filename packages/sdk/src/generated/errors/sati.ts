@@ -114,6 +114,10 @@ export const SATI_ERROR__SECP256K1_RECOVERY_FAILED = 0x179f; // 6047
 export const SATI_ERROR__EVM_ADDRESS_MISMATCH = 0x17a0; // 6048
 /** InvalidEvmAddressRecovery: Failed to extract EVM address from secp256k1 key recovery */
 export const SATI_ERROR__INVALID_EVM_ADDRESS_RECOVERY = 0x17a1; // 6049
+/** InvalidAddressTreeInfo: Invalid address tree info for V2 (address tree and queue indexes must match) */
+export const SATI_ERROR__INVALID_ADDRESS_TREE_INFO = 0x17a2; // 6050
+/** InvalidOutputStateTreeIndex: Invalid output state tree index for V2 */
+export const SATI_ERROR__INVALID_OUTPUT_STATE_TREE_INDEX = 0x17a3; // 6051
 
 export type SatiError =
   | typeof SATI_ERROR__AGENT_ATA_EMPTY
@@ -135,6 +139,7 @@ export type SatiError =
   | typeof SATI_ERROR__ED25519_INSTRUCTION_NOT_FOUND
   | typeof SATI_ERROR__EVM_ADDRESS_MISMATCH
   | typeof SATI_ERROR__IMMUTABLE_AUTHORITY
+  | typeof SATI_ERROR__INVALID_ADDRESS_TREE_INFO
   | typeof SATI_ERROR__INVALID_AUTHORITY
   | typeof SATI_ERROR__INVALID_CONTENT_TYPE
   | typeof SATI_ERROR__INVALID_DELEGATION_P_D_A
@@ -143,6 +148,7 @@ export type SatiError =
   | typeof SATI_ERROR__INVALID_GROUP_MINT
   | typeof SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR
   | typeof SATI_ERROR__INVALID_OUTCOME
+  | typeof SATI_ERROR__INVALID_OUTPUT_STATE_TREE_INDEX
   | typeof SATI_ERROR__INVALID_SECP256K1_SIGNATURE
   | typeof SATI_ERROR__INVALID_SIGNATURE
   | typeof SATI_ERROR__INVALID_SIGNATURE_COUNT
@@ -189,6 +195,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__ED25519_INSTRUCTION_NOT_FOUND]: `No Ed25519 instruction found in transaction`,
     [SATI_ERROR__EVM_ADDRESS_MISMATCH]: `EVM address mismatch - recovered address does not match expected`,
     [SATI_ERROR__IMMUTABLE_AUTHORITY]: `Authority is immutable (renounced)`,
+    [SATI_ERROR__INVALID_ADDRESS_TREE_INFO]: `Invalid address tree info for V2 (address tree and queue indexes must match)`,
     [SATI_ERROR__INVALID_AUTHORITY]: `Invalid authority`,
     [SATI_ERROR__INVALID_CONTENT_TYPE]: `Invalid content type (must be 0-15)`,
     [SATI_ERROR__INVALID_DELEGATION_P_D_A]: `Delegation attestation PDA doesn't match expected derivation`,
@@ -197,6 +204,7 @@ if (process.env.NODE_ENV !== "production") {
     [SATI_ERROR__INVALID_GROUP_MINT]: `Invalid group mint - must be owned by Token-2022 with TokenGroup extension`,
     [SATI_ERROR__INVALID_INSTRUCTIONS_SYSVAR]: `Invalid instructions sysvar`,
     [SATI_ERROR__INVALID_OUTCOME]: `Invalid outcome value (must be 0, 1, or 2)`,
+    [SATI_ERROR__INVALID_OUTPUT_STATE_TREE_INDEX]: `Invalid output state tree index for V2`,
     [SATI_ERROR__INVALID_SECP256K1_SIGNATURE]: `Invalid secp256k1 signature`,
     [SATI_ERROR__INVALID_SIGNATURE]: `Invalid Ed25519 signature`,
     [SATI_ERROR__INVALID_SIGNATURE_COUNT]: `Invalid signature count for signature mode`,

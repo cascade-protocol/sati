@@ -17,10 +17,12 @@
 
 use light_program_test::{program_test::TestRpc, AddressWithTree, Indexer, Rpc};
 use light_sdk::{
-    address::v1::derive_address,
-    instruction::{PackedAccounts, SystemAccountMetaConfig},
+    address::v2::derive_address,
+    instruction::{PackedAccounts, PackedAddressTreeInfo, SystemAccountMetaConfig},
 };
-use solana_sdk::{account::Account, pubkey::Pubkey, signer::Signer};
+use solana_sdk::{
+    account::Account, instruction::Instruction, pubkey::Pubkey, signature::Keypair, signer::Signer,
+};
 
 use crate::common::{
     accounts::{compute_anchor_account_discriminator, derive_token22_ata},
@@ -203,10 +205,10 @@ async fn test_create_attestation_feedback_success() {
     // 6. Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // 7. Derive compressed account address
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
 
     // Nonce uses agent_mint (identity), not agent_pubkey
@@ -242,7 +244,7 @@ async fn test_create_attestation_feedback_success() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     // 10. Build CreateParams (signatures extracted from Ed25519 ix)
@@ -291,6 +293,239 @@ async fn test_create_attestation_feedback_success() {
         account.address,
         Some(compressed_address),
         "Address should match"
+    );
+}
+
+// =============================================================================
+// V2 Tree Invariant Tests - Shared Setup
+// =============================================================================
+
+/// Common context produced by `setup_v2_invariant_test` for V2 tree validation tests.
+struct V2InvariantTestCtx {
+    rpc: light_program_test::LightProgramTest,
+    payer: Keypair,
+    schema_config_pda: Pubkey,
+    agent_mint: Pubkey,
+    agent_ata: Pubkey,
+    ed25519_ix: Instruction,
+    /// Packed address tree info from the validity proof (valid V2 indexes).
+    address_tree_info: PackedAddressTreeInfo,
+    /// Valid output state tree index (points to the state queue).
+    output_state_tree_index: u8,
+    proof: light_sdk::instruction::ValidityProof,
+    data: Vec<u8>,
+    system_accounts: Vec<solana_sdk::instruction::AccountMeta>,
+}
+
+/// Setup a complete test context for V2 tree invariant tests.
+///
+/// Produces a valid attestation context (schema, agent, signatures, validity proof)
+/// that the caller can then selectively break to test specific error paths.
+async fn setup_v2_invariant_test(task_ref: [u8; 32], data_label: &[u8]) -> V2InvariantTestCtx {
+    let LightTestEnv { mut rpc, payer, .. } = setup_light_test_env().await;
+
+    let sas_schema = Pubkey::new_unique();
+    let (schema_config_pda, bump) = derive_schema_config_pda(&sas_schema);
+    rpc.set_account(
+        schema_config_pda,
+        Account {
+            lamports: 1_000_000,
+            data: create_schema_config_data(
+                &sas_schema,
+                SignatureMode::DualSignature,
+                StorageType::Compressed,
+                true,
+                bump,
+            ),
+            owner: SATI_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let agent_keypair = generate_ed25519_keypair();
+    let counterparty_keypair = generate_ed25519_keypair();
+    let agent_pubkey = keypair_to_pubkey(&agent_keypair);
+    let counterparty_pubkey = keypair_to_pubkey(&counterparty_keypair);
+    let agent_mint = Pubkey::new_unique();
+    let agent_ata = derive_token22_ata(&agent_pubkey, &agent_mint);
+
+    rpc.set_account(
+        agent_mint,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_mint_data(&agent_pubkey),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+    rpc.set_account(
+        agent_ata,
+        Account {
+            lamports: 1_000_000,
+            data: create_mock_ata_data(&agent_mint, &agent_pubkey, 1),
+            owner: TOKEN_2022_PROGRAM_ID,
+            executable: false,
+            rent_epoch: 0,
+        },
+    );
+
+    let data_hash = compute_data_hash(data_label);
+    let outcome: u8 = 2;
+    let data = AttestationDataBuilder::new(
+        task_ref,
+        agent_mint,
+        counterparty_pubkey,
+        outcome,
+        data_hash,
+    )
+    .build();
+
+    let agent_message = compute_interaction_hash(&sas_schema, &task_ref, &data_hash);
+    let counterparty_msg =
+        build_counterparty_message(SCHEMA_NAME, &agent_mint, &task_ref, outcome, None);
+    let agent_sig = sign_message(&agent_keypair, &agent_message);
+    let counterparty_sig = sign_message(&counterparty_keypair, &counterparty_msg);
+
+    let ed25519_ix = create_multi_ed25519_ix(&[
+        (&agent_pubkey, &agent_message, &agent_sig),
+        (&counterparty_pubkey, &counterparty_msg, &counterparty_sig),
+    ]);
+
+    let mut remaining_accounts = PackedAccounts::default();
+    let _ =
+        remaining_accounts.add_system_accounts_v2(SystemAccountMetaConfig::new(SATI_PROGRAM_ID));
+
+    let tree_info = rpc.get_address_tree_v2();
+    let nonce =
+        compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
+    let (compressed_address, _) = derive_address(
+        &[
+            b"attestation",
+            sas_schema.as_ref(),
+            agent_mint.as_ref(),
+            &nonce,
+        ],
+        &tree_info.tree,
+        &SATI_PROGRAM_ID,
+    );
+
+    let rpc_result = rpc
+        .get_validity_proof(
+            vec![],
+            vec![AddressWithTree {
+                address: compressed_address,
+                tree: tree_info.tree,
+            }],
+            None,
+        )
+        .await
+        .expect("Failed to get validity proof")
+        .value;
+
+    let packed = rpc_result.pack_tree_infos(&mut remaining_accounts);
+    let address_tree_info = packed.address_trees[0];
+    let output_state_tree_index =
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
+    let (system_accounts, _, _) = remaining_accounts.to_account_metas();
+
+    V2InvariantTestCtx {
+        rpc,
+        payer,
+        schema_config_pda,
+        agent_mint,
+        agent_ata,
+        ed25519_ix,
+        address_tree_info,
+        output_state_tree_index,
+        proof: rpc_result.proof,
+        data,
+        system_accounts,
+    }
+}
+
+/// Test that create_attestation fails when output_state_tree_index points to the address tree.
+///
+/// In V2, output_state_tree_index must point to a state queue account.
+#[tokio::test]
+async fn test_create_attestation_rejects_address_tree_output_index() {
+    let mut ctx = setup_v2_invariant_test([9u8; 32], b"invalid output state tree index").await;
+
+    let params = CreateParams {
+        data: ctx.data,
+        output_state_tree_index: ctx.address_tree_info.address_merkle_tree_pubkey_index,
+        proof: ctx.proof,
+        address_tree_info: ctx.address_tree_info,
+    };
+
+    let attestation_ix = build_create_compressed_attestation_ix(
+        &ctx.payer.pubkey(),
+        &ctx.schema_config_pda,
+        &ctx.agent_mint,
+        Some(&ctx.agent_ata),
+        params,
+        ctx.system_accounts,
+    );
+
+    let result = ctx
+        .rpc
+        .create_and_send_transaction(
+            &[ctx.ed25519_ix, attestation_ix],
+            &ctx.payer.pubkey(),
+            &[&ctx.payer],
+        )
+        .await;
+
+    assert!(result.is_err());
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("InvalidOutputStateTreeIndex") || err_str.contains("6051"),
+        "Expected InvalidOutputStateTreeIndex error, got: {}",
+        err_str
+    );
+}
+
+/// Test that create_attestation fails when address tree and queue indexes differ in V2.
+#[tokio::test]
+async fn test_create_attestation_rejects_mismatched_address_tree_indexes() {
+    let mut ctx = setup_v2_invariant_test([10u8; 32], b"mismatched address tree indexes").await;
+
+    let mut malformed = ctx.address_tree_info;
+    malformed.address_queue_pubkey_index =
+        ctx.address_tree_info.address_merkle_tree_pubkey_index ^ 1;
+
+    let params = CreateParams {
+        data: ctx.data,
+        output_state_tree_index: ctx.output_state_tree_index,
+        proof: ctx.proof,
+        address_tree_info: malformed,
+    };
+
+    let attestation_ix = build_create_compressed_attestation_ix(
+        &ctx.payer.pubkey(),
+        &ctx.schema_config_pda,
+        &ctx.agent_mint,
+        Some(&ctx.agent_ata),
+        params,
+        ctx.system_accounts,
+    );
+
+    let result = ctx
+        .rpc
+        .create_and_send_transaction(
+            &[ctx.ed25519_ix, attestation_ix],
+            &ctx.payer.pubkey(),
+            &[&ctx.payer],
+        )
+        .await;
+
+    assert!(result.is_err());
+    let err_str = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_str.contains("InvalidAddressTreeInfo") || err_str.contains("6050"),
+        "Expected InvalidAddressTreeInfo error, got: {}",
+        err_str
     );
 }
 
@@ -373,10 +608,10 @@ async fn test_create_attestation_missing_signature() {
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // Derive compressed account address
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -405,7 +640,7 @@ async fn test_create_attestation_missing_signature() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -524,10 +759,10 @@ async fn test_create_attestation_invalid_signature() {
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // Derive compressed account address
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -556,7 +791,7 @@ async fn test_create_attestation_invalid_signature() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -686,10 +921,10 @@ async fn test_create_attestation_wrong_signer() {
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // Derive compressed account address
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -718,7 +953,7 @@ async fn test_create_attestation_wrong_signer() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -841,10 +1076,10 @@ async fn test_create_attestation_self_attestation() {
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // Derive compressed account address
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce = compute_attestation_nonce(&task_ref, &sas_schema, &self_mint, &self_mint);
     let seeds: &[&[u8]] = &[
@@ -872,7 +1107,7 @@ async fn test_create_attestation_self_attestation() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -986,10 +1221,10 @@ async fn test_create_attestation_data_too_small() {
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // Use dummy values for address derivation (won't actually be created)
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let task_ref = [1u8; 32];
     let nonce =
@@ -1019,7 +1254,7 @@ async fn test_create_attestation_data_too_small() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -1144,10 +1379,10 @@ async fn test_create_attestation_wrong_storage_type() {
     // Build remaining_accounts for Light Protocol CPI
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
     // Derive compressed account address
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -1176,7 +1411,7 @@ async fn test_create_attestation_wrong_storage_type() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -1313,9 +1548,9 @@ async fn test_create_attestation_wrong_mint_ata() {
     // Build remaining_accounts
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce = compute_attestation_nonce(
         &task_ref,
@@ -1347,7 +1582,7 @@ async fn test_create_attestation_wrong_mint_ata() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -1476,9 +1711,9 @@ async fn test_create_attestation_wrong_owner_ata() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -1506,7 +1741,7 @@ async fn test_create_attestation_wrong_owner_ata() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -1632,9 +1867,9 @@ async fn test_create_attestation_empty_ata() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -1662,7 +1897,7 @@ async fn test_create_attestation_empty_ata() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -1785,9 +2020,9 @@ async fn test_dual_signature_with_one_sig() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -1815,7 +2050,7 @@ async fn test_dual_signature_with_one_sig() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     // Only provide ONE signature when schema requires TWO
@@ -1937,9 +2172,9 @@ async fn test_counterparty_signed_with_two_sigs() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce = compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &extra_pubkey);
     let seeds: &[&[u8]] = &[
@@ -1966,7 +2201,7 @@ async fn test_counterparty_signed_with_two_sigs() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     // Wrong signer: agent signs the counterparty message, but data says extra_pubkey is counterparty
@@ -2088,9 +2323,9 @@ async fn test_dual_signature_duplicate_pubkeys() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce = compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &single_pubkey);
     let seeds: &[&[u8]] = &[
@@ -2117,7 +2352,7 @@ async fn test_dual_signature_duplicate_pubkeys() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     // Both signatures use SAME pubkey - duplicate signers attack
@@ -2232,9 +2467,9 @@ async fn test_data_exactly_129_bytes() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let task_ref = [1u8; 32];
     let nonce =
@@ -2263,7 +2498,7 @@ async fn test_data_exactly_129_bytes() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -2386,9 +2621,9 @@ async fn test_content_513_bytes() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -2416,7 +2651,7 @@ async fn test_content_513_bytes() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -2540,9 +2775,9 @@ async fn test_invalid_outcome_value_3() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -2570,7 +2805,7 @@ async fn test_invalid_outcome_value_3() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {
@@ -2690,9 +2925,9 @@ async fn test_invalid_content_type_value_16() {
 
     let mut remaining_accounts = PackedAccounts::default();
     let system_config = SystemAccountMetaConfig::new(SATI_PROGRAM_ID);
-    let _ = remaining_accounts.add_system_accounts(system_config);
+    let _ = remaining_accounts.add_system_accounts_v2(system_config);
 
-    let address_tree_info = rpc.get_address_tree_v1();
+    let address_tree_info = rpc.get_address_tree_v2();
     let address_tree_pubkey = address_tree_info.tree;
     let nonce =
         compute_attestation_nonce(&task_ref, &sas_schema, &agent_mint, &counterparty_pubkey);
@@ -2720,7 +2955,7 @@ async fn test_invalid_content_type_value_16() {
     let packed_tree_infos = rpc_result.pack_tree_infos(&mut remaining_accounts);
     let address_tree_info = packed_tree_infos.address_trees[0];
     let output_state_tree_index =
-        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().tree);
+        remaining_accounts.insert_or_get(rpc.get_random_state_tree_info().unwrap().queue);
     let (system_accounts, _, _) = remaining_accounts.to_account_metas();
 
     let params = CreateParams {

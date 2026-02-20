@@ -24,19 +24,20 @@ import {
   type ValidityProofWithContext,
   type TreeInfo,
   type MemcmpFilter,
-  deriveAddress,
-  deriveAddressSeed,
+  deriveAddressV2,
+  deriveAddressSeedV2,
   PackedAccounts,
   createSystemAccountConfig,
   LIGHT_SYSTEM_PROGRAM,
   ACCOUNT_COMPRESSION_PROGRAM,
-  NOOP_PROGRAM,
   REGISTERED_PROGRAM_PDA,
-  ADDRESS_TREE,
-  ADDRESS_QUEUE,
-  MERKLE_TREE_PUBKEY,
-  NULLIFIER_QUEUE_PUBKEY,
+  BATCH_ADDRESS_TREE,
+  BATCH_MERKLE_TREE_1,
+  BATCH_QUEUE_1,
+  BATCH_CPI_CONTEXT_1,
   createBN254,
+  VERSION,
+  TreeType,
 } from "@cascade-fyi/compression-kit";
 
 import { SATI_PROGRAM_ADDRESS } from "./generated/programs/sati.js";
@@ -291,7 +292,7 @@ export class SATILightClientImpl implements SATILightClient {
   private readonly programId: Address;
 
   constructor(photonRpcUrl: string, programId: Address = SATI_PROGRAM_ADDRESS) {
-    this.rpc = createPhotonRpc(photonRpcUrl);
+    this.rpc = createPhotonRpc(photonRpcUrl, undefined, VERSION.V2);
     this.programId = programId;
   }
 
@@ -304,11 +305,12 @@ export class SATILightClientImpl implements SATILightClient {
     addressTree: PublicKeyLike;
     addressQueue: PublicKeyLike;
   }> {
-    const addressTree = ADDRESS_TREE;
-    const addressQueue = ADDRESS_QUEUE;
+    // V2 batched address tree (queue is the tree itself for V2)
+    const addressTree = BATCH_ADDRESS_TREE;
+    const addressQueue = BATCH_ADDRESS_TREE;
 
-    const seed = deriveAddressSeed(seeds, this.programId);
-    const derivedAddress = deriveAddress(seed, addressTree);
+    const seed = deriveAddressSeedV2(seeds);
+    const derivedAddress = deriveAddressV2(seed, addressTree, this.programId);
 
     return {
       address: new SimplePublicKey(derivedAddress),
@@ -365,20 +367,20 @@ export class SATILightClientImpl implements SATILightClient {
         {
           address: addressBN254,
           addressTreeInfo: {
-            tree: ADDRESS_TREE,
-            queue: ADDRESS_QUEUE,
-            treeType: 2, // AddressV1
+            tree: BATCH_ADDRESS_TREE,
+            queue: BATCH_ADDRESS_TREE, // V2: queue is the tree itself
+            treeType: TreeType.AddressV2,
             nextTreeInfo: null,
           },
         },
       ],
     );
 
-    const packedAccounts = await PackedAccounts.newWithSystemAccounts(createSystemAccountConfig(this.programId));
+    const packedAccounts = await PackedAccounts.newWithSystemAccountsV2(createSystemAccountConfig(this.programId));
 
-    const addressTreeIndex = packedAccounts.insertOrGet(ADDRESS_TREE);
-    const addressQueueIndex = packedAccounts.insertOrGet(ADDRESS_QUEUE);
-    const outputStateTreeIndex = packedAccounts.insertOrGet(MERKLE_TREE_PUBKEY);
+    const addressTreeIndex = packedAccounts.insertOrGet(BATCH_ADDRESS_TREE);
+    const addressQueueIndex = packedAccounts.insertOrGet(BATCH_ADDRESS_TREE); // V2: same as tree
+    const outputStateTreeIndex = packedAccounts.insertOrGet(BATCH_QUEUE_1); // V2: output queue, not tree
 
     const { remainingAccounts } = packedAccounts.toAccountMetas();
 
@@ -412,12 +414,12 @@ export class SATILightClientImpl implements SATILightClient {
       [],
     );
 
-    const packedAccounts = await PackedAccounts.newWithSystemAccounts(createSystemAccountConfig(this.programId));
+    const packedAccounts = await PackedAccounts.newWithSystemAccountsV2(createSystemAccountConfig(this.programId));
 
     const treeInfo = compressedAccount.treeInfo as TreeInfo;
     const merkleTreeIndex = packedAccounts.insertOrGet(treeInfo.tree);
     const queueIndex = packedAccounts.insertOrGet(treeInfo.queue);
-    const outputStateTreeIndex = packedAccounts.insertOrGet(MERKLE_TREE_PUBKEY);
+    const outputStateTreeIndex = packedAccounts.insertOrGet(BATCH_QUEUE_1); // V2: output queue, not tree
 
     const { remainingAccounts } = packedAccounts.toAccountMetas();
 
@@ -457,18 +459,18 @@ export class SATILightClientImpl implements SATILightClient {
           addressTreeInfo: {
             tree: addressTree.toBase58() as Address,
             queue: addressQueue.toBase58() as Address,
-            treeType: 2, // AddressV1
+            treeType: TreeType.AddressV2,
             nextTreeInfo: null,
           },
         },
       ],
     );
 
-    const packedAccounts = await PackedAccounts.newWithSystemAccounts(createSystemAccountConfig(this.programId));
+    const packedAccounts = await PackedAccounts.newWithSystemAccountsV2(createSystemAccountConfig(this.programId));
 
     const addressTreeIndex = packedAccounts.insertOrGet(addressTree.toBase58() as Address);
     const addressQueueIndex = packedAccounts.insertOrGet(addressQueue.toBase58() as Address);
-    const outputStateTreeIndex = packedAccounts.insertOrGet(MERKLE_TREE_PUBKEY);
+    const outputStateTreeIndex = packedAccounts.insertOrGet(BATCH_QUEUE_1); // V2: output queue, not tree
 
     const { remainingAccounts } = packedAccounts.toAccountMetas();
 
@@ -560,17 +562,16 @@ export class SATILightClientImpl implements SATILightClient {
     }
 
     return [
-      // Light Protocol core
+      // Light Protocol core (V2 CPI: no Noop program)
       LIGHT_SYSTEM_PROGRAM,
       ACCOUNT_COMPRESSION_PROGRAM,
-      NOOP_PROGRAM,
       REGISTERED_PROGRAM_PDA,
 
-      // Light Protocol state trees
-      ADDRESS_TREE,
-      ADDRESS_QUEUE,
-      MERKLE_TREE_PUBKEY,
-      NULLIFIER_QUEUE_PUBKEY,
+      // Light Protocol V2 batched trees (state + address)
+      BATCH_MERKLE_TREE_1,
+      BATCH_QUEUE_1,
+      BATCH_CPI_CONTEXT_1,
+      BATCH_ADDRESS_TREE,
 
       // Light Protocol CPI authorities (CRITICAL for transaction size!)
       cpiSigner,

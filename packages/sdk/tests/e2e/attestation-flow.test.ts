@@ -310,7 +310,7 @@ describe("E2E: Attestation Flow", () => {
         // agentMint = agent's MINT address (stable identity)
 
         // listFeedbacks takes filter object with agentMint
-        const result = await sati.listFeedbacks({ agentMint });
+        const result = await sati.listFeedbacks({ agentMint, sasSchema });
 
         expect(Array.isArray(result.items)).toBe(true);
       },
@@ -326,6 +326,7 @@ describe("E2E: Attestation Flow", () => {
 
         const result = await sati.listFeedbacks({
           agentMint,
+          sasSchema,
           outcome: Outcome.Positive,
         });
 

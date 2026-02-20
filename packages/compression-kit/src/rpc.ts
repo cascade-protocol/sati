@@ -14,7 +14,7 @@
 import type { Address } from "@solana/kit";
 import { address } from "@solana/kit";
 import bs58 from "bs58";
-import { versionedEndpoint, featureFlags } from "./constants.js";
+import { VERSION } from "./constants.js";
 import type {
   CompressedAccount,
   MerkleContextWithProof,
@@ -158,15 +158,21 @@ export interface TokenBalance {
  */
 export class PhotonRpc {
   readonly endpoint: string;
+  readonly version: VERSION;
   private readonly headers: Record<string, string>;
 
-  constructor(endpoint: string, headers?: Record<string, string>) {
+  constructor(endpoint: string, headers?: Record<string, string>, version?: VERSION) {
     this.endpoint = endpoint;
+    this.version = version ?? VERSION.V1;
     this.headers = {
       "Content-Type": "application/json",
       Accept: "application/json",
       ...headers,
     };
+  }
+
+  private versionedEndpoint(base: string): string {
+    return this.version === VERSION.V2 ? `${base}V2` : base;
   }
 
   // ===========================================================================
@@ -237,7 +243,7 @@ export class PhotonRpc {
    * Get a single compressed account by address or hash.
    */
   async getCompressedAccount(addressOrHash: { address?: Address; hash?: BN254 }): Promise<CompressedAccount | null> {
-    const method = versionedEndpoint("getCompressedAccount");
+    const method = this.versionedEndpoint("getCompressedAccount");
     const params: Record<string, string> = {};
 
     if (addressOrHash.address) {
@@ -250,21 +256,21 @@ export class PhotonRpc {
     const result = await this.requestWithContext<RawCompressedAccount | null>(method, params);
 
     if (!result.value) return null;
-    return parseCompressedAccount(result.value);
+    return parseCompressedAccount(result.value, this.version);
   }
 
   /**
    * Get multiple compressed accounts by hashes.
    */
   async getMultipleCompressedAccounts(hashes: BN254[]): Promise<CompressedAccount[]> {
-    const method = versionedEndpoint("getMultipleCompressedAccounts");
+    const method = this.versionedEndpoint("getMultipleCompressedAccounts");
     const params = {
       hashes: hashes.map(encodeBN254),
     };
 
     const result = await this.requestWithContext<{ items: RawCompressedAccount[] }>(method, params);
 
-    return result.value.items.map(parseCompressedAccount);
+    return result.value.items.map((item) => parseCompressedAccount(item, this.version));
   }
 
   /**
@@ -276,7 +282,7 @@ export class PhotonRpc {
     owner: Address,
     config?: GetCompressedAccountsByOwnerConfig,
   ): Promise<WithCursor<CompressedAccount[]>> {
-    const method = versionedEndpoint("getCompressedAccountsByOwner");
+    const method = this.versionedEndpoint("getCompressedAccountsByOwner");
 
     // Transform MemcmpFilter[] to Photon's FilterSelector wire format:
     // { memcmp: { offset, bytes } } where bytes is a base58 string
@@ -300,7 +306,7 @@ export class PhotonRpc {
     }>(method, params);
 
     return {
-      items: result.value.items.map(parseCompressedAccount),
+      items: result.value.items.map((item) => parseCompressedAccount(item, this.version)),
       cursor: result.value.cursor,
     };
   }
@@ -309,7 +315,7 @@ export class PhotonRpc {
    * Get compressed SOL balance by owner.
    */
   async getCompressedBalanceByOwner(owner: Address): Promise<bigint> {
-    const method = versionedEndpoint("getCompressedBalanceByOwner");
+    const method = this.versionedEndpoint("getCompressedBalanceByOwner");
     const result = await this.requestWithContext<string>(method, { owner });
     return BigInt(result.value);
   }
@@ -322,22 +328,22 @@ export class PhotonRpc {
    * Get merkle proof for a compressed account.
    */
   async getCompressedAccountProof(hash: BN254): Promise<MerkleContextWithProof> {
-    const method = versionedEndpoint("getCompressedAccountProof");
+    const method = this.versionedEndpoint("getCompressedAccountProof");
     const params = { hash: encodeBN254(hash) };
 
     const result = await this.requestWithContext<RawMerkleProof>(method, params);
-    return parseMerkleProof(result.value);
+    return parseMerkleProof(result.value, this.version);
   }
 
   /**
    * Get merkle proofs for multiple compressed accounts.
    */
   async getMultipleCompressedAccountProofs(hashes: BN254[]): Promise<MerkleContextWithProof[]> {
-    const method = versionedEndpoint("getMultipleCompressedAccountProofs");
+    const method = this.versionedEndpoint("getMultipleCompressedAccountProofs");
     const params = { hashes: hashes.map(encodeBN254) };
 
     const result = await this.requestWithContext<RawMerkleProof[]>(method, params);
-    return result.value.map(parseMerkleProof);
+    return result.value.map((item) => parseMerkleProof(item, this.version));
   }
 
   // ===========================================================================
@@ -358,7 +364,7 @@ export class PhotonRpc {
     hashes: HashWithTreeInfo[],
     newAddresses: AddressWithTreeInfo[],
   ): Promise<ValidityProofWithContext> {
-    const method = versionedEndpoint("getValidityProof");
+    const method = this.versionedEndpoint("getValidityProof");
     // Format params according to Photon API spec:
     // - hashes: just base58 strings (not objects)
     // - newAddressesWithTrees: objects with address and tree only (no queue)
@@ -385,7 +391,7 @@ export class PhotonRpc {
     owner: Address,
     config?: GetCompressedTokenAccountsConfig,
   ): Promise<WithCursor<ParsedTokenAccount[]>> {
-    const method = versionedEndpoint("getCompressedTokenAccountsByOwner");
+    const method = this.versionedEndpoint("getCompressedTokenAccountsByOwner");
     const params = {
       owner,
       mint: config?.mint,
@@ -399,7 +405,7 @@ export class PhotonRpc {
     }>(method, params);
 
     return {
-      items: result.value.items.map(parseTokenAccount),
+      items: result.value.items.map((item) => parseTokenAccount(item, this.version)),
       cursor: result.value.cursor,
     };
   }
@@ -411,7 +417,7 @@ export class PhotonRpc {
     owner: Address,
     config?: GetCompressedTokenAccountsConfig,
   ): Promise<WithCursor<TokenBalance[]>> {
-    const method = versionedEndpoint("getCompressedTokenBalancesByOwner");
+    const method = this.versionedEndpoint("getCompressedTokenBalancesByOwner");
     const params = {
       owner,
       mint: config?.mint,
@@ -645,8 +651,8 @@ interface RawTokenAccount {
 // Parsing Functions
 // =============================================================================
 
-function parseCompressedAccount(raw: RawCompressedAccount): CompressedAccount {
-  const treeInfo = parseTreeInfo(raw);
+function parseCompressedAccount(raw: RawCompressedAccount, version: VERSION): CompressedAccount {
+  const treeInfo = parseTreeInfo(raw, version);
 
   return {
     owner: address(raw.owner),
@@ -668,8 +674,8 @@ function parseCompressedAccount(raw: RawCompressedAccount): CompressedAccount {
   };
 }
 
-function parseTreeInfo(raw: RawCompressedAccount | RawMerkleProof): TreeInfo {
-  if (featureFlags.isV2() && "merkleContext" in raw && raw.merkleContext) {
+function parseTreeInfo(raw: RawCompressedAccount | RawMerkleProof, version: VERSION): TreeInfo {
+  if (version === VERSION.V2 && "merkleContext" in raw && raw.merkleContext) {
     const ctx = raw.merkleContext;
     return {
       tree: address(ctx.tree),
@@ -718,8 +724,8 @@ function parseTreeInfo(raw: RawCompressedAccount | RawMerkleProof): TreeInfo {
   };
 }
 
-function parseMerkleProof(raw: RawMerkleProof): MerkleContextWithProof {
-  const treeInfo = parseTreeInfo(raw);
+function parseMerkleProof(raw: RawMerkleProof, version: VERSION): MerkleContextWithProof {
+  const treeInfo = parseTreeInfo(raw, version);
 
   return {
     treeInfo,
@@ -795,9 +801,9 @@ function parseValidityProof(raw: RawValidityProof): ValidityProofWithContext {
   };
 }
 
-function parseTokenAccount(raw: RawTokenAccount): ParsedTokenAccount {
+function parseTokenAccount(raw: RawTokenAccount, version: VERSION): ParsedTokenAccount {
   return {
-    compressedAccount: parseCompressedAccount(raw.account),
+    compressedAccount: parseCompressedAccount(raw.account, version),
     parsed: {
       mint: address(raw.tokenData.mint),
       owner: address(raw.tokenData.owner),
@@ -875,16 +881,17 @@ function base58ToBytesLE(value: string, size: number): Uint8Array {
  *
  * @param endpoint - Photon indexer URL (e.g., "https://zk-testnet.helius.dev:8784")
  * @param headers - Optional additional headers
+ * @param version - Protocol version for endpoint naming and response parsing (defaults to V1)
  * @returns PhotonRpc instance
  *
  * @example
  * ```typescript
- * import { createPhotonRpc } from '@cascade-fyi/compression-kit';
+ * import { createPhotonRpc, VERSION } from '@cascade-fyi/compression-kit';
  *
- * const rpc = createPhotonRpc('https://mainnet.helius-rpc.com/?api-key=YOUR_KEY');
+ * const rpc = createPhotonRpc('https://mainnet.helius-rpc.com/?api-key=YOUR_KEY', undefined, VERSION.V2);
  * const accounts = await rpc.getCompressedAccountsByOwner(ownerAddress);
  * ```
  */
-export function createPhotonRpc(endpoint: string, headers?: Record<string, string>): PhotonRpc {
-  return new PhotonRpc(endpoint, headers);
+export function createPhotonRpc(endpoint: string, headers?: Record<string, string>, version?: VERSION): PhotonRpc {
+  return new PhotonRpc(endpoint, headers, version);
 }
