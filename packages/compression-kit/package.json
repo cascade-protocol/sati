@@ -1,6 +1,6 @@
 {
   "name": "@cascade-fyi/compression-kit",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Solana Kit native implementation of Light Protocol stateless.js - portable, edge-compatible",
   "type": "module",
   "sideEffects": false,

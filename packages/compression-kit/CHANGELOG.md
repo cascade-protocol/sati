@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-20
+
+### Changed
+
+- **Light Protocol V2 support** - `PhotonRpc` constructor and `createPhotonRpc()` now accept a `version` parameter (`VERSION.V1` or `VERSION.V2`) for protocol-aware endpoint naming and response parsing. Defaults to `VERSION.V1` for backward compatibility.
+- `localTestActiveStateTreeInfos()` and `getDefaultAddressTreeInfo()` now accept a `version` parameter instead of reading global `featureFlags`
+- Fee constants split into `STATE_MERKLE_TREE_ROLLOVER_FEE_V1` (300) and `STATE_MERKLE_TREE_ROLLOVER_FEE_V2` (1)
+
+### Deprecated
+
+- `featureFlags` global - use `VERSION` enum passed to constructors/functions instead
+- `versionedEndpoint()` global - use `PhotonRpc` constructor's `version` parameter instead
+- `STATE_MERKLE_TREE_ROLLOVER_FEE` - use the V1/V2 specific constants instead
+
 ## [0.2.1] - 2026-02-12
 
 ### Fixed
@@ -92,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uses `Address` type from `@solana/kit` instead of `PublicKey`
 - Compatible with edge runtimes (Cloudflare Workers, Deno, browsers)
 
+[0.3.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/compression-kit@0.2.1...@cascade-fyi/compression-kit@0.3.0
 [0.2.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/compression-kit@0.2.0...@cascade-fyi/compression-kit@0.2.1
 [0.2.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/compression-kit@0.1.0...@cascade-fyi/compression-kit@0.2.0
 [0.1.0]: https://github.com/cascade-protocol/sati/releases/tag/@cascade-fyi/compression-kit@0.1.0
