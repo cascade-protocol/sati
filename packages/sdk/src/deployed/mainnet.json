@@ -1,7 +1,7 @@
 {
   "network": "mainnet",
   "authority": "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z",
-  "deployedAt": "2026-02-10T14:20:59.279Z",
+  "deployedAt": "2026-02-20T00:48:19.157Z",
   "config": {
     "credential": "DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1",
     "schemas": {
@@ -11,6 +11,6 @@
       "reputationScore": "7MoXgvrFhMxmB84AfAtp8LGfC4sEXUHD6JCQJpfj2jTj",
       "delegate": "93wrAiBtCWgfVzToT6kU4zkPSvZpWbKDG3XUQEEHXBrk"
     },
-    "lookupTable": "4XgHCijEGjWBch2wvs35XGBNLBdioQbVxLJhbr9AifAn"
+    "lookupTable": "fDinDQsTpN7Momkv7AxKT9oSyQam8xG2UD7v6vHu8LJ"
   }
 }

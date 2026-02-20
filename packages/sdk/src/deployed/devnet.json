@@ -1,7 +1,7 @@
 {
   "network": "devnet",
   "authority": "SQ2xxkJ6uEDHprYMNXPxS2AwyEtGGToZ7YC94icKH3Z",
-  "deployedAt": "2026-02-10T13:55:02.691Z",
+  "deployedAt": "2026-02-20T00:10:21.448Z",
   "config": {
     "credential": "DQHW6fAhPfGAENuwJVYfzEvUN12DakZgaaGtPPRfGei1",
     "schemas": {
@@ -11,6 +11,6 @@
       "reputationScore": "7MoXgvrFhMxmB84AfAtp8LGfC4sEXUHD6JCQJpfj2jTj",
       "delegate": "93wrAiBtCWgfVzToT6kU4zkPSvZpWbKDG3XUQEEHXBrk"
     },
-    "lookupTable": "HGTEPmkGs2sWAzMw1CjBFKD2nVWBCAdHJeM8osoTibVQ"
+    "lookupTable": "FPaC61oWrC6Xdydwus9pNoX7c2wSh95b5CEWEFZMLqc5"
   }
 }
