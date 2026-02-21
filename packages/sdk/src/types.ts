@@ -74,6 +74,18 @@ export interface SatiWarning {
 /**
  * SATI client configuration options
  */
+export interface TransactionConfig {
+  /** Priority fee in microlamports per compute unit (default: 50_000 on mainnet, 0 on devnet/localnet) */
+  priorityFeeMicroLamports?: number;
+  /** Compute unit limit (default: 400_000) */
+  computeUnitLimit?: number;
+  /** Max retry attempts on blockhash expiration (default: 2) */
+  maxRetries?: number;
+}
+
+/**
+ * SATI client configuration options
+ */
 export interface SATIClientOptions {
   /** Network to connect to */
   network: "mainnet" | "devnet" | "localnet";
@@ -85,6 +97,8 @@ export interface SATIClientOptions {
   photonRpcUrl?: string;
   /** Optional callback for non-fatal warnings (parse errors, RPC failures) */
   onWarning?: (warning: SatiWarning) => void;
+  /** Transaction sending configuration */
+  transactionConfig?: TransactionConfig;
 }
 
 // ============ SAS DEPLOYMENT TYPES ============

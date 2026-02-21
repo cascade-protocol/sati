@@ -20,7 +20,6 @@ import {
   createTransactionMessage,
   setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
-  appendTransactionMessageInstruction,
   appendTransactionMessageInstructions,
   addSignersToTransactionMessage,
   compressTransactionMessageUsingAddressLookupTables,
@@ -37,6 +36,7 @@ import {
   signBytes,
   type Address,
   type KeyPairSigner,
+  type MicroLamports,
   type AddressesByLookupTableAddress,
   type Base58EncodedBytes,
 } from "@solana/kit";
@@ -53,7 +53,10 @@ import {
 } from "@solana-program/token-2022";
 
 import { fetchAddressLookupTable } from "@solana-program/address-lookup-table";
-import { getSetComputeUnitLimitInstruction } from "@solana-program/compute-budget";
+import {
+  updateOrAppendSetComputeUnitLimitInstruction,
+  updateOrAppendSetComputeUnitPriceInstruction,
+} from "@solana-program/compute-budget";
 
 import {
   getRegisterAgentInstructionAsync,
@@ -133,6 +136,7 @@ import type { MetadataUploader } from "./uploaders";
 
 import type {
   SATIClientOptions,
+  TransactionConfig,
   SatiWarning,
   SATISASConfig,
   AgentIdentity,
@@ -488,6 +492,13 @@ function unwrapOption<T>(option: { __option: "Some"; value: T } | { __option: "N
   return null;
 }
 
+/**
+ * Convert a numeric micro-lamports value to the branded kit type.
+ */
+function toMicroLamports(value: number): MicroLamports {
+  return BigInt(value) as MicroLamports;
+}
+
 // ============================================================
 // SATI CLIENT
 // ============================================================
@@ -538,6 +549,7 @@ export class Sati {
   private readonly _deployedConfig: SATISASConfig | null;
   private readonly _feedbackCache = new FeedbackCache();
   private readonly _onWarning?: (warning: SatiWarning) => void;
+  private readonly txConfig: Required<TransactionConfig>;
 
   /** Network configuration */
   readonly network: "mainnet" | "devnet" | "localnet";
@@ -561,6 +573,12 @@ export class Sati {
     // Convenience layer
     this._deployedConfig = loadDeployedConfig(options.network);
     this._onWarning = options.onWarning;
+    this.txConfig = {
+      priorityFeeMicroLamports:
+        options.transactionConfig?.priorityFeeMicroLamports ?? (options.network === "mainnet" ? 50_000 : 0),
+      computeUnitLimit: options.transactionConfig?.computeUnitLimit ?? 400_000,
+      maxRetries: options.transactionConfig?.maxRetries ?? 2,
+    };
   }
 
   // ============================================================
@@ -647,31 +665,17 @@ export class Sati {
       nonTransferable,
     });
 
-    // Build and send transaction
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(registerIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
+    // Build and send transaction with retry, compute budget, and priority fee
+    const signature = await this.buildAndSendTransaction([registerIx], payer);
 
     // Re-fetch registry config to verify the updated member number
     const updatedRegistryConfig = await fetchRegistryConfig(this.rpc, registryConfigAddress);
     const finalMemberNumber = updatedRegistryConfig.data.totalAgents;
 
-    const signature = getSignatureFromTransaction(signedTx);
-
     return {
       mint: agentMint.address,
       memberNumber: finalMemberNumber,
-      signature: signature.toString(),
+      signature,
     };
   }
 
@@ -878,24 +882,11 @@ export class Sati {
       amount: 1n,
     });
 
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstructions([createAtaIx, transferIx], msg),
-      // Attach payer signer to fee payer (needed when payer !== owner)
-      (msg) => addSignersToTransactionMessage([payer, owner], msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-    return { signature: signature.toString() };
+    const signature = await this.buildAndSendTransaction([createAtaIx, transferIx], payer, undefined, 200_000, [
+      payer,
+      owner,
+    ]);
+    return { signature };
   }
 
   /**
@@ -925,24 +916,11 @@ export class Sati {
       newUpdateAuthority: newOwner,
     });
 
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstructions([transferIx, updateAuthorityIx], msg),
-      // Attach payer signer to fee payer (needed when payer !== owner)
-      (msg) => addSignersToTransactionMessage([payer, owner], msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-    return { signature: signature.toString() };
+    const signature = await this.buildAndSendTransaction([transferIx, updateAuthorityIx], payer, undefined, 200_000, [
+      payer,
+      owner,
+    ]);
+    return { signature };
   }
 
   /**
@@ -1260,24 +1238,8 @@ export class Sati {
       throw new Error("No updates specified");
     }
 
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstructions(ixList, msg),
-      // Attach payer signer to fee payer (needed when payer !== owner)
-      (msg) => addSignersToTransactionMessage([payer, owner], msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-    return { signature: signature.toString() };
+    const signature = await this.buildAndSendTransaction(ixList, payer, undefined, undefined, [payer, owner]);
+    return { signature };
   }
 
   /**
@@ -1353,7 +1315,7 @@ export class Sati {
     });
 
     // Send transaction
-    const txSig = await this.sendSingleTransaction([ix], payer);
+    const txSig = await this.buildAndSendTransaction([ix], payer);
     return { signature: txSig };
   }
 
@@ -1400,22 +1362,8 @@ export class Sati {
       name,
     });
 
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
-
-    const tx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(registerIx, msg),
-    );
-
-    const signedTx = await signTransactionMessageWithSigners(tx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
-
-    const signature = getSignatureFromTransaction(signedTx);
-    return { signature: signature.toString() };
+    const signature = await this.buildAndSendTransaction([registerIx], payer);
+    return { signature };
   }
 
   /**
@@ -1816,29 +1764,30 @@ export class Sati {
 
     const ed25519Ix = createBatchEd25519Instruction(ed25519Entries);
 
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
-
-    const computeBudgetIx = getSetComputeUnitLimitInstruction({
-      units: 400_000,
-    });
+    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash({ commitment: "confirmed" }).send();
 
     const baseTxMessage = pipe(
       createTransactionMessage({ version: 0 }),
       (msg) => setTransactionMessageFeePayer(payer, msg),
       (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(computeBudgetIx, msg),
       (msg) => appendTransactionMessageInstructions([ed25519Ix, createIx], msg),
+    );
+    const txWithComputeBudget = pipe(
+      baseTxMessage,
+      (msg) => updateOrAppendSetComputeUnitLimitInstruction(this.txConfig.computeUnitLimit, msg),
+      (msg) =>
+        updateOrAppendSetComputeUnitPriceInstruction(toMicroLamports(this.txConfig.priorityFeeMicroLamports), msg),
     );
 
     const finalTxMessage = await (async () => {
       if (!lookupTableAddress) {
-        return baseTxMessage;
+        return txWithComputeBudget;
       }
       const lookupTableAccount = await fetchAddressLookupTable(this.rpc, lookupTableAddress);
       const addressesByLookupTable: AddressesByLookupTableAddress = {
         [lookupTableAddress]: lookupTableAccount.data.addresses,
       };
-      return compressTransactionMessageUsingAddressLookupTables(baseTxMessage, addressesByLookupTable);
+      return compressTransactionMessageUsingAddressLookupTables(txWithComputeBudget, addressesByLookupTable);
     })();
 
     const compiledTx = compileTransaction(finalTxMessage);
@@ -2573,65 +2522,65 @@ export class Sati {
     instructions: Parameters<typeof appendTransactionMessageInstructions>[0],
     payer: KeyPairSigner,
     lookupTableAddress?: Address,
-    computeUnits: number = 400_000,
+    computeUnits?: number,
+    additionalSigners?: KeyPairSigner[],
   ): Promise<string> {
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+    const cu = computeUnits ?? this.txConfig.computeUnitLimit;
 
-    const computeBudgetIx = getSetComputeUnitLimitInstruction({
-      units: computeUnits,
-    });
-
-    const baseTx = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstruction(computeBudgetIx, msg),
-      (msg) => appendTransactionMessageInstructions(instructions, msg),
-    );
-
-    const finalTx = await (async () => {
-      if (!lookupTableAddress) {
-        return baseTx;
-      }
+    // Address lookup table content is immutable for our send attempts.
+    let addressesByLookupTable: AddressesByLookupTableAddress | undefined;
+    if (lookupTableAddress) {
       const lookupTableAccount = await fetchAddressLookupTable(this.rpc, lookupTableAddress);
-      const addressesByLookupTable: AddressesByLookupTableAddress = {
+      addressesByLookupTable = {
         [lookupTableAddress]: lookupTableAccount.data.addresses,
       };
-      return compressTransactionMessageUsingAddressLookupTables(baseTx, addressesByLookupTable);
-    })();
+    }
 
-    const signedTx = await signTransactionMessageWithSigners(finalTx);
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
+    for (let attempt = 0; attempt <= this.txConfig.maxRetries; attempt++) {
+      const { value: latestBlockhash } = await this.rpc.getLatestBlockhash({ commitment: "confirmed" }).send();
 
-    return getSignatureFromTransaction(signedTx).toString();
-  }
+      const baseTx = pipe(
+        createTransactionMessage({ version: 0 }),
+        (msg) => setTransactionMessageFeePayer(payer.address, msg),
+        (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
+        (msg) => appendTransactionMessageInstructions(instructions, msg),
+      );
+      const txWithComputeBudget = pipe(
+        baseTx,
+        (msg) => updateOrAppendSetComputeUnitLimitInstruction(cu, msg),
+        (msg) =>
+          updateOrAppendSetComputeUnitPriceInstruction(toMicroLamports(this.txConfig.priorityFeeMicroLamports), msg),
+      );
 
-  /**
-   * Send a single transaction without address lookup table.
-   */
-  private async sendSingleTransaction(
-    instructions: Parameters<typeof appendTransactionMessageInstructions>[0],
-    payer: KeyPairSigner,
-  ): Promise<string> {
-    const { value: latestBlockhash } = await this.rpc.getLatestBlockhash().send();
+      const txWithSigners = additionalSigners
+        ? addSignersToTransactionMessage(additionalSigners, txWithComputeBudget)
+        : txWithComputeBudget;
+      const finalTx = addressesByLookupTable
+        ? compressTransactionMessageUsingAddressLookupTables(txWithSigners, addressesByLookupTable)
+        : txWithSigners;
 
-    const txMessage = pipe(
-      createTransactionMessage({ version: 0 }),
-      (msg) => setTransactionMessageFeePayer(payer.address, msg),
-      (msg) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, msg),
-      (msg) => appendTransactionMessageInstructions(instructions, msg),
-    );
+      const signedTx = await signTransactionMessageWithSigners(finalTx);
 
-    const signedTx = await signTransactionMessageWithSigners(txMessage);
-    const signature = getSignatureFromTransaction(signedTx);
+      try {
+        await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
+          commitment: "confirmed",
+        });
+        return getSignatureFromTransaction(signedTx).toString();
+      } catch (error: unknown) {
+        const isBlockhashExpired =
+          error instanceof Error &&
+          (error.message.includes("block height exceeded") ||
+            error.message.includes("progressed past the last block") ||
+            error.message.includes("Blockhash not found"));
 
-    await this.sendAndConfirm(signedTx as SignedBlockhashTransaction, {
-      commitment: "confirmed",
-    });
+        if (isBlockhashExpired && attempt < this.txConfig.maxRetries) {
+          continue;
+        }
+        throw error;
+      }
+    }
 
-    return signature;
+    throw new Error("Transaction failed after retries");
   }
 
   // ============================================================

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-02-21
+
+### Added
+
+- **`TransactionConfig` interface** - new optional `transactionConfig` field on `SATIClientOptions` to configure `priorityFeeMicroLamports`, `computeUnitLimit`, and `maxRetries`
+- **Priority fee support** - all transactions now include a compute unit price instruction; defaults to 50,000 microlamports on mainnet, 0 on devnet/localnet
+- **Automatic retry on blockhash expiry** - `buildAndSendTransaction` retries with a fresh blockhash up to `maxRetries` times (default: 2) when a transaction fails due to blockhash expiration
+
+### Changed
+
+- **Blockhash fetched at `confirmed` commitment** - reduces stale blockhash errors on congested networks
+- **Consolidated transaction sending** - removed internal `sendSingleTransaction`; all paths go through `buildAndSendTransaction` with consistent compute budget and retry logic
+- **Compute budget uses `updateOrAppend*` helpers** - prevents duplicate compute budget instructions when building complex transactions
+
 ## [0.11.0] - 2026-02-20
 
 ### Changed
@@ -214,6 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.12.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.11.0...@cascade-fyi/sati-sdk@0.12.0
 [0.11.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.10.1...@cascade-fyi/sati-sdk@0.11.0
 [0.10.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.10.0...@cascade-fyi/sati-sdk@0.10.1
 [0.10.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.9.0...@cascade-fyi/sati-sdk@0.10.0
