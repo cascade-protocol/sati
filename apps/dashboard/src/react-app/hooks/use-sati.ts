@@ -124,13 +124,15 @@ export function useAgentMetadata(uri: string | undefined) {
  * Hook for single agent details page
  */
 export function useAgentDetails(mint: Address | string | undefined) {
+  const network = getNetwork();
+
   const {
     data: agent,
     isLoading,
     error,
     refetch,
   } = useQuery({
-    queryKey: [...AGENTS_KEY, "detail", mint],
+    queryKey: [...AGENTS_KEY, "detail", network, mint],
     queryFn: async () => {
       if (!mint) return null;
       const sati = getSatiClient();
@@ -156,9 +158,10 @@ export function useAgentDetails(mint: Address | string | undefined) {
 export function useMyAgents() {
   const session = useWalletSession();
   const walletAddress = session?.account.address;
+  const network = getNetwork();
 
   const { data: myAgentsData, isLoading: myAgentsLoading } = useQuery({
-    queryKey: [...AGENTS_KEY, "my", walletAddress],
+    queryKey: [...AGENTS_KEY, "my", network, walletAddress],
     queryFn: async () => {
       if (!walletAddress) return { agents: [], totalAgents: 0n };
       return listAgentsByOwner(walletAddress);
@@ -180,9 +183,10 @@ export function useMyAgents() {
  */
 export function useExploreAgents() {
   const [explorePage, setExplorePage] = useState(0);
+  const network = getNetwork();
 
   const { data: exploreData, isLoading: exploreLoading } = useQuery({
-    queryKey: [...AGENTS_KEY, "explore", explorePage],
+    queryKey: [...AGENTS_KEY, "explore", network, explorePage],
     queryFn: () =>
       listAllAgents({
         offset: explorePage * PAGE_SIZE,
@@ -379,9 +383,10 @@ export function useUpdateAgentMetadata() {
  */
 export function useAllFeedbacks(options?: { outcomeFilter?: OutcomeFilter }) {
   const outcomeFilter = options?.outcomeFilter ?? "all";
+  const network = getNetwork();
 
   const query = useQuery({
-    queryKey: [...FEEDBACKS_KEY, "all"],
+    queryKey: [...FEEDBACKS_KEY, "all", network],
     queryFn: async () => {
       return listAllFeedbacks();
     },
@@ -420,9 +425,10 @@ export function useAllFeedbacks(options?: { outcomeFilter?: OutcomeFilter }) {
 export function useMyFeedbacks() {
   const session = useWalletSession();
   const userAddress = session?.account?.address as Address | undefined;
+  const network = getNetwork();
 
   const query = useQuery({
-    queryKey: [...FEEDBACKS_KEY, "my", userAddress],
+    queryKey: [...FEEDBACKS_KEY, "my", network, userAddress],
     queryFn: async () => {
       if (!userAddress) return [];
       return listFeedbacksByCounterparty(userAddress);
@@ -446,8 +452,10 @@ export function useMyFeedbacks() {
  * on sasSchema and agentMint.
  */
 export function useAgentFeedbacks(mint: Address | string | undefined) {
+  const network = getNetwork();
+
   const feedbacksQuery = useQuery({
-    queryKey: [...FEEDBACKS_KEY, "agent", mint],
+    queryKey: [...FEEDBACKS_KEY, "agent", network, mint],
     queryFn: async () => {
       if (!mint) return [];
       return listAgentFeedbacks(mint as Address);
@@ -495,8 +503,10 @@ export interface ValidationStats {
  * Uses SDK's listValidations with memcmp filters on sasSchema and agentMint.
  */
 export function useAgentValidations(agentMint: Address | string | undefined) {
+  const network = getNetwork();
+
   const query = useQuery({
-    queryKey: [...VALIDATIONS_KEY, "agent", agentMint],
+    queryKey: [...VALIDATIONS_KEY, "agent", network, agentMint],
     queryFn: async () => {
       if (!agentMint) return [];
       return listAgentValidations(agentMint as Address);
@@ -532,8 +542,10 @@ export function useAgentValidations(agentMint: Address | string | undefined) {
  * Hook to get current Solana slot for time calculations
  */
 export function useCurrentSlot() {
+  const network = getNetwork();
+
   const query = useQuery({
-    queryKey: [...QUERY_KEY, "currentSlot"],
+    queryKey: [...QUERY_KEY, "currentSlot", network],
     queryFn: getCurrentSlot,
     staleTime: 60_000, // Refresh every minute
     refetchInterval: 60_000,

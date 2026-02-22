@@ -30,8 +30,10 @@ export interface ParsedCreditScore {
  * Fetch existing on-chain credit score for an agent
  */
 export function useAgentCreditScore(agentMint: string | undefined) {
+  const network = getNetwork();
+
   return useQuery({
-    queryKey: [...CREDIT_KEY, "score", agentMint],
+    queryKey: [...CREDIT_KEY, "score", network, agentMint],
     queryFn: async (): Promise<ParsedCreditScore | null> => {
       if (!agentMint) return null;
 
@@ -62,8 +64,10 @@ export function useAgentCreditScore(agentMint: string | undefined) {
  * Fetch attestation stats for an agent (for display before computing score)
  */
 export function useAgentAttestationStats(agentMint: string | undefined) {
+  const network = getNetwork();
+
   return useQuery({
-    queryKey: [...CREDIT_KEY, "stats", agentMint],
+    queryKey: [...CREDIT_KEY, "stats", network, agentMint],
     queryFn: async () => {
       if (!agentMint) return null;
 
@@ -101,11 +105,10 @@ export interface ComputeCreditScoreResult {
  */
 export function useComputeCreditScore() {
   const queryClient = useQueryClient();
+  const network = getNetwork();
 
   return useMutation({
     mutationFn: async (agentMint: string): Promise<ComputeCreditScoreResult> => {
-      const network = getNetwork();
-
       const response = await fetch("/api/credit-score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -126,8 +129,8 @@ export function useComputeCreditScore() {
     },
     onSuccess: (_data, agentMint) => {
       // Invalidate the on-chain score query so it refetches
-      queryClient.invalidateQueries({ queryKey: [...CREDIT_KEY, "score", agentMint] });
-      queryClient.invalidateQueries({ queryKey: [...CREDIT_KEY, "stats", agentMint] });
+      queryClient.invalidateQueries({ queryKey: [...CREDIT_KEY, "score", network, agentMint] });
+      queryClient.invalidateQueries({ queryKey: [...CREDIT_KEY, "stats", network, agentMint] });
       toast.success("Credit score published on-chain");
     },
     onError: (error) => {
