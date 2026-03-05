@@ -230,37 +230,102 @@ For proof-of-participation, use the **FeedbackV1** schema (DualSignature mode). 
 
 The platform server prepares a SIWS (Sign In With Solana) message, the user signs it in their browser wallet, and the platform submits the transaction.
 
-```typescript
-import { hexToBytes, bytesToHex } from "@cascade-fyi/sati-sdk";
+Uses `@solana/wallet-adapter-react` (works with Phantom, Solflare, Backpack, and any wallet implementing the Wallet Standard `signMessage` feature).
 
-// Step 1: Server prepares feedback data
-const prepared = await sati.prepareFeedback({
-  counterparty: address("UserWallet..."),
-  agentMint: address("Agent..."),
-  outcome: Outcome.Positive,
-  value: 90,
-  tag1: "starred",
-});
-
-// Step 2: Send to frontend (only messageBytes needs to cross the wire)
-// The server keeps the full `prepared` object; only send what the frontend needs to sign.
-const payload = {
-  messageHex: bytesToHex(prepared.messageBytes),
-};
-
-// Step 3: Frontend - user signs with wallet adapter
-const messageBytes = hexToBytes(payload.messageHex);
-const signature = await wallet.signMessage(messageBytes); // Returns Uint8Array (Ed25519 signature)
-
-// Step 4: Server submits with platform payer (uses the full `prepared` object kept server-side)
-const result = await sati.submitPreparedFeedback({
-  payer: platformPayer,           // Platform pays gas
-  prepared,                       // Full PreparedFeedbackData from step 1
-  counterpartySignature: signature, // User's 64-byte Ed25519 signature
-});
+```bash
+npm install @solana/wallet-adapter-react @solana/wallet-adapter-wallets @solana/wallet-adapter-react-ui
 ```
 
-> **Note:** `PreparedFeedbackData` contains multiple `Uint8Array` fields (`messageBytes`, `taskRef`, `dataHash`, `content`). If you need to serialize the entire object to JSON (e.g. for a stateless API), convert all `Uint8Array` fields with `bytesToHex()` and restore with `hexToBytes()`. The recommended pattern above avoids this by keeping `prepared` server-side.
+**Server (API route):**
+
+```typescript
+import { Sati, Outcome, address, bytesToHex, hexToBytes } from "@cascade-fyi/sati-sdk";
+
+const sati = new Sati({ network: "mainnet" });
+
+// POST /api/prepare-feedback
+async function handlePrepare(req) {
+  const { walletAddress, agentMint, value, tag1, outcome } = req.body;
+
+  const prepared = await sati.prepareFeedback({
+    counterparty: address(walletAddress),
+    agentMint: address(agentMint),
+    outcome: outcome ?? Outcome.Positive,
+    value,
+    tag1,
+  });
+
+  // Store `prepared` server-side (e.g. in session or cache keyed by walletAddress + agentMint)
+  await cache.set(`feedback:${walletAddress}:${agentMint}`, prepared);
+
+  // Only send the SIWS message bytes to the frontend
+  return { messageHex: bytesToHex(prepared.messageBytes) };
+}
+
+// POST /api/submit-feedback
+async function handleSubmit(req) {
+  const { walletAddress, agentMint, signatureHex } = req.body;
+
+  const prepared = await cache.get(`feedback:${walletAddress}:${agentMint}`);
+  const result = await sati.submitPreparedFeedback({
+    payer: platformPayer,
+    prepared,
+    counterpartySignature: hexToBytes(signatureHex),
+  });
+
+  return { signature: result.signature, attestationAddress: result.attestationAddress };
+}
+```
+
+**Frontend (React component):**
+
+```tsx
+import { useWallet } from "@solana/wallet-adapter-react";
+import { hexToBytes, bytesToHex } from "@cascade-fyi/sati-sdk";
+
+function FeedbackButton({ agentMint }: { agentMint: string }) {
+  const { publicKey, signMessage, connected } = useWallet();
+
+  async function handleFeedback() {
+    if (!publicKey || !signMessage) return;
+
+    // 1. Server prepares the SIWS message
+    const { messageHex } = await fetch("/api/prepare-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: publicKey.toBase58(),
+        agentMint,
+        value: 85,
+        tag1: "starred",
+      }),
+    }).then((r) => r.json());
+
+    // 2. User signs with wallet (Phantom/Solflare popup)
+    const messageBytes = hexToBytes(messageHex);
+    const signature = await signMessage(messageBytes); // Returns Uint8Array (64-byte Ed25519)
+
+    // 3. Server submits the transaction
+    await fetch("/api/submit-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress: publicKey.toBase58(),
+        agentMint,
+        signatureHex: bytesToHex(signature),
+      }),
+    });
+  }
+
+  return (
+    <button onClick={handleFeedback} disabled={!connected}>
+      Rate Agent
+    </button>
+  );
+}
+```
+
+> **Note:** `signMessage` is `undefined` if the connected wallet doesn't support message signing. Always check `signMessage` before calling it. `PreparedFeedbackData` contains multiple `Uint8Array` fields (`messageBytes`, `taskRef`, `dataHash`, `content`). If you need to serialize the entire object to JSON (e.g. for a stateless API), convert all `Uint8Array` fields with `bytesToHex()` and restore with `hexToBytes()`. The recommended pattern above avoids this by keeping `prepared` server-side.
 
 #### Revoke feedback
 
