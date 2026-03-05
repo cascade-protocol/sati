@@ -1072,15 +1072,17 @@ export class Sati {
     // Batch fetch all AgentIndex accounts
     const indexes = await fetchAllMaybeAgentIndex(this.rpc, pdas);
 
-    // Load agent identities for existing indexes
-    const agents: AgentIdentity[] = [];
+    // Batch load agent identities for existing indexes
+    const existingMints: Address[] = [];
     for (const index of indexes) {
       if (index.exists) {
-        const agent = await this.loadAgent(index.data.mint);
-        if (agent) {
-          agents.push(agent);
-        }
+        existingMints.push(index.data.mint);
       }
+    }
+    const loaded = existingMints.length > 0 ? await this.loadAgents(existingMints) : [];
+    const agents: AgentIdentity[] = [];
+    for (const agent of loaded) {
+      if (agent) agents.push(agent);
     }
 
     return { agents, totalAgents: total };
@@ -3005,6 +3007,7 @@ export class Sati {
 
       if (options?.tag1 !== undefined && tag1 !== options.tag1) continue;
       if (options?.tag2 !== undefined && tag2 !== options.tag2) continue;
+      if (options?.outcome !== undefined && item.data.outcome !== options.outcome) continue;
       if (options?.minValue !== undefined && (value === undefined || value < options.minValue)) continue;
       if (options?.maxValue !== undefined && (value === undefined || value > options.maxValue)) continue;
 

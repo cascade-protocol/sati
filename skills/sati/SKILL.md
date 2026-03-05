@@ -228,21 +228,35 @@ For proof-of-participation, use the **FeedbackV1** schema (DualSignature mode). 
 
 #### Browser wallet flow (two-step)
 
+The platform server prepares a SIWS (Sign In With Solana) message, the user signs it in their browser wallet, and the platform submits the transaction.
+
 ```typescript
-// Step 1: Prepare (server-side or client-side)
+import { hexToBytes, bytesToHex } from "@cascade-fyi/sati-sdk";
+
+// Step 1: Server prepares feedback data
 const prepared = await sati.prepareFeedback({
-  counterparty: address("User..."),
+  counterparty: address("UserWallet..."),
   agentMint: address("Agent..."),
   outcome: Outcome.Positive,
   value: 90,
+  tag1: "starred",
 });
 
-// Step 2: User signs prepared.messageBytes with their wallet
-// Then submit with a funded payer:
+// Step 2: Send to frontend (Uint8Array fields need hex encoding for JSON transport)
+const payload = {
+  messageHex: bytesToHex(prepared.messageBytes),
+  // ... other prepared fields
+};
+
+// Step 3: Frontend - user signs with wallet (e.g. Phantom)
+const messageBytes = hexToBytes(payload.messageHex);
+const { signature } = await wallet.signMessage(messageBytes); // Ed25519 signature
+
+// Step 4: Server submits with platform payer
 const result = await sati.submitPreparedFeedback({
-  payer,
+  payer: platformPayer,           // Platform pays gas
   prepared,
-  counterpartySignature: signatureFromWallet,
+  counterpartySignature: signature, // User's 64-byte Ed25519 signature
 });
 ```
 
@@ -254,24 +268,48 @@ await sati.revokeFeedback({ payer, attestationAddress: address("Attest...") });
 
 ### 3. Search Feedback
 
+`searchFeedback` queries only the **FeedbackPublicV1** schema. Use `searchAllFeedback` to query both FeedbackPublicV1 and FeedbackV1 (blind) schemas.
+
 ```typescript
-// Search feedback for a specific agent
+// Search FeedbackPublicV1 for a specific agent
 const feedbacks = await sati.searchFeedback({
   agentMint: address("Agent..."),
   tag1: "starred",
   minValue: 70,
+  outcome: Outcome.Positive,  // Filter by outcome (optional)
   includeTxHash: true,
 });
 // Returns: ParsedFeedback[] with compressedAddress, outcome, value, tag1, tag2, message, createdAt
 
-// Search ALL feedback across all agents (omit agentMint)
-const allFeedback = await sati.searchFeedback({});
+// Search FeedbackPublicV1 across all agents (omit agentMint)
+const allPublic = await sati.searchFeedback({});
 
-// Search across both FeedbackPublicV1 and FeedbackV1 schemas
+// Search BOTH schemas (FeedbackPublicV1 + FeedbackV1)
 const combined = await sati.searchAllFeedback({
   agentMint: address("Agent..."),
 });
 ```
+
+To distinguish blind (FeedbackV1) from public (FeedbackPublicV1) in raw results, compare `attestation.sasSchema` against `sati.feedbackSchema` vs `sati.feedbackPublicSchema`.
+
+**Bulk ingestion (for indexers/scoring providers):**
+
+```typescript
+// Auto-paginating async iterator across both schemas
+for await (const page of sati.listAllFeedbacks({ agentMint: address("Agent...") })) {
+  for (const item of page.items) {
+    // item.data: { counterparty, outcome, content, contentType, agentMint }
+    // item.raw.slotCreated for on-chain slot
+    const parsed = parseFeedbackContent(item.data.content, item.data.contentType);
+    // parsed: { value, tag1, tag2, m (message), endpoint }
+  }
+}
+
+// Omit agentMint to iterate ALL feedback across all agents
+for await (const page of sati.listAllFeedbacks()) { /* ... */ }
+```
+
+Note: `createdAt` timestamps in `ParsedFeedback` are approximate - derived from Solana slot numbers using ~400ms/slot estimate.
 
 ### 4. Reputation Summary
 
@@ -283,7 +321,7 @@ const summary = await sati.getReputationSummary(address("Agent..."));
 const filtered = await sati.getReputationSummary(address("Agent..."), "starred", "chat");
 ```
 
-Note: The REST API returns `summaryValue` (integer) instead of `averageValue` (float). The SDK provides the more precise float value.
+Note: `count` only includes feedback entries that have a `value` field set. An agent with 10 feedback entries but none containing `value` will show `count: 0`. The REST API returns `summaryValue` (integer) instead of `averageValue` (float).
 
 ### 5. Agent Discovery
 
@@ -292,9 +330,12 @@ Note: The REST API returns `summaryValue` (integer) instead of `averageValue` (f
 const agent = await sati.loadAgent(address("Mint..."));
 // AgentIdentity: { mint, owner, name, uri, memberNumber, nonTransferable }
 
-// Load multiple agents in batch
+// Load multiple agents in batch (single batched RPC call)
 const agents = await sati.loadAgents([mint1, mint2, mint3]);
 // Returns: (AgentIdentity | null)[] - null for invalid/missing mints
+
+// Get agent by member number (1-indexed)
+const first = await sati.getAgentByMemberNumber(1n);
 
 // Search agents with filters
 const results = await sati.searchAgents({
@@ -314,7 +355,7 @@ const myAgents = await sati.listAgentsByOwner(address("Owner..."));
 
 // Registry stats
 const stats = await sati.getRegistryStats();
-// { totalAgents, groupMint, authority }
+// { totalAgents, groupMint, authority, isImmutable }
 ```
 
 ### 6. Update Agent Metadata
@@ -348,6 +389,8 @@ await sati.linkEvmAddress({
   recoveryId: 0,
 });
 ```
+
+> **Note:** EVM links are stored as Anchor events only (not in on-chain accounts). There is no SDK query method to read past links - you need a Solana transaction log indexer (Helius, Yellowstone) to retrieve them.
 
 ### 8. Content Encryption
 
@@ -390,6 +433,54 @@ const imageUrl = getImageUrl(regFile);
 ```
 
 See the [ERC-8004 registration best practices](https://github.com/erc-8004/best-practices/blob/main/Registration.md) for guidance on name, image, description, and services.
+
+### 10. Reputation Scoring (on-chain)
+
+For scoring providers publishing computed scores back on-chain (ReputationScoreV3 schema):
+
+```typescript
+import { ContentType, parseReputationScoreContent } from "@cascade-fyi/sati-sdk";
+
+// Publish/update a score (idempotent - closes existing + creates new in one tx)
+await sati.updateReputationScore({
+  payer,
+  provider: providerKeypair,     // Scoring provider's KeyPairSigner
+  sasSchema: sati.reputationScoreSchema,
+  satiCredential: sati.credential,
+  agentMint: address("Agent..."),
+  outcome: Outcome.Positive,
+  contentType: ContentType.JSON,
+  content: new TextEncoder().encode(JSON.stringify({ score: 85, factors: { ... } })),
+});
+
+// Read existing scores for an agent
+const scores = await sati.listReputationScores(
+  address("Agent..."),
+  sati.reputationScoreSchema,
+);
+for (const score of scores) {
+  const parsed = parseReputationScoreContent(score.content, score.contentType);
+  // parsed: { score, factors, ... }
+}
+
+// Get a specific provider's score
+const score = await sati.getReputationScore(
+  address("Provider..."),
+  address("Agent..."),
+  sati.credential,
+  sati.reputationScoreSchema,
+);
+```
+
+### Platform integration notes
+
+**Ownership model:** `registerAgent({ payer, owner })` - the `payer` pays gas, the `owner` receives the NFT. A platform can register agents on behalf of operators. Only the `owner` can update metadata. Reputation stays with the mint address (portable across owners).
+
+**Outcome enum values:** `Negative = 0`, `Neutral = 1`, `Positive = 2`. Use `getOutcomeLabel(outcome)` for display strings.
+
+### REST API
+
+The dashboard at `sati.cascade.fyi` exposes a public REST API. See `docs/reference/rest-api.md` for full endpoint documentation. Key endpoints: `GET /api/agents`, `GET /api/agents/:mint`, `GET /api/feedback/:mint`, `GET /api/feedback` (global), `GET /api/reputation/:mint`, `GET /api/badge/:mint`.
 
 ### Configuration
 

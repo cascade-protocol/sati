@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-03-05
+
+### Added
+
+- **`outcome` filter** on `FeedbackSearchOptions` - filter feedback by `Outcome.Positive`, `Outcome.Negative`, or `Outcome.Neutral`
+
+### Changed
+
+- `listAllAgents()` now uses batched `loadAgents()` internally instead of N+1 individual `loadAgent()` calls
+
+### Fixed
+
+- `listAllAgents()` with large limits no longer hits rate limits on default hosted proxy
+
 ## [0.14.0] - 2026-03-05
 
 ### Changed

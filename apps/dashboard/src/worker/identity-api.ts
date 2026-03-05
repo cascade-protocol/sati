@@ -254,11 +254,17 @@ export function createIdentityApi(env: Env) {
     const network = getNetwork(c.req.query("network"));
     const nameFilter = c.req.query("name")?.toLowerCase();
     const ownerFilter = c.req.query("owner");
+    const endpointTypesParam = c.req.query("endpointTypes");
     const limitParam = Number.parseInt(c.req.query("limit") ?? "20", 10);
+    const offsetParam = Number.parseInt(c.req.query("offset") ?? "0", 10);
     const limit = Math.min(Math.max(limitParam, 1), 50);
+    const offset = Math.max(offsetParam, 0);
+
+    const endpointTypes = endpointTypesParam?.split(",").filter(Boolean) ?? [];
 
     try {
       const sati = createSatiClient(network, env);
+      const stats = await sati.getRegistryStats();
 
       let agents: AgentIdentity[];
       if (ownerFilter) {
@@ -267,11 +273,11 @@ export function createIdentityApi(env: Env) {
         }
         agents = await sati.listAgentsByOwner(ownerFilter as Address);
       } else {
-        const result = await sati.listAllAgents({ limit });
-        agents = result.agents;
+        const result = await sati.listAllAgents({ limit: limit + offset, offset: 0 });
+        agents = result.agents.slice(offset);
       }
 
-      // Fetch registration files and apply name filter
+      // Fetch registration files and apply filters
       const results = [];
       for (const agent of agents) {
         if (results.length >= limit) break;
@@ -283,6 +289,11 @@ export function createIdentityApi(env: Env) {
           if (!agentName.includes(nameFilter)) continue;
         }
 
+        if (endpointTypes.length > 0) {
+          const serviceNames = (regFile?.services ?? []).map((s) => s.name);
+          if (!endpointTypes.some((t) => serviceNames.includes(t))) continue;
+        }
+
         results.push({
           mint: agent.mint,
           agentId: `${CAIP2_CHAINS[network]}:${agent.mint}`,
@@ -292,6 +303,7 @@ export function createIdentityApi(env: Env) {
           image: regFile?.image ?? "",
           uri: agent.uri,
           memberNumber: Number(agent.memberNumber),
+          nonTransferable: agent.nonTransferable,
           active: regFile?.active ?? true,
           services: regFile?.services ?? [],
           supportedTrust: regFile?.supportedTrust ?? [],
@@ -299,7 +311,7 @@ export function createIdentityApi(env: Env) {
         });
       }
 
-      return c.json({ agents: results, count: results.length });
+      return c.json({ agents: results, count: results.length, totalAgents: Number(stats.totalAgents) });
     } catch (error) {
       console.error("[agents] ERROR:", error);
       return c.json({ error: error instanceof Error ? error.message : "Failed to list agents" }, 500);
@@ -511,12 +523,71 @@ export function createIdentityApi(env: Env) {
   // GET /api/feedback/:mint - List feedback for agent
   // ---------------------------------------------------------------------------
 
+  // Shared feedback query logic for both per-agent and global endpoints
+  async function queryFeedback(
+    sati: Sati,
+    network: "devnet" | "mainnet",
+    agentMint?: Address,
+    filters?: { clientAddress?: string; tag1?: string; tag2?: string; outcome?: string },
+  ) {
+    const networkConfig = getNetworkConfig(sati);
+    const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
+
+    const { rpc: rpcUrl } = env.RPC_URLS[network];
+    const slotResp = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getSlot", params: [{ commitment: "confirmed" }] }),
+    });
+    const slotJson = (await slotResp.json()) as { result: number };
+    const currentSlot = slotJson.result;
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    const feedbackItems: Array<Record<string, unknown>> = [];
+    let feedbackIndex = 0;
+
+    for (const schema of feedbackSchemas) {
+      const filter: Record<string, unknown> = { sasSchema: schema as Address };
+      if (agentMint) filter.agentMint = agentMint;
+
+      const feedbacks = await sati.listFeedbacks(filter as { sasSchema: Address; agentMint?: Address });
+
+      for (const fb of feedbacks.items) {
+        const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
+
+        if (filters?.clientAddress && fb.data.counterparty !== filters.clientAddress) continue;
+        if (filters?.tag1 && parsed?.tag1 !== filters.tag1) continue;
+        if (filters?.tag2 && parsed?.tag2 !== filters.tag2) continue;
+        if (filters?.outcome !== undefined && String(fb.data.outcome) !== filters.outcome) continue;
+
+        const slotDiff = Number(BigInt(currentSlot) - fb.raw.slotCreated);
+        const createdAt = nowSec - Math.floor(slotDiff * 0.4);
+
+        feedbackItems.push({
+          compressedAddress: fb.address,
+          clientAddress: fb.data.counterparty,
+          agentMint: fb.data.agentMint,
+          feedbackIndex: feedbackIndex++,
+          value: parsed?.value ?? 0,
+          valueDecimals: parsed?.valueDecimals ?? 0,
+          tag1: parsed?.tag1 ?? "",
+          tag2: parsed?.tag2 ?? "",
+          message: parsed?.m ?? "",
+          endpoint: parsed?.endpoint ?? "",
+          outcome: fb.data.outcome,
+          createdAt,
+          schema: schema === networkConfig.feedbackSchema ? "FeedbackV1" : "FeedbackPublicV1",
+          isRevoked: false,
+        });
+      }
+    }
+
+    return feedbackItems;
+  }
+
   app.get("/api/feedback/:mint", async (c) => {
     const mint = c.req.param("mint");
     const network = getNetwork(c.req.query("network"));
-    const clientAddressFilter = c.req.query("clientAddress");
-    const tag1Filter = c.req.query("tag1");
-    const tag2Filter = c.req.query("tag2");
 
     if (!isAddress(mint)) {
       return c.json({ error: "Invalid mint address" }, 400);
@@ -524,44 +595,39 @@ export function createIdentityApi(env: Env) {
 
     try {
       const sati = createSatiClient(network, env);
-      const networkConfig = getNetworkConfig(sati);
-      const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
-
-      const feedbackItems: Array<Record<string, unknown>> = [];
-      let feedbackIndex = 0;
-
-      for (const schema of feedbackSchemas) {
-        const feedbacks = await sati.listFeedbacks({
-          sasSchema: schema as Address,
-          agentMint: mint as Address,
-        });
-
-        for (const fb of feedbacks.items) {
-          const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
-
-          // Apply filters
-          if (clientAddressFilter && fb.data.counterparty !== clientAddressFilter) continue;
-          if (tag1Filter && parsed?.tag1 !== tag1Filter) continue;
-          if (tag2Filter && parsed?.tag2 !== tag2Filter) continue;
-
-          feedbackItems.push({
-            clientAddress: fb.data.counterparty,
-            feedbackIndex: feedbackIndex++,
-            value: parsed?.value ?? 0,
-            valueDecimals: parsed?.valueDecimals ?? 0,
-            tag1: parsed?.tag1 ?? "",
-            tag2: parsed?.tag2 ?? "",
-            endpoint: parsed?.endpoint ?? "",
-            reviewer: parsed?.reviewer ?? "",
-            outcome: fb.data.outcome,
-            isRevoked: false,
-          });
-        }
-      }
+      const feedbackItems = await queryFeedback(sati, network, mint as Address, {
+        clientAddress: c.req.query("clientAddress"),
+        tag1: c.req.query("tag1"),
+        tag2: c.req.query("tag2"),
+        outcome: c.req.query("outcome"),
+      });
 
       return c.json({ feedbacks: feedbackItems, count: feedbackItems.length });
     } catch (error) {
       console.error("[feedback list] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to list feedback" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/feedback - List ALL feedback across all agents
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/feedback", async (c) => {
+    const network = getNetwork(c.req.query("network"));
+
+    try {
+      const sati = createSatiClient(network, env);
+      const feedbackItems = await queryFeedback(sati, network, undefined, {
+        clientAddress: c.req.query("clientAddress"),
+        tag1: c.req.query("tag1"),
+        tag2: c.req.query("tag2"),
+        outcome: c.req.query("outcome"),
+      });
+
+      return c.json({ feedbacks: feedbackItems, count: feedbackItems.length });
+    } catch (error) {
+      console.error("[feedback global] ERROR:", error);
       return c.json({ error: error instanceof Error ? error.message : "Failed to list feedback" }, 500);
     }
   });

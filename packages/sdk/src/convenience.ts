@@ -86,6 +86,8 @@ export interface FeedbackSearchOptions {
   tag1?: string;
   /** Filter by tag2 */
   tag2?: string;
+  /** Filter by outcome (Positive, Negative, Neutral) */
+  outcome?: Outcome;
   /** Minimum value (inclusive) */
   minValue?: number;
   /** Maximum value (inclusive) */
