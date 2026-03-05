@@ -436,6 +436,78 @@ export function createIdentityApi(env: Env) {
   });
 
   // ---------------------------------------------------------------------------
+  // GET /api/badge/:mint - SVG reputation badge (shields.io style)
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/badge/:mint", async (c) => {
+    const mint = c.req.param("mint");
+    const network = getNetwork(c.req.query("network"));
+
+    if (!isAddress(mint)) {
+      return c.text("Invalid mint", 400);
+    }
+
+    try {
+      const sati = createSatiClient(network, env);
+      const networkConfig = getNetworkConfig(sati);
+      const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
+
+      let count = 0;
+      let totalValue = 0;
+      let hasValues = false;
+
+      for (const schema of feedbackSchemas) {
+        const feedbacks = await sati.listFeedbacks({
+          sasSchema: schema as Address,
+          agentMint: mint as Address,
+        });
+        for (const fb of feedbacks.items) {
+          const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
+          count++;
+          if (parsed?.value !== undefined) {
+            totalValue += parsed.value;
+            hasValues = true;
+          }
+        }
+      }
+
+      const score = hasValues ? Math.round(totalValue / count) : 0;
+      const label = "SATI";
+      const value = count > 0 ? `${score}/100 (${count})` : "no reviews";
+      const color = count === 0 ? "#999" : score >= 70 ? "#4c1" : score >= 40 ? "#dfb317" : "#e05d44";
+
+      // Measure text widths (approximation: 6.5px per char)
+      const labelWidth = Math.round(label.length * 6.5 + 10);
+      const valueWidth = Math.round(value.length * 6.5 + 10);
+      const totalWidth = labelWidth + valueWidth;
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="20" role="img" aria-label="${label}: ${value}">
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="${totalWidth}" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="${labelWidth}" height="20" fill="#555"/>
+    <rect x="${labelWidth}" width="${valueWidth}" height="20" fill="${color}"/>
+    <rect width="${totalWidth}" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="11">
+    <text x="${labelWidth / 2}" y="14">${label}</text>
+    <text x="${labelWidth + valueWidth / 2}" y="14">${value}</text>
+  </g>
+</svg>`;
+
+      return new Response(svg, {
+        headers: {
+          "Content-Type": "image/svg+xml",
+          "Cache-Control": "public, max-age=300",
+        },
+      });
+    } catch {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><rect width="80" height="20" rx="3" fill="#999"/><text x="40" y="14" fill="#fff" text-anchor="middle" font-family="Verdana" font-size="11">SATI</text></svg>`;
+      return new Response(svg, { headers: { "Content-Type": "image/svg+xml" } });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // GET /api/feedback/:mint - List feedback for agent
   // ---------------------------------------------------------------------------
 
@@ -604,6 +676,40 @@ export function createIdentityApi(env: Env) {
       }
       return c.json({ error: error instanceof Error ? error.message : "Failed to submit feedback" }, 500);
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/rpc/:network - Solana RPC proxy (Helius-backed)
+  // ---------------------------------------------------------------------------
+
+  app.post("/api/rpc/:network", async (c) => {
+    cleanupBuckets();
+
+    const network = c.req.param("network");
+    if (network !== "devnet" && network !== "mainnet") {
+      return c.json({ error: "Invalid network - must be devnet or mainnet" }, 400);
+    }
+
+    // Rate limit: 120 requests per minute per IP
+    const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown";
+    if (isRateLimited(`rpc:${ip}`, 120, 60_000)) {
+      return c.json({ error: "Rate limit exceeded - max 120 requests per minute" }, 429);
+    }
+
+    const rpcUrl = env.RPC_URLS[network].rpc;
+    const body = await c.req.text();
+
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+
+    const result = await response.text();
+    return new Response(result, {
+      status: response.status,
+      headers: { "Content-Type": "application/json" },
+    });
   });
 
   // ---------------------------------------------------------------------------

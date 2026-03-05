@@ -88,6 +88,20 @@ GET /api/reputation/:mint?network=mainnet&tag1=starred&tag2=chat&clientAddresses
 }
 ```
 
+### Reputation badge
+
+```
+GET /api/badge/:mint?network=mainnet
+```
+
+Returns an SVG badge (shields.io style) showing the agent's reputation score. Embed in README files:
+
+```markdown
+![SATI Reputation](https://sati.cascade.fyi/api/badge/YOUR_MINT?network=mainnet)
+```
+
+Badge shows score/100 with review count, color-coded: green (70+), yellow (40-69), red (<40), gray (no reviews). Cached for 5 minutes.
+
 ### List feedback
 
 ```
@@ -137,8 +151,9 @@ Server acts as counterparty and pays transaction fees. Rate limited per IP.
 ## Rate limits
 
 - Read endpoints: best-effort per-IP rate limiting (Cloudflare Worker isolate-level)
+- RPC proxy (`/api/rpc/:network`): ~120 requests/min per IP
 - Photon proxy (`/api/photon/:network`): ~120 requests/min per IP
-- For production workloads, use the SDK with your own Helius/Triton RPC
+- For production workloads, use the SDK with your own Helius/Triton RPC via `rpcUrl` and `photonRpcUrl`
 
 ## Notes
 

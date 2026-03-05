@@ -62,7 +62,11 @@ SATI has two feedback schemas with different trust properties:
 
 If you run an MCP server or API and want users to leave feedback:
 
-1. **Add your dashboard link to your README/docs:**
+1. **Add a reputation badge to your README:**
+   ```markdown
+   ![SATI Reputation](https://sati.cascade.fyi/api/badge/<YOUR_MINT>?network=mainnet)
+   ```
+   Or link to your dashboard page:
    ```
    Reputation: https://sati.cascade.fyi/agent/<YOUR_MINT>
    ```

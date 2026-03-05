@@ -171,14 +171,14 @@ export { Outcome } from "./hashes";
 export { DataType, ContentType, ValidationType } from "./schemas";
 export { SignatureMode, StorageType } from "./generated";
 
-// Default RPC URLs
+// Default RPC URLs (hosted proxy for zero-config experience, backed by Helius)
 const RPC_URLS = {
-  mainnet: "https://api.mainnet-beta.solana.com",
-  devnet: "https://api.devnet.solana.com",
+  mainnet: "https://sati.cascade.fyi/api/rpc/mainnet",
+  devnet: "https://sati.cascade.fyi/api/rpc/devnet",
   localnet: "http://127.0.0.1:8899",
 } as const;
 
-// Default WebSocket URLs
+// Default WebSocket URLs (public endpoints - hosted proxy doesn't support WS)
 const WS_URLS = {
   mainnet: "wss://api.mainnet-beta.solana.com",
   devnet: "wss://api.devnet.solana.com",

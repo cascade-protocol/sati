@@ -42,7 +42,7 @@ const result = await sati.registerAgent({
   additionalMetadata: [           // Optional key-value pairs
     { key: "version", value: "1.0" },
   ],
-  nonTransferable: true,          // Default: true (soulbound)
+  nonTransferable: false,         // Default: false. Set true for soulbound (non-transferable).
 });
 
 console.log(result.mint);         // Agent's token address (identity)

@@ -29,6 +29,8 @@ All commands: `init`, `publish`, `search`, `info [MINT]`, `give-feedback`, `tran
 
 ### agent-registration.json
 
+The registration file follows the [ERC-8004 Registration standard](https://github.com/erc-8004/best-practices/blob/main/Registration.md):
+
 ```json
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
@@ -40,8 +42,19 @@ All commands: `init`, `publish`, `search`, `info [MINT]`, `give-feedback`, `tran
     "category": "image"
   },
   "services": [
-    {"name": "MCP", "endpoint": "https://myagent.com/mcp", "version": "2025-06-18", "mcpTools": []},
-    {"name": "A2A", "endpoint": "https://myagent.com/.well-known/agent-card.json", "a2aSkills": []}
+    {
+      "name": "MCP",
+      "endpoint": "https://myagent.com/mcp",
+      "version": "2025-06-18",
+      "mcpTools": ["search", "summarize", "analyze"],
+      "mcpPrompts": ["data-analysis"],
+      "mcpResources": ["knowledge-base"]
+    },
+    {
+      "name": "A2A",
+      "endpoint": "https://myagent.com/.well-known/agent-card.json",
+      "a2aSkills": ["natural_language_processing/information_retrieval_synthesis/question_answering"]
+    }
   ],
   "supportedTrust": ["reputation"],
   "active": false,
@@ -50,7 +63,13 @@ All commands: `init`, `publish`, `search`, `info [MINT]`, `give-feedback`, `tran
 }
 ```
 
-Service types: `MCP` (mcpTools), `A2A` (a2aSkills), `OASF` (skills, domains), `ENS`, `DID`, `agentWallet`.
+Service types (see [ERC-8004 best practices](https://github.com/erc-8004/best-practices) for detailed guidance):
+- `MCP` - Model Context Protocol. Fields: `mcpTools` (tool names as strings), `mcpPrompts`, `mcpResources`. The `version` field is the MCP spec version your server supports (e.g., `"2025-06-18"`).
+- `A2A` - Agent-to-Agent. Fields: `a2aSkills` (OASF skill paths). Endpoint should point to your agent card JSON.
+- `OASF` - Open Agent Skills Framework. Fields: `skills`, `domains`.
+- `ENS`, `DID`, `agentWallet` - Identity services.
+
+> **Note:** When publishing via CLI (`npx create-sati-agent publish`), the CLI auto-discovers MCP tools by calling your MCP endpoint. Your MCP server must be running and reachable during publish. If your server requires auth, you'll see a non-blocking reachability warning - you can safely ignore it and list tools manually in the JSON.
 
 ### Mainnet deployment flow
 
@@ -75,10 +94,35 @@ Feedback tag conventions:
 | tag1 | value range | meaning |
 |------|-------------|---------|
 | `starred` | 0-100 | Overall rating |
-| `reachable` | 0 or 1 | Health check |
+| `reachable` | 0 or 1 | Health check (1 = reachable) |
 | `uptime` | 0-100 | Uptime percentage |
 | `responseTime` | ms | Latency in milliseconds |
 | `successRate` | 0-100 | Success percentage |
+
+### Monitoring agent health
+
+Automate health checks with a cron job or scheduled task:
+
+```bash
+# Check if endpoint is reachable and report to SATI
+curl -sf https://myagent.com/mcp > /dev/null && \
+  npx create-sati-agent give-feedback --agent <MINT> --tag1 reachable --value 1 --network mainnet || \
+  npx create-sati-agent give-feedback --agent <MINT> --tag1 reachable --value 0 --network mainnet
+```
+
+### Reputation badge
+
+Add a reputation badge to your README:
+
+```markdown
+![SATI Reputation](https://sati.cascade.fyi/api/badge/<YOUR_MINT>?network=mainnet)
+```
+
+Or link to your dashboard page:
+
+```markdown
+[Reputation](https://sati.cascade.fyi/agent/<YOUR_MINT>)
+```
 
 ---
 
@@ -149,11 +193,11 @@ const result = await sati.registerAgent({
   payer,
   name: "MyAgent",
   uri,
-  nonTransferable: false, // true = soulbound
+  nonTransferable: false, // default: false. Set true for soulbound (non-transferable) agents.
 });
 ```
 
-Uploaders: `createSatiUploader()` (zero-config) or `createPinataUploader(jwt)`.
+Uploaders: `createSatiUploader()` (zero-config, uses hosted IPFS via `sati.cascade.fyi`) or `createPinataUploader(jwt)`.
 
 ### 2. Give Feedback
 
@@ -167,7 +211,7 @@ import { Outcome } from "@cascade-fyi/sati-sdk";
 const { signature, attestationAddress } = await sati.giveFeedback({
   payer,                              // Reviewer wallet (pays + signs)
   agentMint: address("Agent..."),     // Agent to review
-  outcome: Outcome.Positive,          // Positive | Negative | Neutral
+  outcome: Outcome.Positive,          // Positive | Negative | Neutral (default: Neutral)
   value: 87,                          // Numeric score (optional)
   valueDecimals: 0,                   // Decimal places for value
   tag1: "starred",                    // Primary dimension
@@ -211,6 +255,7 @@ await sati.revokeFeedback({ payer, attestationAddress: address("Attest...") });
 ### 3. Search Feedback
 
 ```typescript
+// Search feedback for a specific agent
 const feedbacks = await sati.searchFeedback({
   agentMint: address("Agent..."),
   tag1: "starred",
@@ -218,6 +263,14 @@ const feedbacks = await sati.searchFeedback({
   includeTxHash: true,
 });
 // Returns: ParsedFeedback[] with compressedAddress, outcome, value, tag1, tag2, message, createdAt
+
+// Search ALL feedback across all agents (omit agentMint)
+const allFeedback = await sati.searchFeedback({});
+
+// Search across both FeedbackPublicV1 and FeedbackV1 schemas
+const combined = await sati.searchAllFeedback({
+  agentMint: address("Agent..."),
+});
 ```
 
 ### 4. Reputation Summary
@@ -230,6 +283,8 @@ const summary = await sati.getReputationSummary(address("Agent..."));
 const filtered = await sati.getReputationSummary(address("Agent..."), "starred", "chat");
 ```
 
+Note: The REST API returns `summaryValue` (integer) instead of `averageValue` (float). The SDK provides the more precise float value.
+
 ### 5. Agent Discovery
 
 ```typescript
@@ -237,14 +292,22 @@ const filtered = await sati.getReputationSummary(address("Agent..."), "starred",
 const agent = await sati.loadAgent(address("Mint..."));
 // AgentIdentity: { mint, owner, name, uri, memberNumber, nonTransferable }
 
+// Load multiple agents in batch
+const agents = await sati.loadAgents([mint1, mint2, mint3]);
+// Returns: (AgentIdentity | null)[] - null for invalid/missing mints
+
 // Search agents with filters
-const agents = await sati.searchAgents({
+const results = await sati.searchAgents({
   endpointTypes: ["MCP"],
   active: true,
   includeFeedbackStats: true,
   limit: 50,
 });
 // AgentSearchResult[]: { identity, registrationFile, feedbackStats }
+
+// List all agents with pagination (lighter than searchAgents - no registration file fetch)
+const page = await sati.listAllAgents({ limit: 20, offset: 0, order: "newest" });
+// { agents: AgentIdentity[], totalAgents: bigint }
 
 // List by owner
 const myAgents = await sati.listAgentsByOwner(address("Owner..."));
@@ -326,13 +389,15 @@ const regFile = await fetchRegistrationFile("ipfs://Qm...");
 const imageUrl = getImageUrl(regFile);
 ```
 
+See the [ERC-8004 registration best practices](https://github.com/erc-8004/best-practices/blob/main/Registration.md) for guidance on name, image, description, and services.
+
 ### Configuration
 
 ```typescript
 const sati = new Sati({
   network: "mainnet",           // "mainnet" | "devnet" | "localnet"
-  rpcUrl: "https://...",        // Custom RPC (optional)
-  photonRpcUrl: "https://...",  // Photon/Helius RPC for Light Protocol queries
+  rpcUrl: "https://...",        // Custom Solana RPC (optional)
+  photonRpcUrl: "https://...",  // Photon/Helius RPC for Light Protocol queries (optional)
   onWarning: (w) => console.warn(w.code, w.message),
   feedbackCacheTtlMs: 30_000,  // Cache TTL (default 30s, 0 to disable)
   transactionConfig: {
@@ -343,7 +408,7 @@ const sati = new Sati({
 });
 ```
 
-**Photon RPC**: Compressed account queries use a hosted Photon proxy by default (zero-config). For production workloads, provide your own Helius or Triton RPC URL via `photonRpcUrl` to avoid rate limits (~120 req/min on the hosted proxy).
+**RPC endpoints**: By default, the SDK routes all RPC calls through hosted proxies at `sati.cascade.fyi` (backed by Helius), rate-limited to ~120 req/min per IP. For production workloads, provide your own Helius or Triton RPC URLs via `rpcUrl` and `photonRpcUrl` to get higher limits.
 
 ### Key Types
 
@@ -387,3 +452,4 @@ try {
 - **Insufficient funds (mainnet)** - Send ~0.01 SOL to your wallet address. CLI shows the address on failure.
 - **Permission denied on update** - Wrong keypair. Use `--keypair /path/to/original.json` with the CLI, or ensure the correct `owner` KeyPairSigner in SDK.
 - **Feedback schema not deployed** - Make sure you're on the right network. Schemas are deployed on both devnet and mainnet.
+- **Rate limited (429)** - The hosted RPC proxies are rate-limited to ~120 req/min per IP. For production, provide your own RPC via `rpcUrl` and `photonRpcUrl`.
