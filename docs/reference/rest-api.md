@@ -11,7 +11,7 @@ All endpoints accept a `?network=mainnet|devnet` query parameter (defaults to ma
 ### List agents
 
 ```
-GET /api/agents?network=mainnet&limit=20&offset=0&name=search&owner=ADDRESS&endpointTypes=MCP,A2A
+GET /api/agents?network=mainnet&limit=20&offset=0&order=newest&name=search&owner=ADDRESS&endpointTypes=MCP,A2A
 ```
 
 | Param | Type | Description |
@@ -19,9 +19,10 @@ GET /api/agents?network=mainnet&limit=20&offset=0&name=search&owner=ADDRESS&endp
 | `network` | `mainnet` \| `devnet` | Network to query |
 | `limit` | number | Max results (1-50, default 20) |
 | `offset` | number | Skip first N agents (default 0) |
-| `name` | string | Filter by name (case-insensitive substring) |
+| `order` | `newest` \| `oldest` | Sort order (default `newest`) |
+| `name` | string | Filter by name (case-insensitive substring). Searches all agents, not just the current page. |
 | `owner` | string | Filter by owner address |
-| `endpointTypes` | string | Comma-separated service types: `MCP`, `A2A`, `OASF` |
+| `endpointTypes` | string | Comma-separated service types: `MCP`, `A2A`, `OASF`. Searches all agents. |
 
 **Response:**
 
@@ -61,6 +62,7 @@ Returns a single agent with reputation summary.
 
 ```json
 {
+  "nonTransferable": false,
   "registrations": [{"agentId": "...", "agentRegistry": "..."}],
   "reputation": {
     "count": 42,
@@ -69,6 +71,8 @@ Returns a single agent with reputation summary.
   }
 }
 ```
+
+`reputation.count` is total feedback entries. `summaryValue` is the average of entries that have a `value` field (divided by value count, not total count).
 
 ### Get reputation
 
@@ -92,6 +96,25 @@ GET /api/reputation/:mint?network=mainnet&tag1=starred&tag2=chat&clientAddresses
 }
 ```
 
+`count` is total feedback entries matching filters. `summaryValue` averages only entries with a `value` field set.
+
+### Registry stats
+
+```
+GET /api/stats?network=mainnet
+```
+
+**Response:**
+
+```json
+{
+  "totalAgents": 80,
+  "groupMint": "satiG7i...",
+  "authority": "SQ2xx...",
+  "isImmutable": false
+}
+```
+
 ### Reputation badge
 
 ```
@@ -109,11 +132,13 @@ Badge shows score/100 with review count, color-coded: green (70+), yellow (40-69
 ### List feedback (per agent)
 
 ```
-GET /api/feedback/:mint?network=mainnet&clientAddress=ADDR&tag1=starred&tag2=chat&outcome=2
+GET /api/feedback/:mint?network=mainnet&limit=50&offset=0&clientAddress=ADDR&tag1=starred&tag2=chat&outcome=2
 ```
 
 | Param | Type | Description |
 |-------|------|-------------|
+| `limit` | number | Max results (1-200, default 50) |
+| `offset` | number | Skip first N entries (default 0) |
 | `clientAddress` | string | Filter by reviewer address |
 | `tag1` | string | Filter by primary tag |
 | `tag2` | string | Filter by secondary tag |
@@ -128,7 +153,6 @@ GET /api/feedback/:mint?network=mainnet&clientAddress=ADDR&tag1=starred&tag2=cha
       "compressedAddress": "Attest...",
       "clientAddress": "Reviewer...",
       "agentMint": "Agent...",
-      "feedbackIndex": 0,
       "value": 87,
       "valueDecimals": 0,
       "tag1": "starred",
@@ -141,14 +165,17 @@ GET /api/feedback/:mint?network=mainnet&clientAddress=ADDR&tag1=starred&tag2=cha
       "isRevoked": false
     }
   ],
-  "count": 1
+  "count": 1,
+  "total": 42
 }
 ```
+
+`count` is the number of items in this page. `total` is the total matching items across all pages. `compressedAddress` is a base58-encoded compressed account address (stable identifier). Fields like `value`, `tag1`, `tag2`, `message`, `endpoint` are `null` when not set (not `0` or empty string).
 
 ### List feedback (global)
 
 ```
-GET /api/feedback?network=mainnet&clientAddress=ADDR&tag1=starred&outcome=2
+GET /api/feedback?network=mainnet&limit=50&offset=0&clientAddress=ADDR&tag1=starred&outcome=2
 ```
 
 Same parameters and response as per-agent endpoint, but returns feedback across all agents. Useful for indexers and scoring providers.
@@ -165,11 +192,36 @@ Content-Type: application/json
   "value": 85,
   "valueDecimals": 0,
   "tag1": "starred",
-  "endpoint": "https://..."
+  "tag2": "chat",
+  "message": "Great response time",
+  "endpoint": "https://...",
+  "outcome": 2
 }
 ```
 
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentMint` | string | **Required.** Agent mint address |
+| `value` | number | **Required.** Numeric score |
+| `network` | string | `mainnet` \| `devnet` (default `mainnet`) |
+| `valueDecimals` | number | Decimal places for value (default 0) |
+| `tag1` | string | Primary tag |
+| `tag2` | string | Secondary tag |
+| `message` | string | Human-readable feedback message |
+| `endpoint` | string | Endpoint reviewed |
+| `outcome` | number | 0 = Negative, 1 = Neutral (default), 2 = Positive |
+
 Server acts as counterparty and pays transaction fees. Rate limited per IP.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "txSignature": "5Kj...",
+  "attestationAddress": "Attest..."
+}
+```
 
 ## Rate limits
 
@@ -181,8 +233,9 @@ Server acts as counterparty and pays transaction fees. Rate limited per IP.
 ## Notes
 
 - Queries both FeedbackV1 and FeedbackPublicV1 schemas automatically
-- Reputation is computed by averaging all feedback values (no weighting)
+- Reputation `summaryValue` averages only entries with a `value` field; `count` includes all entries
 - `outcome` values: 0 = Negative, 1 = Neutral, 2 = Positive
 - Agent IDs follow CAIP-2 format: `solana:{genesis_hash}:{mint_address}`
-- `createdAt` is a Unix timestamp (seconds), approximate based on Solana slot times
+- `createdAt` is a Unix timestamp (seconds), approximate based on Solana slot times (~400ms/slot)
 - `schema` field indicates whether feedback is blind (`FeedbackV1`) or public (`FeedbackPublicV1`)
+- `compressedAddress` is a base58-encoded string, usable as a stable identifier for feedback entries

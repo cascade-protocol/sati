@@ -3045,36 +3045,35 @@ export class Sati {
    * ```
    */
   async getReputationSummary(agentMint: Address, tag1?: string, tag2?: string): Promise<ReputationSummary> {
-    const schema = this._deployedConfig?.schemas.feedbackPublic ?? this._deployedConfig?.schemas.feedback;
-    if (!schema) {
+    const schemas = [this._deployedConfig?.schemas.feedbackPublic, this._deployedConfig?.schemas.feedback].filter(
+      Boolean,
+    ) as Address[];
+    if (schemas.length === 0) {
       throw new Error(`No feedback schema deployed for network "${this.network}"`);
-    }
-
-    const cacheKey = FeedbackCache.cacheKey(schema, agentMint);
-    const cached = this._feedbackCache.get<PaginatedAttestations<ParsedFeedbackAttestation>>(cacheKey);
-    const result = cached ?? (await this.listFeedbacks({ sasSchema: schema, agentMint }));
-    if (!cached) this._feedbackCache.set(cacheKey, result);
-
-    if (result.items.length === 0) {
-      return { count: 0, averageValue: 0 };
     }
 
     let sum = 0;
     let count = 0;
 
-    for (const item of result.items) {
-      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
-      const value = rawContent?.value as number | undefined;
-      const itemTag1 = rawContent?.tag1 as string | undefined;
-      const itemTag2 = rawContent?.tag2 as string | undefined;
+    for (const schema of schemas) {
+      const cacheKey = FeedbackCache.cacheKey(schema, agentMint);
+      const cached = this._feedbackCache.get<PaginatedAttestations<ParsedFeedbackAttestation>>(cacheKey);
+      const result = cached ?? (await this.listFeedbacks({ sasSchema: schema, agentMint }));
+      if (!cached) this._feedbackCache.set(cacheKey, result);
 
-      // Apply tag filters
-      if (tag1 !== undefined && itemTag1 !== tag1) continue;
-      if (tag2 !== undefined && itemTag2 !== tag2) continue;
+      for (const item of result.items) {
+        const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
+        const value = rawContent?.value as number | undefined;
+        const itemTag1 = rawContent?.tag1 as string | undefined;
+        const itemTag2 = rawContent?.tag2 as string | undefined;
 
-      if (value !== undefined) {
-        sum += value;
-        count++;
+        if (tag1 !== undefined && itemTag1 !== tag1) continue;
+        if (tag2 !== undefined && itemTag2 !== tag2) continue;
+
+        if (value !== undefined) {
+          sum += value;
+          count++;
+        }
       }
     }
 

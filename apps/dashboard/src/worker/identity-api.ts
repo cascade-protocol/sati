@@ -100,7 +100,9 @@ interface FeedbackRequest {
   valueDecimals?: number;
   tag1?: string;
   tag2?: string;
+  message?: string;
   endpoint?: string;
+  outcome?: number;
   reviewerAddress?: string;
   feedbackURI?: string;
   feedbackHash?: string;
@@ -255,12 +257,14 @@ export function createIdentityApi(env: Env) {
     const nameFilter = c.req.query("name")?.toLowerCase();
     const ownerFilter = c.req.query("owner");
     const endpointTypesParam = c.req.query("endpointTypes");
+    const orderParam = c.req.query("order") === "oldest" ? ("oldest" as const) : ("newest" as const);
     const limitParam = Number.parseInt(c.req.query("limit") ?? "20", 10);
     const offsetParam = Number.parseInt(c.req.query("offset") ?? "0", 10);
     const limit = Math.min(Math.max(limitParam, 1), 50);
     const offset = Math.max(offsetParam, 0);
 
     const endpointTypes = endpointTypesParam?.split(",").filter(Boolean) ?? [];
+    const hasFilters = !!(nameFilter || endpointTypes.length > 0);
 
     try {
       const sati = createSatiClient(network, env);
@@ -272,17 +276,30 @@ export function createIdentityApi(env: Env) {
           return c.json({ error: "Invalid owner address" }, 400);
         }
         agents = await sati.listAgentsByOwner(ownerFilter as Address);
+      } else if (hasFilters) {
+        // Fetch all agents when filters require full scan
+        const result = await sati.listAllAgents({
+          limit: Number(stats.totalAgents),
+          offset: 0,
+          order: orderParam,
+        });
+        agents = result.agents;
       } else {
-        const result = await sati.listAllAgents({ limit: limit + offset, offset: 0 });
+        const result = await sati.listAllAgents({ limit: limit + offset, offset: 0, order: orderParam });
         agents = result.agents.slice(offset);
       }
 
-      // Fetch registration files and apply filters
-      const results = [];
-      for (const agent of agents) {
-        if (results.length >= limit) break;
+      // Fetch registration files in parallel
+      const regFileResults = await Promise.allSettled(
+        agents.map((agent) => fetchRegistrationFile(agent.uri, { strict: true })),
+      );
 
-        const regFile = await fetchRegistrationFile(agent.uri, { strict: true });
+      // Apply filters and collect results
+      const filtered: Array<Record<string, unknown>> = [];
+      for (let i = 0; i < agents.length; i++) {
+        const agent = agents[i];
+        const settled = regFileResults[i];
+        const regFile = settled.status === "fulfilled" ? settled.value : null;
 
         if (nameFilter) {
           const agentName = (regFile?.name ?? agent.name).toLowerCase();
@@ -290,11 +307,11 @@ export function createIdentityApi(env: Env) {
         }
 
         if (endpointTypes.length > 0) {
-          const serviceNames = (regFile?.services ?? []).map((s) => s.name);
+          const serviceNames = (regFile?.services ?? []).map((s: { name: string }) => s.name);
           if (!endpointTypes.some((t) => serviceNames.includes(t))) continue;
         }
 
-        results.push({
+        filtered.push({
           mint: agent.mint,
           agentId: `${CAIP2_CHAINS[network]}:${agent.mint}`,
           owner: agent.owner,
@@ -311,7 +328,10 @@ export function createIdentityApi(env: Env) {
         });
       }
 
-      return c.json({ agents: results, count: results.length, totalAgents: Number(stats.totalAgents) });
+      // Apply pagination to filtered results
+      const paginated = hasFilters ? filtered.slice(offset, offset + limit) : filtered.slice(0, limit);
+
+      return c.json({ agents: paginated, count: paginated.length, totalAgents: Number(stats.totalAgents) });
     } catch (error) {
       console.error("[agents] ERROR:", error);
       return c.json({ error: error instanceof Error ? error.message : "Failed to list agents" }, 500);
@@ -346,6 +366,7 @@ export function createIdentityApi(env: Env) {
 
       let feedbackCount = 0;
       let totalValue = 0;
+      let valueCount = 0;
 
       for (const schema of feedbackSchemas) {
         const feedbacks = await sati.listFeedbacks({
@@ -358,6 +379,7 @@ export function createIdentityApi(env: Env) {
           feedbackCount++;
           if (parsed?.value !== undefined) {
             totalValue += parsed.value;
+            valueCount++;
           }
         }
       }
@@ -371,6 +393,7 @@ export function createIdentityApi(env: Env) {
         image: regFile?.image ?? "",
         uri: agent.uri,
         memberNumber: Number(agent.memberNumber),
+        nonTransferable: agent.nonTransferable,
         active: regFile?.active ?? true,
         services: regFile?.services ?? [],
         supportedTrust: regFile?.supportedTrust ?? [],
@@ -378,7 +401,7 @@ export function createIdentityApi(env: Env) {
         registrations: regFile?.registrations ?? [],
         reputation: {
           count: feedbackCount,
-          summaryValue: feedbackCount > 0 ? Math.round(totalValue / feedbackCount) : 0,
+          summaryValue: valueCount > 0 ? Math.round(totalValue / valueCount) : 0,
           summaryValueDecimals: 0,
         },
       });
@@ -412,7 +435,7 @@ export function createIdentityApi(env: Env) {
 
       let count = 0;
       let totalValue = 0;
-      let hasValues = false;
+      let valueCount = 0;
 
       for (const schema of feedbackSchemas) {
         const feedbacks = await sati.listFeedbacks({
@@ -431,14 +454,14 @@ export function createIdentityApi(env: Env) {
           count++;
           if (parsed?.value !== undefined) {
             totalValue += parsed.value;
-            hasValues = true;
+            valueCount++;
           }
         }
       }
 
       return c.json({
         count,
-        summaryValue: hasValues ? Math.round(totalValue / count) : 0,
+        summaryValue: valueCount > 0 ? Math.round(totalValue / valueCount) : 0,
         summaryValueDecimals: 0,
       });
     } catch (error) {
@@ -466,7 +489,7 @@ export function createIdentityApi(env: Env) {
 
       let count = 0;
       let totalValue = 0;
-      let hasValues = false;
+      let valueCount = 0;
 
       for (const schema of feedbackSchemas) {
         const feedbacks = await sati.listFeedbacks({
@@ -478,12 +501,12 @@ export function createIdentityApi(env: Env) {
           count++;
           if (parsed?.value !== undefined) {
             totalValue += parsed.value;
-            hasValues = true;
+            valueCount++;
           }
         }
       }
 
-      const score = hasValues ? Math.round(totalValue / count) : 0;
+      const score = valueCount > 0 ? Math.round(totalValue / valueCount) : 0;
       const label = "SATI";
       const value = count > 0 ? `${score}/100 (${count})` : "no reviews";
       const color = count === 0 ? "#999" : score >= 70 ? "#4c1" : score >= 40 ? "#dfb317" : "#e05d44";
@@ -544,7 +567,6 @@ export function createIdentityApi(env: Env) {
     const nowSec = Math.floor(Date.now() / 1000);
 
     const feedbackItems: Array<Record<string, unknown>> = [];
-    let feedbackIndex = 0;
 
     for (const schema of feedbackSchemas) {
       const filter: Record<string, unknown> = { sasSchema: schema as Address };
@@ -564,16 +586,15 @@ export function createIdentityApi(env: Env) {
         const createdAt = nowSec - Math.floor(slotDiff * 0.4);
 
         feedbackItems.push({
-          compressedAddress: fb.address,
+          compressedAddress: bs58.encode(new Uint8Array(fb.address)),
           clientAddress: fb.data.counterparty,
           agentMint: fb.data.agentMint,
-          feedbackIndex: feedbackIndex++,
-          value: parsed?.value ?? 0,
-          valueDecimals: parsed?.valueDecimals ?? 0,
-          tag1: parsed?.tag1 ?? "",
-          tag2: parsed?.tag2 ?? "",
-          message: parsed?.m ?? "",
-          endpoint: parsed?.endpoint ?? "",
+          value: parsed?.value ?? null,
+          valueDecimals: parsed?.valueDecimals ?? null,
+          tag1: parsed?.tag1 ?? null,
+          tag2: parsed?.tag2 ?? null,
+          message: parsed?.m ?? null,
+          endpoint: parsed?.endpoint ?? null,
           outcome: fb.data.outcome,
           createdAt,
           schema: schema === networkConfig.feedbackSchema ? "FeedbackV1" : "FeedbackPublicV1",
@@ -588,6 +609,10 @@ export function createIdentityApi(env: Env) {
   app.get("/api/feedback/:mint", async (c) => {
     const mint = c.req.param("mint");
     const network = getNetwork(c.req.query("network"));
+    const limitParam = Number.parseInt(c.req.query("limit") ?? "50", 10);
+    const offsetParam = Number.parseInt(c.req.query("offset") ?? "0", 10);
+    const limit = Math.min(Math.max(limitParam, 1), 200);
+    const offset = Math.max(offsetParam, 0);
 
     if (!isAddress(mint)) {
       return c.json({ error: "Invalid mint address" }, 400);
@@ -595,14 +620,15 @@ export function createIdentityApi(env: Env) {
 
     try {
       const sati = createSatiClient(network, env);
-      const feedbackItems = await queryFeedback(sati, network, mint as Address, {
+      const allItems = await queryFeedback(sati, network, mint as Address, {
         clientAddress: c.req.query("clientAddress"),
         tag1: c.req.query("tag1"),
         tag2: c.req.query("tag2"),
         outcome: c.req.query("outcome"),
       });
+      const paginated = allItems.slice(offset, offset + limit);
 
-      return c.json({ feedbacks: feedbackItems, count: feedbackItems.length });
+      return c.json({ feedbacks: paginated, count: paginated.length, total: allItems.length });
     } catch (error) {
       console.error("[feedback list] ERROR:", error);
       return c.json({ error: error instanceof Error ? error.message : "Failed to list feedback" }, 500);
@@ -615,20 +641,48 @@ export function createIdentityApi(env: Env) {
 
   app.get("/api/feedback", async (c) => {
     const network = getNetwork(c.req.query("network"));
+    const limitParam = Number.parseInt(c.req.query("limit") ?? "50", 10);
+    const offsetParam = Number.parseInt(c.req.query("offset") ?? "0", 10);
+    const limit = Math.min(Math.max(limitParam, 1), 200);
+    const offset = Math.max(offsetParam, 0);
 
     try {
       const sati = createSatiClient(network, env);
-      const feedbackItems = await queryFeedback(sati, network, undefined, {
+      const allItems = await queryFeedback(sati, network, undefined, {
         clientAddress: c.req.query("clientAddress"),
         tag1: c.req.query("tag1"),
         tag2: c.req.query("tag2"),
         outcome: c.req.query("outcome"),
       });
+      const paginated = allItems.slice(offset, offset + limit);
 
-      return c.json({ feedbacks: feedbackItems, count: feedbackItems.length });
+      return c.json({ feedbacks: paginated, count: paginated.length, total: allItems.length });
     } catch (error) {
       console.error("[feedback global] ERROR:", error);
       return c.json({ error: error instanceof Error ? error.message : "Failed to list feedback" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/stats - Registry statistics
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/stats", async (c) => {
+    const network = getNetwork(c.req.query("network"));
+
+    try {
+      const sati = createSatiClient(network, env);
+      const stats = await sati.getRegistryStats();
+
+      return c.json({
+        totalAgents: Number(stats.totalAgents),
+        groupMint: stats.groupMint,
+        authority: stats.authority,
+        isImmutable: stats.isImmutable,
+      });
+    } catch (error) {
+      console.error("[stats] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to get stats" }, 500);
     }
   });
 
@@ -670,12 +724,17 @@ export function createIdentityApi(env: Env) {
       const serverPayer = await createKeyPairSignerFromBytes(signerBytes);
       const counterpartyAddress = serverPayer.address;
 
+      // Map outcome number to enum (0=Negative, 1=Neutral, 2=Positive)
+      const outcomeValue =
+        body.outcome === 0 ? OutcomeEnum.Negative : body.outcome === 2 ? OutcomeEnum.Positive : OutcomeEnum.Neutral;
+
       // Build content JSON (ERC-8004 format) using SDK helper
       const contentBytes = buildFeedbackContent({
         value: body.value,
         valueDecimals: body.valueDecimals ?? 0,
         tag1: body.tag1,
         tag2: body.tag2,
+        message: body.message,
         endpoint: body.endpoint,
         reviewer: body.reviewerAddress,
         feedbackURI: body.feedbackURI,
@@ -692,7 +751,7 @@ export function createIdentityApi(env: Env) {
         agentMint: body.agentMint as Address,
         counterparty: counterpartyAddress,
         dataHash,
-        outcome: OutcomeEnum.Neutral,
+        outcome: outcomeValue,
         contentType: ContentType.JSON,
         content: contentBytes,
       };
@@ -719,7 +778,7 @@ export function createIdentityApi(env: Env) {
         agentMint: body.agentMint as Address,
         counterparty: counterpartyAddress,
         dataHash,
-        outcome: OutcomeEnum.Neutral,
+        outcome: outcomeValue,
         agentSignature: {
           pubkey: counterpartyAddress,
           signature: counterpartySignature,

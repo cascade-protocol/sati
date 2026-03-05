@@ -242,23 +242,25 @@ const prepared = await sati.prepareFeedback({
   tag1: "starred",
 });
 
-// Step 2: Send to frontend (Uint8Array fields need hex encoding for JSON transport)
+// Step 2: Send to frontend (only messageBytes needs to cross the wire)
+// The server keeps the full `prepared` object; only send what the frontend needs to sign.
 const payload = {
   messageHex: bytesToHex(prepared.messageBytes),
-  // ... other prepared fields
 };
 
-// Step 3: Frontend - user signs with wallet (e.g. Phantom)
+// Step 3: Frontend - user signs with wallet adapter
 const messageBytes = hexToBytes(payload.messageHex);
-const { signature } = await wallet.signMessage(messageBytes); // Ed25519 signature
+const signature = await wallet.signMessage(messageBytes); // Returns Uint8Array (Ed25519 signature)
 
-// Step 4: Server submits with platform payer
+// Step 4: Server submits with platform payer (uses the full `prepared` object kept server-side)
 const result = await sati.submitPreparedFeedback({
   payer: platformPayer,           // Platform pays gas
-  prepared,
+  prepared,                       // Full PreparedFeedbackData from step 1
   counterpartySignature: signature, // User's 64-byte Ed25519 signature
 });
 ```
+
+> **Note:** `PreparedFeedbackData` contains multiple `Uint8Array` fields (`messageBytes`, `taskRef`, `dataHash`, `content`). If you need to serialize the entire object to JSON (e.g. for a stateless API), convert all `Uint8Array` fields with `bytesToHex()` and restore with `hexToBytes()`. The recommended pattern above avoids this by keeping `prepared` server-side.
 
 #### Revoke feedback
 
@@ -298,10 +300,11 @@ To distinguish blind (FeedbackV1) from public (FeedbackPublicV1) in raw results,
 // Auto-paginating async iterator across both schemas
 for await (const page of sati.listAllFeedbacks({ agentMint: address("Agent...") })) {
   for (const item of page.items) {
-    // item.data: { counterparty, outcome, content, contentType, agentMint }
-    // item.raw.slotCreated for on-chain slot
+    // item.data: { taskRef, agentMint, counterparty, dataHash, outcome, contentType, content }
+    // item.raw.slotCreated (bigint) for on-chain slot
+    // item.address is Uint8Array - decode with getAddressDecoder().read(item.address, 0)
     const parsed = parseFeedbackContent(item.data.content, item.data.contentType);
-    // parsed: { value, tag1, tag2, m (message), endpoint }
+    // parsed: { value, valueDecimals, tag1, tag2, m (message), endpoint, reviewer, feedbackURI, feedbackHash }
   }
 }
 
@@ -309,7 +312,7 @@ for await (const page of sati.listAllFeedbacks({ agentMint: address("Agent...") 
 for await (const page of sati.listAllFeedbacks()) { /* ... */ }
 ```
 
-Note: `createdAt` timestamps in `ParsedFeedback` are approximate - derived from Solana slot numbers using ~400ms/slot estimate.
+Note: `searchFeedback`/`searchAllFeedback` return `ParsedFeedback[]` (fully parsed). `listAllFeedbacks` returns raw `ParsedAttestation` pages where content is still bytes - use `parseFeedbackContent(item.data.content, item.data.contentType)` to extract fields. `createdAt` timestamps in `ParsedFeedback` are approximate - derived from Solana slot numbers using ~400ms/slot estimate.
 
 ### 4. Reputation Summary
 
@@ -321,14 +324,17 @@ const summary = await sati.getReputationSummary(address("Agent..."));
 const filtered = await sati.getReputationSummary(address("Agent..."), "starred", "chat");
 ```
 
-Note: `count` only includes feedback entries that have a `value` field set. An agent with 10 feedback entries but none containing `value` will show `count: 0`. The REST API returns `summaryValue` (integer) instead of `averageValue` (float).
+Note: `getReputationSummary` queries both FeedbackPublicV1 and FeedbackV1 schemas. `count` only includes feedback entries that have a `value` field set. An agent with 10 feedback entries but none containing `value` will show `count: 0`. The REST API returns `summaryValue` (integer) instead of `averageValue` (float), and its `count` includes all entries regardless of `value`.
 
 ### 5. Agent Discovery
 
 ```typescript
-// Load single agent
+// Load single agent (on-chain data only - no description, image, or services)
 const agent = await sati.loadAgent(address("Mint..."));
 // AgentIdentity: { mint, owner, name, uri, memberNumber, nonTransferable }
+// For rich metadata (description, image, services, active), fetch the registration file:
+const regFile = await fetchRegistrationFile(agent.uri);
+// regFile: { name, description, image, services, active, x402Support, supportedTrust, ... }
 
 // Load multiple agents in batch (single batched RPC call)
 const agents = await sati.loadAgents([mint1, mint2, mint3]);
@@ -347,6 +353,7 @@ const results = await sati.searchAgents({
 // AgentSearchResult[]: { identity, registrationFile, feedbackStats }
 
 // List all agents with pagination (lighter than searchAgents - no registration file fetch)
+// Default limit: 100, offset: 0, order: "newest"
 const page = await sati.listAllAgents({ limit: 20, offset: 0, order: "newest" });
 // { agents: AgentIdentity[], totalAgents: bigint }
 
@@ -480,7 +487,15 @@ const score = await sati.getReputationScore(
 
 ### REST API
 
-The dashboard at `sati.cascade.fyi` exposes a public REST API. See `docs/reference/rest-api.md` for full endpoint documentation. Key endpoints: `GET /api/agents`, `GET /api/agents/:mint`, `GET /api/feedback/:mint`, `GET /api/feedback` (global), `GET /api/reputation/:mint`, `GET /api/badge/:mint`.
+The dashboard at `sati.cascade.fyi` exposes a public REST API. See `docs/reference/rest-api.md` for full endpoint documentation. Key endpoints:
+
+- `GET /api/agents` - list/search agents (supports `name`, `owner`, `endpointTypes`, `order`, pagination)
+- `GET /api/agents/:mint` - single agent with reputation summary
+- `GET /api/feedback/:mint` - feedback for an agent (paginated with `limit`/`offset`)
+- `GET /api/feedback` - global feedback across all agents (paginated)
+- `GET /api/reputation/:mint` - reputation summary with tag/reviewer filters
+- `GET /api/stats` - registry statistics (`totalAgents`, `groupMint`, etc.)
+- `GET /api/badge/:mint` - SVG reputation badge for README embedding
 
 ### Configuration
 
@@ -505,13 +520,14 @@ const sati = new Sati({
 
 | Type | Description |
 |------|-------------|
-| `AgentIdentity` | On-chain agent: mint, owner, name, uri, memberNumber |
+| `AgentIdentity` | On-chain agent: mint, owner, name, uri, memberNumber (`bigint`), nonTransferable, additionalMetadata |
 | `RegistrationFile` | ERC-8004 metadata with services, trust mechanisms |
 | `GiveFeedbackParams` | Simplified feedback input (FeedbackPublicV1) |
 | `ParsedFeedback` | Feedback with value, tags, message, createdAt, counterparty |
+| `FeedbackContent` | Raw content: value, valueDecimals, tag1, tag2, m (message), endpoint, reviewer, feedbackURI, feedbackHash |
 | `ReputationSummary` | Aggregated count + averageValue |
 | `AgentSearchResult` | Identity + registrationFile + optional feedbackStats |
-| `Outcome` | Enum: Positive, Negative, Neutral |
+| `Outcome` | Enum: Positive (2), Negative (0), Neutral (1) |
 | `MetadataUploader` | Interface for pluggable storage (IPFS, Arweave, etc.) |
 
 ### Error Handling
