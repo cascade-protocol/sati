@@ -1,6 +1,6 @@
 {
   "name": "@cascade-fyi/sati-sdk",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "TypeScript SDK for SATI - Solana Agent Trust Infrastructure",
   "repository": {
     "type": "git",
@@ -61,7 +61,6 @@
   "author": "tenequm",
   "license": "Apache-2.0",
   "peerDependencies": {
-    "@coral-xyz/anchor": "^0.32.1",
     "@solana-program/token-2022": "^0.6.1",
     "@solana/kit": "^5.0.0"
   },

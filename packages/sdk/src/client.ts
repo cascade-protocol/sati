@@ -547,7 +547,7 @@ export class Sati {
 
   // Convenience layer state
   private readonly _deployedConfig: SATISASConfig | null;
-  private readonly _feedbackCache = new FeedbackCache();
+  private readonly _feedbackCache: FeedbackCache;
   private readonly _onWarning?: (warning: SatiWarning) => void;
   private readonly txConfig: Required<TransactionConfig>;
 
@@ -573,6 +573,7 @@ export class Sati {
     // Convenience layer
     this._deployedConfig = loadDeployedConfig(options.network);
     this._onWarning = options.onWarning;
+    this._feedbackCache = new FeedbackCache(options.feedbackCacheTtlMs);
     this.txConfig = {
       priorityFeeMicroLamports:
         options.transactionConfig?.priorityFeeMicroLamports ?? (options.network === "mainnet" ? 50_000 : 0),
@@ -2874,60 +2875,7 @@ export class Sati {
       throw new Error(`No feedback schema deployed for network "${this.network}"`);
     }
 
-    // Build RPC filter
-    const filter: Partial<AttestationFilter> = { sasSchema: schema };
-    if (options?.agentMint) filter.agentMint = options.agentMint;
-    if (options?.counterparty) filter.counterparty = options.counterparty;
-
-    // Check cache
-    const cacheKey = FeedbackCache.cacheKey(schema, options?.agentMint);
-    const cached = this._feedbackCache.get<PaginatedAttestations<ParsedFeedbackAttestation>>(cacheKey);
-    const result = cached ?? (await this.listFeedbacks(filter));
-    if (!cached) this._feedbackCache.set(cacheKey, result);
-
-    // Fetch current slot for timestamp conversion
-    const currentSlot = await this.rpc.getSlot({ commitment: "confirmed" }).send();
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    const feedbacks: ParsedFeedback[] = [];
-    for (const item of result.items) {
-      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
-
-      const value = rawContent?.value as number | undefined;
-      const valueDecimals = rawContent?.valueDecimals as number | undefined;
-      const tag1 = rawContent?.tag1 as string | undefined;
-      const tag2 = rawContent?.tag2 as string | undefined;
-      const message = rawContent?.m as string | undefined;
-      const endpoint = rawContent?.endpoint as string | undefined;
-
-      // Client-side tag filtering
-      if (options?.tag1 !== undefined && tag1 !== options.tag1) continue;
-      if (options?.tag2 !== undefined && tag2 !== options.tag2) continue;
-
-      // Client-side value filtering
-      if (options?.minValue !== undefined && (value === undefined || value < options.minValue)) continue;
-      if (options?.maxValue !== undefined && (value === undefined || value > options.maxValue)) continue;
-
-      // Compute createdAt from slotCreated (~400ms per slot)
-      const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
-      const createdAt = nowSec - Math.floor(slotDiff * 0.4);
-
-      const [compressedAddress] = getAddressDecoder().read(item.address, 0);
-
-      feedbacks.push({
-        compressedAddress,
-        agentMint: item.data.agentMint as Address,
-        counterparty: item.data.counterparty as Address,
-        outcome: item.data.outcome,
-        value,
-        valueDecimals,
-        tag1,
-        tag2,
-        message,
-        endpoint,
-        createdAt,
-      });
-    }
+    const feedbacks = await this._searchFeedbackForSchema(schema, options);
 
     // Optionally populate txHash
     if (options?.includeTxHash) {
@@ -2947,6 +2895,136 @@ export class Sati {
           }
         }),
       );
+    }
+
+    return feedbacks;
+  }
+
+  /**
+   * Search feedback across ALL deployed feedback schemas (FeedbackV1 + FeedbackPublicV1).
+   *
+   * Unlike `searchFeedback` which queries a single schema, this method merges
+   * results from both the dual-signature (blind) and counterparty-signed schemas.
+   *
+   * @example
+   * ```typescript
+   * const allFeedback = await sati.searchAllFeedback({
+   *   agentMint: address("Agent..."),
+   * });
+   * ```
+   */
+  async searchAllFeedback(options?: FeedbackSearchOptions): Promise<ParsedFeedback[]> {
+    const schemas = [this._deployedConfig?.schemas.feedbackPublic, this._deployedConfig?.schemas.feedback].filter(
+      (s): s is Address => s != null,
+    );
+
+    if (schemas.length === 0) {
+      throw new Error(`No feedback schemas deployed for network "${this.network}"`);
+    }
+
+    const allFeedbacks: ParsedFeedback[] = [];
+    for (const schema of schemas) {
+      try {
+        const feedbacks = await this._searchFeedbackForSchema(schema, options);
+        allFeedbacks.push(...feedbacks);
+      } catch {
+        // Schema may not have any attestations yet - skip
+      }
+    }
+
+    return allFeedbacks;
+  }
+
+  /**
+   * Auto-paginating iterator for bulk feedback ingestion.
+   *
+   * Yields pages of raw feedback attestations. Handles cursor-based
+   * pagination automatically. For indexers and scoring providers.
+   *
+   * @example
+   * ```typescript
+   * for await (const page of sati.listAllFeedbacks({ agentMint: address("Agent...") })) {
+   *   for (const item of page.items) {
+   *     console.log(item.data.counterparty, item.data.outcome);
+   *   }
+   * }
+   * ```
+   */
+  async *listAllFeedbacks(
+    filter?: Partial<Omit<AttestationFilter, "sasSchema">>,
+  ): AsyncGenerator<PaginatedAttestations<ParsedFeedbackAttestation>> {
+    const schemas = [this._deployedConfig?.schemas.feedbackPublic, this._deployedConfig?.schemas.feedback].filter(
+      (s): s is Address => s != null,
+    );
+
+    if (schemas.length === 0) {
+      throw new Error(`No feedback schemas deployed for network "${this.network}"`);
+    }
+
+    for (const schema of schemas) {
+      let cursor: string | undefined;
+      do {
+        const page = await this.listFeedbacks({
+          ...filter,
+          sasSchema: schema,
+          cursor,
+          limit: filter?.limit ?? 1000,
+        });
+        if (page.items.length > 0) {
+          yield page;
+        }
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+    }
+  }
+
+  /** @internal Search feedback for a specific schema (shared logic). */
+  private async _searchFeedbackForSchema(schema: Address, options?: FeedbackSearchOptions): Promise<ParsedFeedback[]> {
+    const filter: Partial<AttestationFilter> = { sasSchema: schema };
+    if (options?.agentMint) filter.agentMint = options.agentMint;
+    if (options?.counterparty) filter.counterparty = options.counterparty;
+
+    const cacheKey = FeedbackCache.cacheKey(schema, options?.agentMint);
+    const cached = this._feedbackCache.get<PaginatedAttestations<ParsedFeedbackAttestation>>(cacheKey);
+    const result = cached ?? (await this.listFeedbacks(filter));
+    if (!cached) this._feedbackCache.set(cacheKey, result);
+
+    const currentSlot = await this.rpc.getSlot({ commitment: "confirmed" }).send();
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    const feedbacks: ParsedFeedback[] = [];
+    for (const item of result.items) {
+      const rawContent = this._parseContentJson(item.data.content, item.data.contentType);
+
+      const value = rawContent?.value as number | undefined;
+      const valueDecimals = rawContent?.valueDecimals as number | undefined;
+      const tag1 = rawContent?.tag1 as string | undefined;
+      const tag2 = rawContent?.tag2 as string | undefined;
+      const message = rawContent?.m as string | undefined;
+      const endpoint = rawContent?.endpoint as string | undefined;
+
+      if (options?.tag1 !== undefined && tag1 !== options.tag1) continue;
+      if (options?.tag2 !== undefined && tag2 !== options.tag2) continue;
+      if (options?.minValue !== undefined && (value === undefined || value < options.minValue)) continue;
+      if (options?.maxValue !== undefined && (value === undefined || value > options.maxValue)) continue;
+
+      const slotDiff = Number(BigInt(currentSlot) - item.raw.slotCreated);
+      const createdAt = nowSec - Math.floor(slotDiff * 0.4);
+      const [compressedAddress] = getAddressDecoder().read(item.address, 0);
+
+      feedbacks.push({
+        compressedAddress,
+        agentMint: item.data.agentMint as Address,
+        counterparty: item.data.counterparty as Address,
+        outcome: item.data.outcome,
+        value,
+        valueDecimals,
+        tag1,
+        tag2,
+        message,
+        endpoint,
+        createdAt,
+      });
     }
 
     return feedbacks;

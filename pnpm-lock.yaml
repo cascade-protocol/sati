@@ -308,9 +308,6 @@ importers:
       '@cascade-fyi/compression-kit':
         specifier: workspace:*
         version: link:../compression-kit
-      '@coral-xyz/anchor':
-        specifier: ^0.32.1
-        version: 0.32.1(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
       '@noble/ciphers':
         specifier: ^2.1.1
         version: 2.1.1
@@ -3889,38 +3886,11 @@ packages:
   '@types/babel__traverse@7.28.0':
     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
 
-  '@types/bn.js@4.11.6':
-    resolution: {integrity: sha512-pqr857jrp2kPuO9uRjZ3PwnJTjoQy+fcdxvBTvHm6dkmEL9q+hDD/2j/0ELOBPtPnS8LjCX0gI9nbl8lVkadpg==}
-
-  '@types/bn.js@5.2.0':
-    resolution: {integrity: sha512-DLbJ1BPqxvQhIGbeu8VbUC1DiAiahHtAYvA0ZEAa4P31F7IaArc8z3C3BRQdWX4mtLQuABG4yzp76ZrS02Ui1Q==}
-
-  '@types/brace-expansion@1.1.2':
-    resolution: {integrity: sha512-+YDjlWHMm/zoiQSKhEhL/0HdfYxCVuGlP5tQLm5hoHtxGPAMqyHjGpLqm58YDw7vG+RafAahp7HKXeNIwBP3kQ==}
-
-  '@types/bs58@4.0.4':
-    resolution: {integrity: sha512-0IEpMFXXQi2zXaXl9GJ3sRwQo0uEkD+yFOv+FnAU5lkPtcu6h61xb7jc2CFPEZ5BUOaiP13ThuGc9HD4R8lR5g==}
-
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
-  '@types/chardet@1.0.0':
-    resolution: {integrity: sha512-LweaRCQXungyIWHGNtu8iWdztipE2A8HgUKdqjYcrbyNfafM1D9QcVEsrceH4ELC3VlS1NRirlWieY08AAjuZw==}
-    deprecated: This is a stub types definition. chardet provides its own type definitions, so you do not need this installed.
-
-  '@types/clean-stack@2.1.4':
-    resolution: {integrity: sha512-FUgkoGXw/qsqqlX0Ma6qhwOnMzZHCcJoOy1k7dvIor9U0/wcu1n+pe2UQGGXVpm+Dr5wVoVDZ1kEBHrsXDIkag==}
-    deprecated: This is a stub types definition. clean-stack provides its own type definitions, so you do not need this installed.
-
-  '@types/cli-progress@3.11.6':
-    resolution: {integrity: sha512-cE3+jb9WRlu+uOSAugewNpITJDt1VF8dHOopPO4IABFc3SXYL5WE/+PTz/FCdZRRfIujiWW3n3aMbv1eIGVRWA==}
-
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
-
-  '@types/crypto-hash@1.1.5':
-    resolution: {integrity: sha512-mIB9dBzW5szMe7HKSEYEu+kM3LbANLvlL8ZEzDz9aI9kVZNdI35ci6+Mf54xscQN8DCkRJT+qKTus4mycMaWsw==}
-    deprecated: This is a stub types definition. crypto-hash provides its own type definitions, so you do not need this installed.
 
   '@types/debug@4.1.12':
     resolution: {integrity: sha512-vIChWdVG3LG1SMxEvI/AK+FWJthlrqlTu7fbrlywTkkaONwk/UAGaULXRlf8vkzFBLVm0zkMdCquhL5aOjhXPQ==}
@@ -3928,34 +3898,14 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
-  '@types/ejs@3.1.5':
-    resolution: {integrity: sha512-nv+GSx77ZtXiJzwKdsASqi+YQ5Z7vwHsTP0JY2SiQgjGckkBRKZnk8nIM+7oUZ1VCtuTz0+By4qVR7fqzp/Dfg==}
-
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
-
-  '@types/fast-levenshtein@0.0.4':
-    resolution: {integrity: sha512-tkDveuitddQCxut1Db8eEFfMahTjOumTJGPHmT9E7KUH+DkVq9WTpVvlfenf3S+uCBeu8j5FP2xik/KfxOEjeA==}
-
-  '@types/get-intrinsic@1.2.3':
-    resolution: {integrity: sha512-snGKUfZKZ4OBdh5exTMWbfCx2BgTx8QePbIg0jOawZe56AlJXRsuehT/vwZwEFW6Ac6NB0aDE6NhHsq3k0WSyQ==}
-
-  '@types/has-symbols@1.1.0':
-    resolution: {integrity: sha512-zkCEKAJlcPxEusVhHrm+lCWOdMHOrzEGTPTNMFNfnP45nwHHKF7kdRYxfr6Ifda/fPZVDyPSMhp2qcmvJDe+Ow==}
-    deprecated: This is a stub types definition. has-symbols provides its own type definitions, so you do not need this installed.
 
   '@types/hast@3.0.4':
     resolution: {integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==}
 
-  '@types/indent-string@4.0.1':
-    resolution: {integrity: sha512-cIe4VIMWLlX9ugJRULZMgKoh88+AdD+6e7K9Y0s5QkbEJujoyVfKcmO2y9hbOU8ma/tbyHFaJN1+hQ0SyWo2iA==}
-    deprecated: This is a stub types definition. indent-string provides its own type definitions, so you do not need this installed.
-
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
-
-  '@types/lodash@4.17.23':
-    resolution: {integrity: sha512-RDvF6wTulMPjrNdCoYRC8gNR880JNGT8uB+REUpC2Ns4pRqQJhGz90wh7rgdXDPpCczF3VGktDuFGVnz8zP7HA==}
 
   '@types/markdown-it@14.1.2':
     resolution: {integrity: sha512-promo4eFwuiW+TfGxhi+0x3czqTYJkG8qB17ZUJiVF10Xm7NLVRSLUsfRTU/6h1e24VvRnXCx+hG7li58lkzog==}
@@ -3990,15 +3940,6 @@ packages:
   '@types/node@25.0.3':
     resolution: {integrity: sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA==}
 
-  '@types/npm-package-arg@6.1.4':
-    resolution: {integrity: sha512-vDgdbMy2QXHnAruzlv68pUtXCjmqUk3WrBAsRboRovsOmxbfn/WiYCjmecyKjGztnMps5dWp4Uq2prp+Ilo17Q==}
-
-  '@types/object-hash@3.0.6':
-    resolution: {integrity: sha512-fOBV8C1FIu2ELinoILQ+ApxcUKz4ngq+IWUYrxSGjXzzjUALijilampwkMgEtJ+h2njAW3pi853QpzNVCHB73w==}
-
-  '@types/pako@1.0.7':
-    resolution: {integrity: sha512-YBtzT2ztNF6R/9+UXj2wTGFnC9NklAnASt3sC0h2m1bbH7G6FyBIkt4AN8ThZpNfxUo1b2iMVO0UawiJymEt8A==}
-
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
 
@@ -4007,37 +3948,17 @@ packages:
     peerDependencies:
       '@types/react': ^19.2.0
 
-  '@types/react-reconciler@0.28.9':
-    resolution: {integrity: sha512-HHM3nxyUZ3zAylX8ZEyrDNd2XZOnQ0D5XfunJF5FLQnZbHHYq4UWvW1QfelQNXv1ICNkwYhfxjwfnqivYB6bFg==}
-    peerDependencies:
-      '@types/react': '*'
-
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
 
   '@types/react@19.2.7':
     resolution: {integrity: sha512-MWtvHrGZLFttgeEj28VXHxpmwYbor/ATPYbBfSFZEIRK0ecCFLl2Qo55z52Hss+UV9CRN7trSeq1zbgx7YDWWg==}
 
-  '@types/scheduler@0.23.0':
-    resolution: {integrity: sha512-YIoDCTH3Af6XM5VuwGG/QL/CJqga1Zm3NkU3HZ4ZHK2fRMPYP1VczsTUqtsf43PH/iJNVlPHAo2oWX7BSdB2Hw==}
-
   '@types/semver@7.7.1':
     resolution: {integrity: sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA==}
 
-  '@types/signal-exit@3.0.4':
-    resolution: {integrity: sha512-e7EUPfU9afHyWc5CXtlqbvVHEshrb05uPlDCenWIbMgtWoFrTuTDVYNLKk6o4X2/4oHTfNqrJX/vaJ3uBhtXTg==}
-
-  '@types/stack-utils@2.0.3':
-    resolution: {integrity: sha512-9aEbYZ3TbYMznPdcdr3SmIrLXwC/AKZXQeCf9Pgao5CKb8CyHuEX5jzWPTkvregvhRJHcpRO6BFoGW9ycaOkYw==}
-
   '@types/statuses@2.0.6':
     resolution: {integrity: sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA==}
-
-  '@types/supports-color@8.1.3':
-    resolution: {integrity: sha512-Hy6UMpxhE3j1tLpl27exp1XqHD7n8chAiNPzWfz16LPZoMMoSc4dzLl6w9qijkEb/r5O1ozdu1CWGA2L83ZeZg==}
-
-  '@types/tar@6.1.13':
-    resolution: {integrity: sha512-IznnlmU5f4WcGTh2ltRu/Ijpmk8wiWXfF0VA4s+HPjHZgvFggk1YaIkbo5krX/zUCzWF8N/l4+W/LNxnvAJ8nw==}
 
   '@types/unist@3.0.3':
     resolution: {integrity: sha512-ko/gIFJRv177XgZsZcBwnqJN5x/Gien8qNOn0D5bQU/zAzVf9Zt3BlcUiLqhV9y4ARk0GbT3tnUiPNgnTXzc/Q==}
@@ -4048,20 +3969,8 @@ packages:
   '@types/validate-npm-package-name@4.0.2':
     resolution: {integrity: sha512-lrpDziQipxCEeK5kWxvljWYhUvOiB2A9izZd9B2AFarYAkqZshb4lPbRs7zKEic6eGtH8V/2qJW+dPp9OtF6bw==}
 
-  '@types/wait-on@5.3.4':
-    resolution: {integrity: sha512-EBsPjFMrFlMbbUFf9D1Fp+PAB2TwmUn7a3YtHyD9RLuTIk1jDd8SxXVAoez2Ciy+8Jsceo2MYEYZzJ/DvorOKw==}
-
   '@types/web-bluetooth@0.0.21':
     resolution: {integrity: sha512-oIQLCGWtcFZy2JW77j9k8nHzAOpqMHLQejDA48XXMWH6tjCQHz5RCFz1bzsmROyL6PUm+LLnUiI4BCn221inxA==}
-
-  '@types/which@3.0.4':
-    resolution: {integrity: sha512-liyfuo/106JdlgSchJzXEQCVArk0CvevqPote8F8HgWgJ3dRCcTHgJIsLDuee0kxk/mhbInzIZk3QWSZJ8R+2w==}
-
-  '@types/wordwrap@1.0.3':
-    resolution: {integrity: sha512-jx39cOYWJxZxVOZeNHvLVoDLRUFcYtIJaurC6C0qzCovIB3GPDbMDbYvoWi9D1B2PtIE16rElQOFR4Y+8QbUgw==}
-
-  '@types/wrap-ansi@3.0.0':
-    resolution: {integrity: sha512-ltIpx+kM7g/MLRZfkbL7EsCEjfzCcScLpkg37eXEtx5kmrAKBkTJwd1GIAjDSL8wTpM6Hzn5YO4pSb91BEwu1g==}
 
   '@types/ws@7.4.7':
     resolution: {integrity: sha512-JQbbmxZTZehdc2iszGKs5oC3NFnjeay7mtAWrdt7qNtAVK0g19muApzAy4bm9byz79xa2ZnO/BOBC2R8RC5Lww==}
@@ -6052,10 +5961,6 @@ packages:
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
 
-  minipass@4.2.8:
-    resolution: {integrity: sha512-fNzuVyifolSLFL4NzpF+wEF4qrgqaaKX0haXPQEdQ7NKAN+WecoKMHV09YcuL/DHxrUsYQOK3MiuDf7Ip2OXfQ==}
-    engines: {node: '>=8'}
-
   minipass@7.1.3:
     resolution: {integrity: sha512-tEBHqDnIoM/1rXME1zgka9g6Q2lcoCkxHLuc7ODJ5BxbP5d4c2Z5cGgtXAku59200Cx7diuHTOYfSBD8n6mm8A==}
     engines: {node: '>=16 || 14 >=14.17'}
@@ -7834,7 +7739,7 @@ snapshots:
       cjs-module-lexer: 1.4.3
       fflate: 0.8.2
       lru-cache: 11.2.4
-      semver: 7.7.3
+      semver: 7.7.4
       typescript: 5.6.1-rc
       validate-npm-package-name: 5.0.1
     optional: true
@@ -8230,10 +8135,6 @@ snapshots:
       '@coral-xyz/borsh': 0.29.0(@solana/web3.js@1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10))
       '@noble/hashes': 1.8.0
       '@solana/web3.js': 1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      '@types/bn.js': 4.11.6
-      '@types/bs58': 4.0.4
-      '@types/crypto-hash': 1.1.5
-      '@types/pako': 1.0.7
       bn.js: 5.2.2
       bs58: 4.0.1
       buffer-layout: 1.2.2
@@ -8884,7 +8785,6 @@ snapshots:
 
   '@inquirer/external-editor@1.0.3(@types/node@24.10.3)':
     dependencies:
-      '@types/chardet': 1.0.0
       chardet: 2.1.1
       iconv-lite: 0.7.1
     optionalDependencies:
@@ -9091,7 +8991,6 @@ snapshots:
       '@solana/buffer-layout-utils': 0.2.0(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
       '@solana/spl-token': 0.4.14(@solana/web3.js@1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10))(bufferutil@4.0.9)(encoding@0.1.13)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@5.0.10)
       '@solana/web3.js': 1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      '@types/bn.js': 5.2.0
       bn.js: 5.2.2
       buffer: 6.0.3
     transitivePeerDependencies:
@@ -9107,7 +9006,6 @@ snapshots:
       '@coral-xyz/borsh': 0.29.0(@solana/web3.js@1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10))
       '@noble/hashes': 1.5.0
       '@solana/web3.js': 1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      '@types/bn.js': 5.2.0
       bn.js: 5.2.2
       bs58: 6.0.0
       buffer: 6.0.3
@@ -9129,10 +9027,6 @@ snapshots:
       '@oclif/plugin-plugins': 5.4.56
       '@oclif/table': 0.4.14(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@solana/web3.js': 1.98.4(bufferutil@4.0.9)(encoding@0.1.13)(typescript@5.9.3)(utf-8-validate@5.0.10)
-      '@types/cli-progress': 3.11.6
-      '@types/tar': 6.1.13
-      '@types/wait-on': 5.3.4
-      '@types/which': 3.0.4
       axios: 1.12.2
       case-anything: 2.1.13
       cli-progress: 3.12.0
@@ -9278,13 +9172,6 @@ snapshots:
 
   '@oclif/core@4.8.0':
     dependencies:
-      '@types/clean-stack': 2.1.4
-      '@types/debug': 4.1.12
-      '@types/ejs': 3.1.5
-      '@types/indent-string': 4.0.1
-      '@types/supports-color': 8.1.3
-      '@types/wordwrap': 1.0.3
-      '@types/wrap-ansi': 3.0.0
       ansi-escapes: 4.3.2
       ansis: 3.17.0
       clean-stack: 3.0.1
@@ -9307,8 +9194,6 @@ snapshots:
   '@oclif/plugin-autocomplete@3.2.40':
     dependencies:
       '@oclif/core': 4.8.0
-      '@types/debug': 4.1.12
-      '@types/ejs': 3.1.5
       ansis: 3.17.0
       debug: 4.4.3(supports-color@8.1.1)
       ejs: 3.1.10
@@ -9323,7 +9208,6 @@ snapshots:
     dependencies:
       '@inquirer/prompts': 7.10.1(@types/node@24.10.3)
       '@oclif/core': 4.8.0
-      '@types/fast-levenshtein': 0.0.4
       ansis: 3.17.0
       fast-levenshtein: 3.0.0
     transitivePeerDependencies:
@@ -9332,11 +9216,6 @@ snapshots:
   '@oclif/plugin-plugins@5.4.56':
     dependencies:
       '@oclif/core': 4.8.0
-      '@types/debug': 4.1.12
-      '@types/npm-package-arg': 6.1.4
-      '@types/semver': 7.7.1
-      '@types/validate-npm-package-name': 4.0.2
-      '@types/which': 3.0.4
       ansis: 3.17.0
       debug: 4.4.3(supports-color@8.1.1)
       npm: 10.9.4
@@ -9352,7 +9231,6 @@ snapshots:
 
   '@oclif/table@0.4.14(bufferutil@4.0.9)(utf-8-validate@5.0.10)':
     dependencies:
-      '@types/object-hash': 3.0.6
       '@types/react': 18.3.28
       change-case: 5.4.4
       cli-truncate: 4.0.0
@@ -11276,45 +11154,14 @@ snapshots:
     dependencies:
       '@babel/types': 7.28.5
 
-  '@types/bn.js@4.11.6':
-    dependencies:
-      '@types/node': 24.10.3
-
-  '@types/bn.js@5.2.0':
-    dependencies:
-      '@types/node': 24.10.3
-
-  '@types/brace-expansion@1.1.2': {}
-
-  '@types/bs58@4.0.4':
-    dependencies:
-      '@types/node': 24.10.3
-      base-x: 3.0.11
-
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
       assertion-error: 2.0.1
 
-  '@types/chardet@1.0.0':
-    dependencies:
-      chardet: 2.1.1
-
-  '@types/clean-stack@2.1.4':
-    dependencies:
-      clean-stack: 3.0.1
-
-  '@types/cli-progress@3.11.6':
-    dependencies:
-      '@types/node': 24.10.3
-
   '@types/connect@3.4.38':
     dependencies:
       '@types/node': 24.10.3
-
-  '@types/crypto-hash@1.1.5':
-    dependencies:
-      crypto-hash: 1.3.0
 
   '@types/debug@4.1.12':
     dependencies:
@@ -11322,29 +11169,13 @@ snapshots:
 
   '@types/deep-eql@4.0.2': {}
 
-  '@types/ejs@3.1.5': {}
-
   '@types/estree@1.0.8': {}
-
-  '@types/fast-levenshtein@0.0.4': {}
-
-  '@types/get-intrinsic@1.2.3': {}
-
-  '@types/has-symbols@1.1.0':
-    dependencies:
-      has-symbols: 1.1.0
 
   '@types/hast@3.0.4':
     dependencies:
       '@types/unist': 3.0.3
 
-  '@types/indent-string@4.0.1':
-    dependencies:
-      indent-string: 4.0.0
-
   '@types/linkify-it@5.0.0': {}
-
-  '@types/lodash@4.17.23': {}
 
   '@types/markdown-it@14.1.2':
     dependencies:
@@ -11384,21 +11215,11 @@ snapshots:
       undici-types: 7.16.0
     optional: true
 
-  '@types/npm-package-arg@6.1.4': {}
-
-  '@types/object-hash@3.0.6': {}
-
-  '@types/pako@1.0.7': {}
-
   '@types/prop-types@15.7.15': {}
 
   '@types/react-dom@19.2.3(@types/react@19.2.7)':
     dependencies:
       '@types/react': 19.2.7
-
-  '@types/react-reconciler@0.28.9(@types/react@18.3.28)':
-    dependencies:
-      '@types/react': 18.3.28
 
   '@types/react@18.3.28':
     dependencies:
@@ -11409,40 +11230,19 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
-  '@types/scheduler@0.23.0': {}
-
-  '@types/semver@7.7.1': {}
-
-  '@types/signal-exit@3.0.4': {}
-
-  '@types/stack-utils@2.0.3': {}
+  '@types/semver@7.7.1':
+    optional: true
 
   '@types/statuses@2.0.6': {}
-
-  '@types/supports-color@8.1.3': {}
-
-  '@types/tar@6.1.13':
-    dependencies:
-      '@types/node': 24.10.3
-      minipass: 4.2.8
 
   '@types/unist@3.0.3': {}
 
   '@types/uuid@8.3.4': {}
 
-  '@types/validate-npm-package-name@4.0.2': {}
-
-  '@types/wait-on@5.3.4':
-    dependencies:
-      '@types/node': 24.10.3
+  '@types/validate-npm-package-name@4.0.2':
+    optional: true
 
   '@types/web-bluetooth@0.0.21': {}
-
-  '@types/which@3.0.4': {}
-
-  '@types/wordwrap@1.0.3': {}
-
-  '@types/wrap-ansi@3.0.0': {}
 
   '@types/ws@7.4.7':
     dependencies:
@@ -12334,7 +12134,6 @@ snapshots:
 
   es-set-tostringtag@2.1.0:
     dependencies:
-      '@types/get-intrinsic': 1.2.3
       es-errors: 1.3.0
       get-intrinsic: 1.3.0
       has-tostringtag: 1.0.2
@@ -12767,7 +12566,6 @@ snapshots:
 
   has-tostringtag@1.0.2:
     dependencies:
-      '@types/has-symbols': 1.1.0
       has-symbols: 1.1.0
 
   hashlru@2.3.0: {}
@@ -12861,12 +12659,6 @@ snapshots:
   ink@5.0.1(@types/react@18.3.28)(bufferutil@4.0.9)(react@18.3.1)(utf-8-validate@5.0.10):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.1.3
-      '@types/lodash': 4.17.23
-      '@types/react-reconciler': 0.28.9(@types/react@18.3.28)
-      '@types/scheduler': 0.23.0
-      '@types/signal-exit': 3.0.4
-      '@types/stack-utils': 2.0.3
-      '@types/ws': 8.18.1
       ansi-escapes: 7.3.0
       ansi-styles: 6.2.3
       auto-bind: 5.0.1
@@ -13679,12 +13471,9 @@ snapshots:
 
   minimatch@9.0.5:
     dependencies:
-      '@types/brace-expansion': 1.1.2
       brace-expansion: 2.0.2
 
   minimist@1.2.8: {}
-
-  minipass@4.2.8: {}
 
   minipass@7.1.3: {}
 

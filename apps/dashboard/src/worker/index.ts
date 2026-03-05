@@ -160,6 +160,50 @@ function createApp(bindings: WorkerBindings) {
 
   app.use("/*", cors());
 
+  // OG meta tags for agent pages (social sharing previews)
+  app.get("/agent/:mint", async (c, next) => {
+    const mint = c.req.param("mint");
+    if (!isAddress(mint)) return next();
+
+    // Only inject OG tags for social crawlers and link previews
+    const ua = c.req.header("user-agent") ?? "";
+    const isCrawler = /bot|crawl|spider|preview|slack|discord|telegram|twitter|facebook|whatsapp|linkedin|embed/i.test(
+      ua,
+    );
+    if (!isCrawler) return next();
+
+    try {
+      const network = "mainnet";
+      const sati = createSatiClient(network, env);
+      const agent = await sati.loadAgent(mint as Address);
+      if (!agent) return next();
+
+      const title = `${agent.name} - SATI Agent`;
+      const description = `On-chain AI agent #${agent.memberNumber} on Solana. View reputation, feedback, and services.`;
+      const url = `https://sati.cascade.fyi/agent/${mint}`;
+
+      const html = `<!doctype html>
+<html lang="en"><head>
+<meta charset="UTF-8"/>
+<title>${title}</title>
+<meta name="description" content="${description}"/>
+<meta property="og:type" content="profile"/>
+<meta property="og:url" content="${url}"/>
+<meta property="og:title" content="${title}"/>
+<meta property="og:description" content="${description}"/>
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:site" content="@cascade_fyi"/>
+<meta name="twitter:title" content="${title}"/>
+<meta name="twitter:description" content="${description}"/>
+<meta http-equiv="refresh" content="0;url=${url}"/>
+</head><body>Redirecting to <a href="${url}">${title}</a></body></html>`;
+
+      return c.html(html);
+    } catch {
+      return next();
+    }
+  });
+
   // Health check
   app.get("/api/health", (c) => c.json({ ok: true, timestamp: Date.now() }));
 

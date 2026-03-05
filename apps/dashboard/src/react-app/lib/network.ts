@@ -19,7 +19,7 @@ export type SolanaChain = "solana:mainnet" | "solana:devnet" | "solana:testnet" 
 export type { Network };
 
 const STORAGE_KEY = "sati-network";
-const DEFAULT_CHAIN: SolanaChain = "solana:devnet";
+const DEFAULT_CHAIN: SolanaChain = "solana:mainnet";
 
 /**
  * Map from Wallet Standard chain to SDK network type

@@ -47,6 +47,7 @@ export default defineConfig({
           { text: 'Agent Marketplace', link: '/guides/agent-marketplace' },
           { text: 'x402 Payment Feedback', link: '/guides/x402-feedback' },
           { text: 'Register an MCP Agent', link: '/guides/mcp-agent' },
+          { text: 'Collecting Feedback', link: '/guides/collecting-feedback' },
           { text: 'Query Reputation', link: '/guides/query-reputation' },
           { text: 'Browser Wallet Flow', link: '/guides/browser-wallet' },
         ]
@@ -57,6 +58,7 @@ export default defineConfig({
           { text: 'Overview', link: '/reference/' },
           { text: 'sati-agent0-sdk', link: '/reference/sati-agent0-sdk' },
           { text: 'sati-sdk', link: '/reference/sati-sdk' },
+          { text: 'REST API', link: '/reference/rest-api' },
         ]
       },
       {

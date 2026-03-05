@@ -99,6 +99,8 @@ export interface SATIClientOptions {
   onWarning?: (warning: SatiWarning) => void;
   /** Transaction sending configuration */
   transactionConfig?: TransactionConfig;
+  /** Feedback cache TTL in milliseconds (default: 30000). Set to 0 to disable caching. */
+  feedbackCacheTtlMs?: number;
 }
 
 // ============ SAS DEPLOYMENT TYPES ============

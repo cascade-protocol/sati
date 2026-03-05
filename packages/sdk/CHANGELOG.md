@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-03-05
+
+### Added
+
+- **`searchAllFeedback()`** - search feedback across all deployed schemas (FeedbackV1 + FeedbackPublicV1), merging results
+- **`listAllFeedbacks()`** - async generator for bulk feedback pagination across all schemas
+- **`feedbackCacheTtlMs` option** - configurable feedback cache TTL on `SATIClientOptions` (default 30s, 0 to disable)
+
+### Changed
+
+- Removed `@coral-xyz/anchor` from peer dependencies (not needed by SDK consumers)
+- Extracted shared feedback search logic into `_searchFeedbackForSchema()` internal helper
+
 ## [0.12.0] - 2026-02-21
 
 ### Added
@@ -228,6 +241,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compressed attestation storage via Light Protocol
 - Basic querying via Photon RPC
 
+[0.13.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.12.0...@cascade-fyi/sati-sdk@0.13.0
 [0.12.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.11.0...@cascade-fyi/sati-sdk@0.12.0
 [0.11.0]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.10.1...@cascade-fyi/sati-sdk@0.11.0
 [0.10.1]: https://github.com/cascade-protocol/sati/compare/@cascade-fyi/sati-sdk@0.10.0...@cascade-fyi/sati-sdk@0.10.1
