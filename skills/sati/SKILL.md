@@ -1,6 +1,6 @@
 ---
 name: sati-sdk
-description: "Build with SATI (Solana Agent Trust Infrastructure) - on-chain agent identity, verifiable reputation, and blind feedback on Solana. Use when registering AI agents on-chain via Token-2022 NFTs, giving or searching feedback, querying agent reputation, building registration files (ERC-8004), encrypting attestation content, or integrating SATI into TypeScript/Node.js projects. Covers: CLI onboarding (create-sati-agent), agent registration, feedback (give/search/revoke), reputation summaries, agent search/discovery, validation attestations, EVM address linking, content encryption, and metadata uploading. Triggers on SATI, sati-sdk, create-sati-agent, agent registration solana, agent reputation, blind feedback, compressed attestation, Light Protocol attestation, ERC-8004 registration file, agent identity NFT, register agent CLI."
+description: "Build with SATI (Solana Agent Trust Infrastructure) - on-chain agent identity, verifiable reputation, and blind feedback on Solana. Use when registering AI agents on-chain via Token-2022 NFTs, giving or searching feedback, querying agent reputation, building registration files (ERC-8004), encrypting attestation content, or integrating SATI into TypeScript/Node.js projects. Covers: CLI onboarding (create-sati-agent), agent registration, feedback (give/search), reputation summaries, agent search/discovery, validation attestations, EVM address linking, content encryption, and metadata uploading. Triggers on SATI, sati-sdk, create-sati-agent, agent registration solana, agent reputation, blind feedback, compressed attestation, Light Protocol attestation, ERC-8004 registration file, agent identity NFT, register agent CLI."
 ---
 
 # SATI
@@ -130,6 +130,8 @@ Or link to your dashboard page:
 
 `@cascade-fyi/sati-sdk` is the primary SDK for all SATI integrations.
 
+> **Building a read-only integration?** For explorers, dashboards, and data ingestion, the [REST API](#rest-api) requires no wallet or Solana dependencies. Use the SDK only when you need to write on-chain (register agents, give feedback, publish scores).
+
 ```bash
 npm install @cascade-fyi/sati-sdk
 # Peer deps:
@@ -222,9 +224,13 @@ const { signature, attestationAddress } = await sati.giveFeedback({
 });
 ```
 
+> **x402 payment linking:** The `taskRef` field accepts a 32-byte reference to link feedback to a specific transaction. x402 integration details (converting tx signatures to 32-byte refs, querying feedback by payment) are under active development.
+
 #### Blind feedback (dual-signature)
 
 For proof-of-participation, use the **FeedbackV1** schema (DualSignature mode). The agent signs a blind commitment *before* knowing the outcome. Use the lower-level `createFeedback()` method with both `agentSignature` and `counterpartyMessage`. See the specification for the full blind feedback flow.
+
+> **Note:** For most integrations, `FeedbackPublicV1` (single-signer via `giveFeedback`) is sufficient. Blind feedback requires agent-side signing integration and is primarily for proof-of-participation use cases where you need cryptographic evidence that the agent participated in the interaction.
 
 #### Browser wallet flow (two-step)
 
@@ -327,12 +333,6 @@ function FeedbackButton({ agentMint }: { agentMint: string }) {
 
 > **Note:** `signMessage` is `undefined` if the connected wallet doesn't support message signing. Always check `signMessage` before calling it. `PreparedFeedbackData` contains multiple `Uint8Array` fields (`messageBytes`, `taskRef`, `dataHash`, `content`). If you need to serialize the entire object to JSON (e.g. for a stateless API), convert all `Uint8Array` fields with `bytesToHex()` and restore with `hexToBytes()`. The recommended pattern above avoids this by keeping `prepared` server-side.
 
-#### Revoke feedback
-
-```typescript
-await sati.revokeFeedback({ payer, attestationAddress: address("Attest...") });
-```
-
 ### 3. Search Feedback
 
 `searchFeedback` queries only the **FeedbackPublicV1** schema. Use `searchAllFeedback` to query both FeedbackPublicV1 and FeedbackV1 (blind) schemas.
@@ -362,6 +362,8 @@ To distinguish blind (FeedbackV1) from public (FeedbackPublicV1) in raw results,
 **Bulk ingestion (for indexers/scoring providers):**
 
 ```typescript
+import { parseFeedbackContent } from "@cascade-fyi/sati-sdk";
+
 // Auto-paginating async iterator across both schemas
 for await (const page of sati.listAllFeedbacks({ agentMint: address("Agent...") })) {
   for (const item of page.items) {
@@ -393,7 +395,7 @@ const summary = await sati.getReputationSummary(address("Agent..."));
 const filtered = await sati.getReputationSummary(address("Agent..."), "starred", "chat");
 ```
 
-Note: `getReputationSummary` queries both FeedbackPublicV1 and FeedbackV1 schemas. `count` only includes feedback entries that have a `value` field set. An agent with 10 feedback entries but none containing `value` will show `count: 0`. The REST API returns `summaryValue` (integer) instead of `averageValue` (float), and its `count` includes all entries regardless of `value`.
+Note: `getReputationSummary` queries both FeedbackPublicV1 and FeedbackV1 schemas. In the SDK, `count` only includes entries with a `value` field (entries without `value` are excluded from both count and average). The REST API differs: its `count` includes all feedback entries regardless of `value`, while `summaryValue` averages only entries that have `value` set. The REST API returns integer `summaryValue`/`summaryValueDecimals` instead of the SDK's float `averageValue`.
 
 ### 5. Agent Discovery
 
@@ -568,7 +570,11 @@ The dashboard at `sati.cascade.fyi` exposes a public REST API. See the [REST API
 - `GET /api/badge/:mint` - SVG reputation badge for README embedding
 - `POST /api/feedback` - submit feedback without a wallet (server acts as counterparty, rate limited per IP)
 
-The agents list supports `includeReputation=true` to get reputation inline per agent (slower but avoids N+1 requests). The REST API uses `clientAddress` for the reviewer field (the SDK calls this `counterparty`). Filter params like `endpointTypes` are case-sensitive (use `MCP`, not `mcp`).
+The agents list supports `includeReputation=true` to get reputation inline per agent (slower but avoids N+1 requests). Filter params like `endpointTypes` are case-sensitive (use `MCP`, not `mcp`).
+
+> **SDK ↔ REST API field mapping:** `counterparty` (SDK) = `clientAddress` (REST). `averageValue` (SDK, float) = `summaryValue`/`summaryValueDecimals` (REST, integer). Outcome: `Outcome.Positive` = `2`, `Outcome.Neutral` = `1`, `Outcome.Negative` = `0`. Use `getOutcomeLabel(outcome)` in SDK for display strings.
+
+> **Note:** EVM address links (from `linkEvmAddress`) are not queryable via REST API - they are stored as Anchor events only. Retrieving them requires a Solana transaction log indexer (Helius webhooks, Yellowstone gRPC).
 
 ### Configuration
 

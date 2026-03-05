@@ -300,7 +300,11 @@ Returns `{ count: number; averageValue: number }`.
 
 ### revokeFeedback
 
-Revoke (close) a feedback attestation. The payer must be the original reviewer.
+Close a feedback attestation. The payer must be the original reviewer.
+
+::: warning Not available for feedback schemas
+FeedbackPublicV1 and FeedbackV1 schemas have `closeable: false`. Calling this method on feedback attestations will throw `AttestationNotCloseable`. This method is only usable with custom schemas that allow closing. To close reputation scores, use `closeRegularAttestation` instead.
+:::
 
 ```typescript
 const result = await sati.revokeFeedback({
@@ -327,7 +331,7 @@ const results = await sati.searchAgents({
   active: true,
   endpointTypes: ["MCP"],
   limit: 25,
-  offset: 50n,
+  offset: 50,
   includeFeedbackStats: true,
 });
 
@@ -351,7 +355,7 @@ for (const agent of results) {
 | `active` | `boolean` | Filter by active status |
 | `endpointTypes` | `string[]` | Filter by endpoint types (e.g., `["MCP", "A2A"]`) |
 | `limit` | `number` | Max results |
-| `offset` | `bigint` | Offset for pagination (member number) |
+| `offset` | `number` | Offset for pagination |
 | `includeFeedbackStats` | `boolean` | Compute feedback stats per agent (slower) |
 
 #### AgentSearchResult
@@ -394,7 +398,7 @@ const result = await sati.registerAgent({
   additionalMetadata: [           // Optional key-value pairs
     { key: "version", value: "1.0" },
   ],
-  nonTransferable: true,          // Default: true (soulbound)
+  nonTransferable: false,         // Default: false. Set true for soulbound (non-transferable).
 });
 
 console.log(result.mint);         // Agent's token address (identity)
@@ -443,10 +447,11 @@ const arweaveUploader: MetadataUploader = {
 ### List Agents
 
 ```typescript
-const agents = await sati.listAllAgents();
+const { agents, totalAgents } = await sati.listAllAgents();
 for (const agent of agents) {
   console.log(`Agent ${agent.memberNumber}: ${agent.mint}`);
 }
+console.log(`Total: ${totalAgents}`);
 
 // By member number
 const agent = await sati.getAgentByMemberNumber(1n);
