@@ -10,7 +10,7 @@ pnpm add @cascade-fyi/sati-sdk
 
 **Peer dependencies:**
 ```bash
-pnpm add @solana/kit @solana-program/token-2022 @coral-xyz/anchor
+pnpm add @solana/kit @solana-program/token-2022
 ```
 
 ## Quick Start

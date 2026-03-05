@@ -40,6 +40,8 @@ const sati = new Sati({
 | `wsUrl` | `string` | No | Custom WebSocket URL for subscriptions |
 | `photonRpcUrl` | `string` | No | Photon RPC URL for Light Protocol queries (defaults to hosted proxy) |
 | `onWarning` | `(warning: SatiWarning) => void` | No | Non-fatal warning callback (parse errors, RPC failures) |
+| `feedbackCacheTtlMs` | `number` | No | Feedback cache TTL in ms (default 30000, 0 to disable) |
+| `transactionConfig` | `object` | No | `{ priorityFeeMicroLamports?, computeUnitLimit?, maxRetries? }` |
 
 ### Properties
 
@@ -51,6 +53,8 @@ const sati = new Sati({
 | `feedbackPublicSchema` | `Address \| undefined` | FeedbackPublic schema address |
 | `feedbackSchema` | `Address \| undefined` | Feedback schema address |
 | `validationSchema` | `Address \| undefined` | Validation schema address |
+| `reputationScoreSchema` | `Address \| undefined` | ReputationScoreV3 schema address |
+| `credential` | `Address \| undefined` | SATI credential address (needed for reputation scores) |
 | `lookupTable` | `Address \| undefined` | Address Lookup Table address |
 
 ---
@@ -122,7 +126,7 @@ const result = await builder.register({
 const result = await builder.register({
   payer: signer,
   uploader: createPinataUploader(process.env.PINATA_JWT!),
-  nonTransferable: true,  // soulbound (default)
+  nonTransferable: false, // default: false. Set true for soulbound.
 });
 
 console.log(result.mint);         // Agent mint address

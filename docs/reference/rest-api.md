@@ -11,7 +11,7 @@ All endpoints accept a `?network=mainnet|devnet` query parameter (defaults to ma
 ### List agents
 
 ```
-GET /api/agents?network=mainnet&limit=20&offset=0&order=newest&name=search&owner=ADDRESS&endpointTypes=MCP,A2A
+GET /api/agents?network=mainnet&limit=20&offset=0&order=newest&name=search&owner=ADDRESS&endpointTypes=MCP,A2A&includeReputation=true
 ```
 
 | Param | Type | Description |
@@ -22,7 +22,8 @@ GET /api/agents?network=mainnet&limit=20&offset=0&order=newest&name=search&owner
 | `order` | `newest` \| `oldest` | Sort order (default `newest`) |
 | `name` | string | Filter by name (case-insensitive substring). Searches all agents, not just the current page. |
 | `owner` | string | Filter by owner address |
-| `endpointTypes` | string | Comma-separated service types: `MCP`, `A2A`, `OASF`. Searches all agents. |
+| `endpointTypes` | string | Comma-separated service types: `MCP`, `A2A`, `OASF` (case-sensitive). Searches all agents. |
+| `includeReputation` | `true` | Include `reputation` object per agent (slower - extra RPC calls per agent) |
 
 **Response:**
 
@@ -114,6 +115,36 @@ GET /api/stats?network=mainnet
   "isImmutable": false
 }
 ```
+
+### Reputation scores (from providers)
+
+```
+GET /api/scores/:mint?network=mainnet
+```
+
+Returns ReputationScoreV3 attestations published by scoring providers for this agent.
+
+**Response:**
+
+```json
+{
+  "scores": [
+    {
+      "provider": "Provider...",
+      "agentMint": "Agent...",
+      "outcome": 2,
+      "content": {
+        "score": 85,
+        "methodology": "weighted_average",
+        "feedbackCount": 42
+      }
+    }
+  ],
+  "count": 1
+}
+```
+
+`content` is the parsed JSON from the scoring provider's attestation. Structure varies by provider but typically includes `score`, `methodology`, and `feedbackCount`.
 
 ### Reputation badge
 
@@ -239,3 +270,5 @@ Server acts as counterparty and pays transaction fees. Rate limited per IP.
 - `createdAt` is a Unix timestamp (seconds), approximate based on Solana slot times (~400ms/slot)
 - `schema` field indicates whether feedback is blind (`FeedbackV1`) or public (`FeedbackPublicV1`)
 - `compressedAddress` is a base58-encoded string, usable as a stable identifier for feedback entries
+- `clientAddress` in the REST API corresponds to `counterparty` in the SDK (the reviewer's wallet address)
+- `endpointTypes` filter is case-sensitive - use `MCP`, `A2A`, `OASF` (not lowercase)

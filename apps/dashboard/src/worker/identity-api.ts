@@ -26,6 +26,7 @@ import {
   SATI_PROGRAM_ADDRESS,
   SATI_CHAIN_IDS,
   type AgentIdentity,
+  parseReputationScoreContent,
 } from "@cascade-fyi/sati-sdk";
 import type { ServiceDefinition, TrustMechanism } from "@cascade-fyi/sati-sdk";
 import bs58 from "bs58";
@@ -263,6 +264,7 @@ export function createIdentityApi(env: Env) {
     const limit = Math.min(Math.max(limitParam, 1), 50);
     const offset = Math.max(offsetParam, 0);
 
+    const includeReputation = c.req.query("includeReputation") === "true";
     const endpointTypes = endpointTypesParam?.split(",").filter(Boolean) ?? [];
     const hasFilters = !!(nameFilter || endpointTypes.length > 0);
 
@@ -330,6 +332,45 @@ export function createIdentityApi(env: Env) {
 
       // Apply pagination to filtered results
       const paginated = hasFilters ? filtered.slice(offset, offset + limit) : filtered.slice(0, limit);
+
+      // Optionally compute reputation for each agent in the page
+      if (includeReputation) {
+        const networkConfig = getNetworkConfig(sati);
+        const feedbackSchemas = [networkConfig.feedbackSchema, networkConfig.feedbackPublicSchema].filter(Boolean);
+
+        await Promise.all(
+          paginated.map(async (agent) => {
+            let feedbackCount = 0;
+            let totalValue = 0;
+            let valueCount = 0;
+
+            for (const schema of feedbackSchemas) {
+              try {
+                const feedbacks = await sati.listFeedbacks({
+                  sasSchema: schema as Address,
+                  agentMint: agent.mint as Address,
+                });
+                for (const fb of feedbacks.items) {
+                  const parsed = parseFeedbackContent(fb.data.content, fb.data.contentType);
+                  feedbackCount++;
+                  if (parsed?.value !== undefined) {
+                    totalValue += parsed.value;
+                    valueCount++;
+                  }
+                }
+              } catch {
+                // Skip schema errors for individual agents
+              }
+            }
+
+            agent.reputation = {
+              count: feedbackCount,
+              summaryValue: valueCount > 0 ? Math.round(totalValue / valueCount) : 0,
+              summaryValueDecimals: 0,
+            };
+          }),
+        );
+      }
 
       return c.json({ agents: paginated, count: paginated.length, totalAgents: Number(stats.totalAgents) });
     } catch (error) {
@@ -683,6 +724,46 @@ export function createIdentityApi(env: Env) {
     } catch (error) {
       console.error("[stats] ERROR:", error);
       return c.json({ error: error instanceof Error ? error.message : "Failed to get stats" }, 500);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/scores/:mint - List reputation scores from scoring providers
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/scores/:mint", async (c) => {
+    const mint = c.req.param("mint");
+    const network = getNetwork(c.req.query("network"));
+
+    if (!isAddress(mint)) {
+      return c.json({ error: "Invalid mint address" }, 400);
+    }
+
+    try {
+      const sati = createSatiClient(network, env);
+      const networkConfig = getNetworkConfig(sati);
+
+      if (!networkConfig.reputationScoreSchema) {
+        return c.json({ error: "ReputationScore schema not configured for network" }, 500);
+      }
+
+      const scores = await sati.listReputationScores(mint as Address, networkConfig.reputationScoreSchema as Address);
+
+      return c.json({
+        scores: scores.map((s) => {
+          const parsed = parseReputationScoreContent(s.content, s.contentType);
+          return {
+            provider: s.counterparty,
+            agentMint: s.agentMint,
+            outcome: s.outcome,
+            content: parsed,
+          };
+        }),
+        count: scores.length,
+      });
+    } catch (error) {
+      console.error("[scores] ERROR:", error);
+      return c.json({ error: error instanceof Error ? error.message : "Failed to list scores" }, 500);
     }
   });
 

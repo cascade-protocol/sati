@@ -302,7 +302,9 @@ for await (const page of sati.listAllFeedbacks({ agentMint: address("Agent...") 
   for (const item of page.items) {
     // item.data: { taskRef, agentMint, counterparty, dataHash, outcome, contentType, content }
     // item.raw.slotCreated (bigint) for on-chain slot
-    // item.address is Uint8Array - decode with getAddressDecoder().read(item.address, 0)
+    // item.address is Uint8Array - decode with getAddressDecoder() from @solana/kit:
+    // import { getAddressDecoder } from "@solana/kit";
+    // const [address] = getAddressDecoder().read(item.address, 0);
     const parsed = parseFeedbackContent(item.data.content, item.data.contentType);
     // parsed: { value, valueDecimals, tag1, tag2, m (message), endpoint, reviewer, feedbackURI, feedbackHash }
   }
@@ -313,6 +315,8 @@ for await (const page of sati.listAllFeedbacks()) { /* ... */ }
 ```
 
 Note: `searchFeedback`/`searchAllFeedback` return `ParsedFeedback[]` (fully parsed). `listAllFeedbacks` returns raw `ParsedAttestation` pages where content is still bytes - use `parseFeedbackContent(item.data.content, item.data.contentType)` to extract fields. `createdAt` timestamps in `ParsedFeedback` are approximate - derived from Solana slot numbers using ~400ms/slot estimate.
+
+**Incremental sync (scoring providers):** There is no `sinceSlot` filter - Photon RPC does not support slot-range queries on compressed accounts. For incremental updates, track `item.raw.slotCreated` locally and skip items below your last-processed slot on each full fetch. At current volumes this is efficient; for higher scale, use a Solana transaction log indexer (Helius webhooks, Yellowstone gRPC) to stream new attestation events.
 
 ### 4. Reputation Summary
 
@@ -487,7 +491,7 @@ const score = await sati.getReputationScore(
 
 ### REST API
 
-The dashboard at `sati.cascade.fyi` exposes a public REST API. See `docs/reference/rest-api.md` for full endpoint documentation. Key endpoints:
+The dashboard at `sati.cascade.fyi` exposes a public REST API. See the [REST API reference](https://github.com/cascade-protocol/sati/blob/main/docs/reference/rest-api.md) for full endpoint documentation. Key endpoints:
 
 - `GET /api/agents` - list/search agents (supports `name`, `owner`, `endpointTypes`, `order`, pagination)
 - `GET /api/agents/:mint` - single agent with reputation summary
@@ -495,7 +499,11 @@ The dashboard at `sati.cascade.fyi` exposes a public REST API. See `docs/referen
 - `GET /api/feedback` - global feedback across all agents (paginated)
 - `GET /api/reputation/:mint` - reputation summary with tag/reviewer filters
 - `GET /api/stats` - registry statistics (`totalAgents`, `groupMint`, etc.)
+- `GET /api/scores/:mint` - reputation scores from scoring providers (ReputationScoreV3)
 - `GET /api/badge/:mint` - SVG reputation badge for README embedding
+- `POST /api/feedback` - submit feedback without a wallet (server acts as counterparty, rate limited per IP)
+
+The agents list supports `includeReputation=true` to get reputation inline per agent (slower but avoids N+1 requests). The REST API uses `clientAddress` for the reviewer field (the SDK calls this `counterparty`). Filter params like `endpointTypes` are case-sensitive (use `MCP`, not `mcp`).
 
 ### Configuration
 
@@ -551,6 +559,7 @@ try {
 | Agent registration | ~0.003 SOL |
 | Agent transfer | ~0.0005 SOL |
 | Feedback attestation | ~0.00001 SOL (compressed) |
+| Reputation score (ReputationScoreV3) | ~0.002 SOL (regular SAS, not compressed) |
 | Devnet | Free (auto-funded faucet) |
 
 ## Common Issues
