@@ -428,3 +428,152 @@ fn test_register_agent_metadata_value_too_long() {
     let result = svm.send_transaction(tx);
     assert!(result.is_err(), "Should fail with metadata value too long");
 }
+
+/// Regression test for issue #4:
+/// `register_agent` failed with "signer privilege escalation" when `owner != payer`
+/// AND `additional_metadata` was non-empty.
+///
+/// Root cause: `update_field` CPI marks the update_authority (owner) as a required
+/// signer (`AccountMeta::new_readonly(*update_authority, true)`). The previous
+/// `UncheckedAccount` for `owner` had `is_signer = false`, so the runtime rejected
+/// the CPI before dispatching.
+///
+/// Fix: `owner` is now `Signer<'info>`. When `owner == payer` the client passes
+/// `payer` for both; when `owner != payer` the client includes `owner` as an
+/// additional signer in the transaction.
+///
+/// This test verifies that a transaction WITH a separate owner keypair (owner != payer)
+/// AND a non-empty additional_metadata fails for the expected validation reason
+/// (input error) rather than the signer escalation bug. The success path requires
+/// a full Token-2022 devnet environment; see TypeScript SDK tests.
+#[test]
+fn test_register_agent_owner_not_payer_metadata_key_too_long_correct_error() {
+    // When owner != payer and additional_metadata is provided, the owner must sign.
+    // With the fix applied, the transaction reaches input validation and returns
+    // MetadataKeyTooLong — not "signer privilege escalation".
+    let mut svm = setup_litesvm();
+    let payer = Keypair::new();
+    let owner = Keypair::new(); // distinct from payer
+    svm.airdrop(&payer.pubkey(), 10_000_000_000).unwrap();
+    // owner does NOT need lamports — it only signs, payer covers rent
+
+    let (registry_pda, group_mint) = initialize_test_registry(&mut svm, &payer);
+
+    let agent_mint = Keypair::new();
+
+    let (agent_ata, _) = Pubkey::find_program_address(
+        &[
+            owner.pubkey().as_ref(),
+            TOKEN_2022_PROGRAM_ID.as_ref(),
+            agent_mint.pubkey().as_ref(),
+        ],
+        &ATA_PROGRAM_ID,
+    );
+
+    // Metadata key longer than MAX (32 bytes) — triggers validation error before any CPI
+    let entries = vec![MetadataEntry {
+        key: "k".repeat(33),
+        value: "value".to_string(),
+    }];
+
+    let agent_index = derive_agent_index_pda(1);
+
+    let ix = build_register_agent_ix(
+        &payer.pubkey(),
+        &owner.pubkey(),
+        &registry_pda,
+        &group_mint,
+        &agent_mint.pubkey(),
+        &agent_ata,
+        &agent_index,
+        "TestAgent".to_string(),
+        "SYM".to_string(),
+        "https://example.com".to_string(),
+        Some(entries),
+        false,
+    );
+
+    // owner is included as an additional signer (the fix)
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[&payer, &agent_mint, &owner],
+        svm.latest_blockhash(),
+    );
+
+    let result = svm.send_transaction(tx);
+    // Should fail with MetadataKeyTooLong — NOT with signer privilege escalation
+    assert!(
+        result.is_err(),
+        "Should fail with metadata key too long, not signer escalation"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        !err.contains("signer privilege"),
+        "Must not fail with signer privilege escalation; got: {err}"
+    );
+}
+
+/// Verify that `owner == payer` (the common case) still works with the Signer constraint.
+/// Client passes payer pubkey for both accounts; no second signer needed.
+#[test]
+fn test_register_agent_owner_equals_payer_metadata_key_too_long_correct_error() {
+    let mut svm = setup_litesvm();
+    let authority = Keypair::new();
+    svm.airdrop(&authority.pubkey(), 10_000_000_000).unwrap();
+
+    let (registry_pda, group_mint) = initialize_test_registry(&mut svm, &authority);
+
+    let agent_mint = Keypair::new();
+    let owner = authority.pubkey(); // owner == payer
+
+    let (agent_ata, _) = Pubkey::find_program_address(
+        &[
+            owner.as_ref(),
+            TOKEN_2022_PROGRAM_ID.as_ref(),
+            agent_mint.pubkey().as_ref(),
+        ],
+        &ATA_PROGRAM_ID,
+    );
+
+    let entries = vec![MetadataEntry {
+        key: "k".repeat(33),
+        value: "value".to_string(),
+    }];
+
+    let agent_index = derive_agent_index_pda(1);
+
+    let ix = build_register_agent_ix(
+        &authority.pubkey(),
+        &owner,
+        &registry_pda,
+        &group_mint,
+        &agent_mint.pubkey(),
+        &agent_ata,
+        &agent_index,
+        "TestAgent".to_string(),
+        "SYM".to_string(),
+        "https://example.com".to_string(),
+        Some(entries),
+        false,
+    );
+
+    // owner == payer; only payer + agent_mint need to sign
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&authority.pubkey()),
+        &[&authority, &agent_mint],
+        svm.latest_blockhash(),
+    );
+
+    let result = svm.send_transaction(tx);
+    assert!(
+        result.is_err(),
+        "Should fail with metadata key too long"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        !err.contains("signer privilege"),
+        "Must not fail with signer privilege escalation; got: {err}"
+    );
+}

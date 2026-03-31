@@ -25,9 +25,14 @@ pub struct RegisterAgent<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Agent NFT owner (default: payer)
-    /// CHECK: Can be any valid pubkey
-    pub owner: UncheckedAccount<'info>,
+    /// Agent NFT owner (default: payer).
+    /// Must sign when `owner != payer` so that `update_field` CPIs for
+    /// `additional_metadata` entries are authorised. SPL `update_field`
+    /// marks the update_authority (owner) as a required signer; passing an
+    /// `UncheckedAccount` whose `is_signer` flag is false causes the runtime
+    /// to reject the transaction with "signer privilege escalation".
+    /// When `owner == payer` the client simply passes `payer` for both accounts.
+    pub owner: Signer<'info>,
 
     /// Registry configuration
     #[account(
