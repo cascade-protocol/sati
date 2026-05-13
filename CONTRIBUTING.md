@@ -124,6 +124,40 @@ packages/sdk/
 - **Documentation:** Update docs for API changes
 - **Small commits:** Keep commits focused and atomic
 
+## AI-Assisted Contributions
+
+This repo accepts AI-assisted PRs. It does not accept drive-by PRs where the human submitter has not read the issue or run the code.
+
+If you open a PR, you are the author. "An agent wrote it" is not a defense for any of the rules below.
+
+### Before opening a PR
+
+- Read the linked issue end-to-end, including any options the maintainer enumerated. If the issue recommends an approach, implement that one or argue against it in the PR description before implementing something else.
+- Run the full validation checklist in `.claude/CLAUDE.md` locally. PRs that have not been built and tested locally will be closed.
+- If a fix touches the on-chain program, it almost certainly touches the SDK in `packages/sdk/` and/or the dashboard in `apps/dashboard/`. Ship the matching changes in the same PR.
+- Tests must actually exercise the code path being fixed. A test that fails on input validation before reaching the patched line is not a regression test.
+
+### PR description
+
+- State the root cause in one paragraph, citing file and line.
+- State which option from the issue you implemented and why.
+- List what you tested locally and what you did not. "Devnet success path not tested" is a fine answer; silence is not.
+
+### What gets closed without review
+
+- PRs against issues you have not commented on.
+- PRs that pick the option the issue explicitly argued against, with no counter-argument.
+- PRs whose tests pass on the buggy code as well as the fixed code.
+- PRs that change on-chain account structs without regenerating the SDK.
+- Force-pushes over a PR that is already in review.
+
+### What gets a fast merge
+
+- A short PR description that matches the diff.
+- A failing test that turns green with the fix and would not have turned green on the buggy code.
+- Matching SDK + dashboard changes when the program ABI moves.
+- Clean `pnpm -w check` and `cargo clippy -p sati --all-targets`.
+
 ## Testing
 
 ```bash
